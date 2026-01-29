@@ -1,0 +1,8 @@
+Django>=5.0,<6.0
+google-generativeai
+pydantic>=2.5
+structlog
+python-dotenv
+rich
+pytest
+requests
