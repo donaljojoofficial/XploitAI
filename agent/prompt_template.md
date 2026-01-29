@@ -14,3 +14,8 @@ Instructions:
 1. Explain your approach first.
 2. Generate code for ONE file only.
 3. Follow all rules without exception.
+
+Final Output Requirements:
+- Summary of changes (3–6 bullet points)
+- Files affected
+- Suggested commit message (do NOT commit)

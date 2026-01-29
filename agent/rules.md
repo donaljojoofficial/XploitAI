@@ -24,3 +24,28 @@ MANDATORY RULES:
 14. Explain your approach BEFORE generating code.
 
 FAILURE TO FOLLOW THESE RULES = INVALID OUTPUT.
+
+POST-TASK REPORTING (MANDATORY):
+
+After completing any TODO, the agent MUST:
+
+1. Provide a concise summary of what was implemented.
+2. Explicitly list files created or modified.
+3. Propose a Git commit message following Conventional Commits format.
+4. NOT perform git operations.
+5. Wait for human approval before any commit.
+
+If the agent does not provide all three items, the output is incomplete.
+
+--------------------------------
+FAST MODE OVERRIDE (OPTIONAL)
+--------------------------------
+
+The agent may modify multiple files in ONE task IF AND ONLY IF:
+- All files are within the same module or directory
+- All files serve a single responsibility
+- The agent explicitly lists all files modified
+- The agent provides a summary and a commit message
+
+FAST MODE must be explicitly requested by the user.
+If not requested, strict mode applies.
