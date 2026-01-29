@@ -14,6 +14,7 @@ Instructions:
 1. Explain your approach first.
 2. Generate code for ONE file only.
 3. Follow all rules without exception.
+4. you can use FAST MODE 
 
 Final Output Requirements:
 - Summary of changes (3–6 bullet points)
