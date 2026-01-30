@@ -1,6 +1,10 @@
 ## Bug Fixes
 - 2026-01-30: Dashboard routing showed Django welcome page at "/" due to missing app registration and URL inclusion. Fixed by adding 'dashboard' to INSTALLED_APPS, creating dashboard.urls with a root path, and including it at the project root URL.
 - 2026-01-30: Django RuntimeError indicated core.models not in INSTALLED_APPS, causing startup failure when dashboard imported models. Fixed by adding minimal core app config (apps.py, __init__.py) and registering 'core' in INSTALLED_APPS.
+- 2026-01-30: Runtime error "no such table: core_attackstate" due to missing migrations for core app. FIXED by creating and applying initial migrations for 'core'.
+
+## Infrastructure
+- 2026-01-30: Added data migration to seed a deterministic initial AttackState for a fresh database. FIXED by introducing core/migrations/0002_seed_initial_attack_state.py.
 
 DEVELOPMENT TODO LIST — XPLOITAI (PHASE 1)
 
