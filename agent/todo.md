@@ -1,7 +1,7 @@
 DEVELOPMENT TODO LIST — XPLOITAI (PHASE 1)
 
-TODO 1: Define core AttackState data model
-TODO 2: Define Action and ActionResult models
+TODO 1: Define core AttackState data model - [completed]
+TODO 2: Define Action and ActionResult models - [completed]
 TODO 3: Implement Action Registry with predefined actions
 TODO 4: Implement Policy validation engine
 TODO 5: Implement Simulation Executor
