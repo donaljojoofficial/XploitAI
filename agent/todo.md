@@ -7,8 +7,8 @@ TODO 4: Implement Policy validation engine - [completed]
 TODO 5: Implement Simulation Executor - [completed]
 TODO 6: Implement AI Decision Engine interface - [completed]
 TODO 7: Implement Orchestration loop (state machine) - [completed]
-TODO 8: Implement attack timeline model
-TODO 9: Build basic dashboard views
+TODO 8: Implement attack timeline model - [completed]
+TODO 9: Build basic dashboard views - [completed]
 
 RULE:
 Request exactly ONE TODO at a time.
