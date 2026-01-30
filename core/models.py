@@ -185,3 +185,86 @@ class ActionResult(models.Model):
     def __str__(self):
         status = "Success" if self.success else "Failure"
         return f"Result for '{self.action.name}' ({status})"
+
+
+# -----------------------
+# Attack Timeline (Phase 1)
+# -----------------------
+
+TIMELINE_EVENT_TYPES = [
+    ("DECISION", "Decision Proposed"),
+    ("POLICY_APPROVED", "Policy Approved"),
+    ("POLICY_REJECTED", "Policy Rejected"),
+    ("EXECUTION", "Execution"),
+    ("STATE_UPDATE", "State Update"),
+    ("PHASE_TRANSITION", "Phase Transition"),
+]
+
+
+class AttackTimelineEvent(models.Model):
+    """
+    Represents a single event in the attack timeline for visualization.
+
+    The timeline is an append-only log of notable events (decisions, policy
+    outcomes, execution results, and state/phase changes). It enables the
+    dashboard to render a chronological view of the simulated attack without
+    requiring complex joins at read time.
+    """
+
+    attack_state = models.ForeignKey(
+        AttackState,
+        on_delete=models.CASCADE,
+        related_name="timeline",
+        help_text="The attack simulation this timeline event belongs to.",
+    )
+
+    # Optional linkage to a specific action (if applicable)
+    action = models.ForeignKey(
+        Action,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="timeline_events",
+        help_text="Related action if this event is tied to a specific action.",
+    )
+
+    event_type = models.CharField(
+        max_length=32,
+        choices=TIMELINE_EVENT_TYPES,
+        help_text="The type/category of this timeline event.",
+    )
+
+    phase = models.CharField(
+        max_length=50,
+        choices=KILL_CHAIN_PHASES,
+        help_text="The kill-chain phase at the time of the event.",
+    )
+
+    message = models.TextField(
+        help_text="A concise, human-readable description of the event.",
+    )
+
+    data = models.JSONField(
+        default=dict,
+        help_text="Optional structured data relevant to this event.",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp when the event was recorded.",
+    )
+
+    class Meta:
+        verbose_name = "Attack Timeline Event"
+        verbose_name_plural = "Attack Timeline Events"
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["attack_state", "created_at"]),
+            models.Index(fields=["event_type"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"[{self.get_event_type_display()}] "
+            f"{self.attack_state.name} @ {self.created_at:%Y-%m-%d %H:%M:%S}"
+        )
