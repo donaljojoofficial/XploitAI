@@ -21,7 +21,7 @@ Usage contract (Phase 1):
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 from django.db import transaction
 
@@ -126,7 +126,7 @@ class SimulationExecutor:
             parts.append(
                 f"Transitioned phase to {expected.phase_transition}."
             )
-        return " " .join(parts)
+        return " ".join(parts)
 
 
 __all__ = ["SimulationExecutor"]
