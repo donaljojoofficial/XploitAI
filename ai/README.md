@@ -14,6 +14,7 @@ Module Overview
 - __init__.py: Declares the ai package and exports stable type aliases for external imports.
 - decision_engine.py: Placeholder entry point interface for AI decision evaluation.
 - state_adapter.py: Adapters that transform Core AttackState and related domain objects into AI-readable inputs.
+- engine.py: Concrete implementation of the decision engine (e.g., rule-based).
 - memory.py: Interfaces for agent memory, storage of prior actions and outcomes.
 - schemas.py: Typed data structures for inputs/outputs exchanged between AI components.
 
