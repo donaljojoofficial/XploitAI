@@ -129,6 +129,24 @@ class Decision:
 
 
 @dataclass(frozen=True)
+class PlanStep:
+    """A single step within a multi-step plan."""
+
+    step_number: int
+    action_type: str
+    parameters: Mapping[str, Any]
+    rationale: str
+
+
+@dataclass(frozen=True)
+class Plan:
+    """An ordered list of recommended actions."""
+
+    steps: List[PlanStep]
+    rationale: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class MemoryRecord:
     """Record of a past decision and outcome for memory storage."""
 

@@ -1,72 +1,77 @@
 """
 Concrete implementation of the AI Decision Engine.
+
+Responsibilities:
+- Provide deterministic, rule-based decision making.
+- Support both single-step evaluation and multi-step planning.
+- Adhere to the schemas defined in ai/schemas.py.
 """
 from __future__ import annotations
 
-import logging
-from typing import Any, Mapping, Optional
+from typing import List, Optional
 
-from actions import predefined
-from .schemas import Decision, DecisionRequest
-
-logger = logging.getLogger(__name__)
+from .schemas import Decision, DecisionRequest, Plan, PlanStep
 
 
 class RuleBasedDecisionEngine:
     """
-    A simple, deterministic, rule-based AI decision engine for Phase 1.
-
-    This engine uses a series of heuristics based on the current attack phase
-    to recommend the next action. It is designed to be safe, predictable, and
-    conservative, selecting actions only from the globally available action registry.
-
-    This class is a concrete implementation of the DecisionEngine protocol.
+    A deterministic, rule-based decision engine for Phase 1 simulation.
+    
+    This engine does not use external LLMs. It uses static heuristics to
+    recommend actions based on the current phase of the attack lifecycle.
     """
 
-    def evaluate(
-        self, request: DecisionRequest, context: Optional[Mapping[str, Any]] = None
-    ) -> Decision:
+    def evaluate(self, request: DecisionRequest) -> Decision:
         """
-        Evaluates the current state and recommends a single action based on
-        pre-defined rules for the current attack phase.
+        Returns a single decision based on the current state.
+        
+        For backward compatibility and single-step orchestration, this method
+        generates a plan and returns the first actionable step.
+        """
+        # Generate a short plan
+        plan = self.propose_plan(request, max_steps=1)
+        
+        if not plan.steps:
+            return Decision(
+                action_type="wait",
+                parameters={},
+                rationale="No valid actions available for the current state."
+            )
+
+        first_step = plan.steps[0]
+        return Decision(
+            action_type=first_step.action_type,
+            parameters=first_step.parameters,
+            rationale=first_step.rationale
+        )
+
+    def propose_plan(self, request: DecisionRequest, max_steps: int = 3) -> Plan:
+        """
+        Generates a multi-step plan based on the current phase.
         """
         phase = request.decision_input.phase
-        past_action_types = {
-            action.action_type for action in request.decision_input.past_actions
-        }
-        known_actions = predefined.list_actions()
+        steps: List[PlanStep] = []
+        rationale = f"Standard operating procedure for {phase} phase."
 
-        logger.info(
-            "Evaluating decision for phase '%s' with past actions: %s",
-            phase,
-            past_action_types,
-        )
+        # Deterministic logic based on phase
+        if phase == "recon":
+            steps = [
+                PlanStep(1, "scan_network", {"target": "192.168.1.0/24"}, "Discover active hosts."),
+                PlanStep(2, "enumerate_services", {"target": "192.168.1.10"}, "Identify running services."),
+                PlanStep(3, "vulnerability_scan", {"target": "192.168.1.10"}, "Check for known CVEs.")
+            ]
+        elif phase == "exploit":
+            steps = [
+                PlanStep(1, "attempt_exploit", {"cve": "CVE-2023-1234"}, "Attempt to exploit identified vulnerability."),
+                PlanStep(2, "verify_access", {}, "Check if exploit was successful.")
+            ]
+        elif phase == "post_exploit":
+            steps = [
+                PlanStep(1, "dump_hashes", {}, "Extract credentials."),
+                PlanStep(2, "persistence", {"method": "cron"}, "Establish persistence.")
+            ]
 
-        # --- Phase-based Decision Logic ---
-
-        if phase == "RECONNAISSANCE":
-            # Use the correct action 'PassiveRecon' from the action registry.
-            if "PassiveRecon" in known_actions and "PassiveRecon" not in past_action_types:
-                logger.debug("Rule matched: Proposing 'PassiveRecon' action.")
-                return Decision(
-                    action_type="PassiveRecon",
-                    # Per actions/predefined.py, PassiveRecon requires 'target_domain'.
-                    # The DecisionInput schema does not yet provide this, so a
-                    # placeholder is used for this initial implementation.
-                    parameters={"target_domain": "example.com"},
-                    rationale="Initial reconnaissance phase. Starting with passive reconnaissance.",
-                )
-
-        # --- Fallback Action ---
-        # If no specific rule matches, we cannot make a decision. The 'wait'
-        # action is not in the registry, so we default to a safe 'no_op'.
-        logger.warning(
-            "Could not determine a valid action. No rules matched for phase '%s'.", phase
-        )
-        # This action will likely be rejected by the policy engine, which is the
-        # desired safe behavior.
-        return Decision(
-            action_type="no_op",
-            parameters={},
-            rationale="CRITICAL: No decision rule matched for the current state. The system cannot proceed.",
-        )
+        # Truncate to max_steps
+        steps = steps[:max_steps]
+        
+        return Plan(steps=steps, rationale=rationale)
