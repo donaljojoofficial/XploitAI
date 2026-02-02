@@ -49,3 +49,9 @@ The agent may modify multiple files in ONE task IF AND ONLY IF:
 
 FAST MODE must be explicitly requested by the user.
 If not requested, strict mode applies.
+
+SCOPE CLARIFICATION:
+
+This /agent folder governs AI coding assistants (Gemini, Codex, Qodo).
+It does NOT define runtime AI behavior of the XploitAI system.
+Runtime AI logic must NOT be implemented based on instructions here.

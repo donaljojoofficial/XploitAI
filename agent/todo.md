@@ -23,3 +23,23 @@ Request exactly ONE TODO at a time.
 
 Correct usage:
 > Complete TODO 1
+
+## AI Runtime Implementation
+
+TODO AI-1: Define AI runtime module structure
+Status: COMPLETED
+
+TODO AI-2: Define AI decision input schema (state representation)
+Status: PENDING
+
+TODO AI-3: Implement AI decision engine (single-step recommendation)
+Status: PENDING
+
+TODO AI-4: Integrate AI decision output with policy engine
+Status: PENDING
+
+TODO AI-5: Add logging and audit trail for AI decisions
+Status: PENDING
+
+TODO AI-6: Extend AI to multi-step planning (optional)
+Status: PENDING
