@@ -1,77 +1,93 @@
 """
-Concrete implementation of the AI Decision Engine.
-
-Responsibilities:
-- Provide deterministic, rule-based decision making.
-- Support both single-step evaluation and multi-step planning.
-- Adhere to the schemas defined in ai/schemas.py.
+AI Decision Engine implementation.
 """
-from __future__ import annotations
+from typing import List, Tuple
 
-from typing import List, Optional
-
-from .schemas import Decision, DecisionRequest, Plan, PlanStep
+from .schemas import DecisionRequest, Decision, DecisionInput
+from .memory import AgentMemory
 
 
 class RuleBasedDecisionEngine:
     """
-    A deterministic, rule-based decision engine for Phase 1 simulation.
-    
-    This engine does not use external LLMs. It uses static heuristics to
-    recommend actions based on the current phase of the attack lifecycle.
+    Deterministic, rule-based decision engine with memory integration.
     """
 
-    def evaluate(self, request: DecisionRequest) -> Decision:
-        """
-        Returns a single decision based on the current state.
+    def __init__(self, memory: AgentMemory) -> None:
+        self.memory = memory
+
+    def decide(self, request: DecisionRequest) -> Decision:
+        """Evaluate state and memory to propose the next action."""
+        input_data = request.decision_input
         
-        For backward compatibility and single-step orchestration, this method
-        generates a plan and returns the first actionable step.
-        """
-        # Generate a short plan
-        plan = self.propose_plan(request, max_steps=1)
+        # 1. Generate Candidates
+        candidates = self._generate_candidates(input_data)
         
-        if not plan.steps:
+        # 2. Evaluate with Memory
+        best_action = None
+        best_score = -1.0
+        best_rationale = "No valid action found."
+
+        for action in candidates:
+            score, rationale = self._evaluate_action(action)
+            
+            if score > best_score:
+                best_score = score
+                best_action = action
+                best_rationale = rationale
+
+        # 3. Return Decision
+        if best_action:
             return Decision(
-                action_type="wait",
-                parameters={},
-                rationale="No valid actions available for the current state."
+                action_type=best_action["type"],
+                parameters=best_action["params"],
+                rationale=best_rationale
             )
 
-        first_step = plan.steps[0]
         return Decision(
-            action_type=first_step.action_type,
-            parameters=first_step.parameters,
-            rationale=first_step.rationale
+            action_type="wait",
+            parameters={"duration": 5},
+            rationale="No suitable actions found; waiting."
         )
 
-    def propose_plan(self, request: DecisionRequest, max_steps: int = 3) -> Plan:
-        """
-        Generates a multi-step plan based on the current phase.
-        """
-        phase = request.decision_input.phase
-        steps: List[PlanStep] = []
-        rationale = f"Standard operating procedure for {phase} phase."
-
-        # Deterministic logic based on phase
-        if phase == "recon":
-            steps = [
-                PlanStep(1, "scan_network", {"target": "192.168.1.0/24"}, "Discover active hosts."),
-                PlanStep(2, "enumerate_services", {"target": "192.168.1.10"}, "Identify running services."),
-                PlanStep(3, "vulnerability_scan", {"target": "192.168.1.10"}, "Check for known CVEs.")
-            ]
-        elif phase == "exploit":
-            steps = [
-                PlanStep(1, "attempt_exploit", {"cve": "CVE-2023-1234"}, "Attempt to exploit identified vulnerability."),
-                PlanStep(2, "verify_access", {}, "Check if exploit was successful.")
-            ]
-        elif phase == "post_exploit":
-            steps = [
-                PlanStep(1, "dump_hashes", {}, "Extract credentials."),
-                PlanStep(2, "persistence", {"method": "cron"}, "Establish persistence.")
-            ]
-
-        # Truncate to max_steps
-        steps = steps[:max_steps]
+    def _generate_candidates(self, input_data: DecisionInput) -> List[dict]:
+        """Generate potential actions based on phase and known services."""
+        candidates = []
         
-        return Plan(steps=steps, rationale=rationale)
+        # Simple heuristic generation based on phase
+        if input_data.phase == "recon":
+            for service in input_data.known_services:
+                candidates.append({
+                    "type": "scan_service",
+                    "params": {"target": service.endpoint or service.name}
+                })
+        
+        elif input_data.phase == "exploit":
+            for service in input_data.known_services:
+                candidates.append({
+                    "type": "exploit_service",
+                    "params": {"target": service.endpoint or service.name}
+                })
+                
+        return candidates
+
+    def _evaluate_action(self, action: dict) -> Tuple[float, str]:
+        """Score an action based on memory history.
+        
+        Scoring:
+        - 1.0: Standard
+        - 1.2: Previously successful (preferred)
+        - 0.1: Repeated failures (deprioritized)
+        - 0.0: Repeated rejections (avoided)
+        """
+        stats = self.memory.analyze_history(action["type"], action["params"])
+        
+        if stats["rejections"] > 0:
+            return 0.0, f"Skipped {action['type']}: Rejected by policy {stats['rejections']} times."
+            
+        if stats["failures"] >= 3:
+             return 0.1, f"Deprioritized {action['type']}: Failed {stats['failures']} times."
+             
+        if stats["successes"] > 0:
+            return 1.2, f"Selected {action['type']}: Previously successful."
+            
+        return 1.0, f"Selected {action['type']}: Standard priority."

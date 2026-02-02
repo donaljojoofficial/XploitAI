@@ -13,7 +13,7 @@ Constraints
 from __future__ import annotations
 
 from collections import deque
-from typing import Protocol, Iterable, Optional, List
+from typing import Protocol, Iterable, Optional, List, Mapping, Any
 
 from .schemas import MemoryRecord
 
@@ -35,6 +35,10 @@ class AgentMemory(Protocol):
 
     def count_attempts(self, action_type: str) -> int:  # pragma: no cover - placeholder
         """Count how many times a specific action type has been attempted."""
+        ...
+
+    def analyze_history(self, action_type: str, parameters: Mapping[str, Any]) -> dict:  # pragma: no cover - placeholder
+        """Analyze history for a specific action and parameter set."""
         ...
 
 
@@ -67,3 +71,37 @@ class RuntimeAgentMemory:
     def count_attempts(self, action_type: str) -> int:
         """Count occurrences of an action type in the current memory."""
         return sum(1 for r in self._store if r.decision.action_type == action_type)
+
+    def analyze_history(self, action_type: str, parameters: Mapping[str, Any]) -> dict:
+        """Analyze history for a specific action and parameter set.
+
+        Returns:
+            dict: Stats including attempts, failures, rejections, and last reasons.
+        """
+        stats = {
+            "attempts": 0,
+            "failures": 0,
+            "rejections": 0,
+            "last_failure_reason": None,
+            "last_rejection_reason": None,
+            "successes": 0,
+        }
+
+        for record in self._store:
+            if record.decision.action_type == action_type:
+                # Check if requested parameters are a subset of the record's parameters
+                if all(record.decision.parameters.get(k) == v for k, v in parameters.items()):
+                    stats["attempts"] += 1
+
+                    if not record.policy_allowed:
+                        stats["rejections"] += 1
+                        stats["last_rejection_reason"] = record.policy_reason
+                    
+                    elif record.execution_success is False:
+                        stats["failures"] += 1
+                        stats["last_failure_reason"] = record.execution_output or "Unknown error"
+                    
+                    elif record.execution_success is True:
+                        stats["successes"] += 1
+        
+        return stats
