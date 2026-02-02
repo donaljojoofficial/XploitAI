@@ -24,7 +24,7 @@ Request exactly ONE TODO at a time.
 Correct usage:
 > Complete TODO 1
 
-## AI Runtime Implementation
+## AI Runtime Implementation (PHASE 2)
 
 TODO AI-1: Define AI runtime module structure
 Status: COMPLETED
@@ -43,3 +43,47 @@ Status: COMPLETED
 
 TODO AI-6: Extend AI to multi-step planning (optional)
 Status: COMPLETED
+
+
+## AI Runtime – Advanced (PHASE 3)
+
+TODO AI-7: Implement AI memory store for past decisions and outcomes
+Status: PENDING
+
+TODO AI-8: Integrate AI memory into decision and planning logic
+Status: PENDING
+
+TODO AI-9: Define LLM adapter interface for AI decision support
+Status: PENDING
+
+TODO AI-10: Implement Gemini/OpenAI adapter (one provider only)
+Status: PENDING
+
+TODO AI-11: Add fallback to rule-based decision engine
+Status: PENDING
+
+TODO AI-12: Define approval-required action categories
+Status: PENDING
+
+TODO AI-13: Implement approval gate before executor
+Status: PENDING
+
+TODO AI-14: Add approval decision logging
+Status: PENDING
+
+TODO UI-1: Display AI-generated plans in dashboard
+Status: PENDING
+
+TODO UI-2: Visualize plan execution state and policy outcomes
+Status: PENDING
+
+## Defender AI
+
+TODO DEF-1: Define defender AI observation schema
+Status: PENDING
+
+TODO DEF-2: Implement defender rule-based detection engine
+Status: PENDING
+
+TODO DEF-3: Integrate defender alerts into dashboard
+Status: PENDING
