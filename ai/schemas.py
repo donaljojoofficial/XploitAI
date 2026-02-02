@@ -152,7 +152,17 @@ class MemoryRecord:
 
     request: DecisionRequest
     decision: Decision
-    outcome: Optional[Mapping[str, Any]] = None
+    
+    # Policy Outcome
+    policy_allowed: bool
+    policy_reason: Optional[str] = None
+
+    # Execution Outcome (if policy allowed)
+    execution_success: Optional[bool] = None
+    execution_output: Optional[str] = None
+    
+    # Metadata
+    timestamp: Optional[str] = None
 
 
 # --- Integration Schemas ---
