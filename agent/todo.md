@@ -33,10 +33,10 @@ TODO AI-2: Define AI decision input schema (state representation)
 Status: COMPLETED
 
 TODO AI-3: Implement AI decision engine (single-step recommendation)
-Status: PENDING
+Status: COMPLETED
 
 TODO AI-4: Integrate AI decision output with policy engine
-Status: PENDING
+Status: COMPLETED
 
 TODO AI-5: Add logging and audit trail for AI decisions
 Status: PENDING

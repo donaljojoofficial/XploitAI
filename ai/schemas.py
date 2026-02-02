@@ -22,7 +22,9 @@ Why dataclasses?
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, List, Dict
+from typing import Any, Mapping, Optional, List, Dict, Protocol
+
+from actions.predefined import ExpectedPostconditions
 
 
 @dataclass(frozen=True)
@@ -133,3 +135,33 @@ class MemoryRecord:
     request: DecisionRequest
     decision: Decision
     outcome: Optional[Mapping[str, Any]] = None
+
+
+# --- Integration Schemas ---
+
+
+class PolicyDecisionLike(Protocol):
+    """A protocol for the structure returned by PolicyEngine.validate.
+
+    This avoids a direct dependency from the `ai` module to `policy.schemas`
+    while still allowing for type checking.
+    """
+
+    allowed: bool
+    reason: str
+    expected: Optional[ExpectedPostconditions]
+
+
+@dataclass(frozen=True)
+class ValidatedDecision:
+    """A composite object that holds an AI-generated decision and the result of
+    its validation by the policy engine.
+    """
+
+    ai_decision: Decision
+    policy_decision: PolicyDecisionLike
+
+    @property
+    def approved(self) -> bool:
+        """Convenience property to check if the action was approved."""
+        return self.policy_decision.allowed
