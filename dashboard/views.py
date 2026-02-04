@@ -15,6 +15,7 @@ Design:
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Iterable
 
@@ -53,6 +54,14 @@ def _format_event_data(data: Any) -> str:
     """Helper to format event data, specifically rendering AI plans."""
     if not data:
         return ""
+
+    # Robustness: Ensure data is a dict if it's a valid JSON string
+    # This handles cases where SQLite/Django might return raw JSON strings.
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     # Detect Plan structure: dict with 'steps' list
     if isinstance(data, dict) and "steps" in data and isinstance(data["steps"], list):
