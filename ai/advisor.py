@@ -86,6 +86,12 @@ class AIAdvisor:
             parameters=ai_decision.parameters,
         )
 
+        if policy_verdict.approval_required:
+            logger.info(
+                "AUDIT: Action '%s' requires approval. Pending human authorization.",
+                ai_decision.action_type,
+            )
+
         result = ValidatedDecision(
             ai_decision=ai_decision, policy_decision=policy_verdict
         )

@@ -66,10 +66,10 @@ TODO AI-12: Define approval-required action categories
 Status: COMPLETED
 
 TODO AI-13: Implement approval gate before executor
-Status: PENDING
+Status: COMPLETED
 
 TODO AI-14: Add approval decision logging
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-1: Display AI-generated plans in dashboard
 Status: PENDING

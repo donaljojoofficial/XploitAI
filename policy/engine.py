@@ -139,6 +139,13 @@ class PolicyEngine:
         # Step 6: Check for Human Approval
         approval_required = requires_human_approval(state.current_phase, name)
 
+        if approval_required:
+            logger.warning(
+                "APPROVAL GATE: Action '%s' in phase '%s' flagged for HUMAN APPROVAL.",
+                name,
+                state.current_phase,
+            )
+
         return PolicyDecision(
             True, "Approved", expected, approval_required=approval_required
         )
