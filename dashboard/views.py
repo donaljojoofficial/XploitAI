@@ -222,9 +222,10 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "<tr>"
             f"<td>{escape(a.name)}</td>"
             f"<td class='muted'>{escape(a.description or '')}</td>"
-            f"<td><code>{escape(a.status)}</code></td>"
             f"<td>{_status_badge(a.status)}</td>"
             f"<td><pre>{escape(str(a.parameters))}</pre></td>"
+            f"<td class='muted'>{escape(a.created_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
+            f"<td class='muted'>{escape(a.updated_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
             "</tr>"
         )
 
@@ -246,8 +247,8 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         f"<p>Current phase: <code>{escape(state.current_phase)}</code></p>"
         "<h2>Actions</h2>"
         "<table>"
-        "<thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Parameters</th></tr></thead>"
-        f"<tbody>{''.join(action_rows) if action_rows else '<tr><td colspan=4 class=muted>No actions.</td></tr>'}</tbody>"
+        "<thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Parameters</th><th>Created</th><th>Updated</th></tr></thead>"
+        f"<tbody>{''.join(action_rows) if action_rows else '<tr><td colspan=6 class=muted>No actions.</td></tr>'}</tbody>"
         "</table>"
         "<h2>Timeline</h2>"
         "<table>"
