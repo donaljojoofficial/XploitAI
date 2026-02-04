@@ -94,3 +94,5 @@ Status: COMPLETED
 TODO EXEC-1: Define ExecutionTask model for execution queue
 Status: COMPLETED
 
+TODO EXEC-2: Implement executor-facing API endpoints to fetch and report execution tasks.
+Status: PENDING
