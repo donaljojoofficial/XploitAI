@@ -60,10 +60,10 @@ TODO AI-10: Implement Gemini/OpenAI adapter (one provider only)
 Status: COMPLETED
 
 TODO AI-11: Add fallback to rule-based decision engine
-Status: PENDING
+Status: COMPLETED
 
 TODO AI-12: Define approval-required action categories
-Status: PENDING
+Status: COMPLETED
 
 TODO AI-13: Implement approval gate before executor
 Status: PENDING
