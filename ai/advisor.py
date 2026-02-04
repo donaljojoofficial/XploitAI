@@ -9,6 +9,7 @@ from typing import Optional
 from actions.predefined import AttackStateLike
 from policy.engine import PolicyEngine
 from .engine import RuleBasedDecisionEngine
+from .llm.base import BaseLLMAdapter
 from .schemas import DecisionRequest, ValidatedDecision
 
 logger = logging.getLogger(__name__)
@@ -29,30 +30,50 @@ class AIAdvisor:
         self,
         decision_engine: Optional[RuleBasedDecisionEngine] = None,
         policy_engine: Optional[PolicyEngine] = None,
+        llm_adapter: Optional[BaseLLMAdapter] = None,
     ) -> None:
         self.decision_engine = decision_engine or RuleBasedDecisionEngine()
         self.policy_engine = policy_engine or PolicyEngine()
+        self.llm_adapter = llm_adapter
         logger.info("AIAdvisor initialized.")
 
     def get_validated_decision(
         self, *, request: DecisionRequest, state: AttackStateLike
     ) -> ValidatedDecision:
         """
-        Generates and validates a single AI-recommended action.
+        Generates and validates a single AI-recommended action with fallback logic.
 
         This method orchestrates the flow:
-        1. Gets a decision from the AI engine based on the `DecisionRequest`.
-        2. Passes the proposed action to the policy engine for validation, using
+        1. Attempts to get a recommendation from the LLM adapter (if configured).
+        2. Falls back to the Rule-Based Decision Engine if the LLM is unavailable,
+           fails, or returns None.
+        3. Passes the proposed action to the policy engine for validation, using
            the authoritative `AttackStateLike` object.
-        3. Returns a composite object with both the AI's proposal and the
+        4. Returns a composite object with both the AI's proposal and the
            policy's verdict.
 
         Note: This method requires both `request` and `state` because the
         `StateAdapter` (which will derive `request` from `state`) is not yet
         fully implemented.
         """
-        logger.debug("Getting decision from AI engine.")
-        ai_decision = self.decision_engine.evaluate(request)
+        ai_decision = None
+
+        # 1. Try LLM Adapter (Advisory Layer)
+        if self.llm_adapter:
+            try:
+                logger.debug("Requesting recommendation from LLM adapter.")
+                # Assuming request is compatible with DecisionInput schema
+                ai_decision = self.llm_adapter.get_recommendation(request)  # type: ignore
+                if ai_decision:
+                    logger.info("Using LLM-generated recommendation.")
+            except Exception as e:
+                logger.warning(f"LLM adapter failed: {e}. Falling back to rules.")
+                ai_decision = None
+
+        # 2. Fallback to Rule-Based Engine
+        if not ai_decision:
+            logger.debug("Getting decision from Rule-Based AI engine.")
+            ai_decision = self.decision_engine.evaluate(request)
 
         logger.debug(
             "Validating AI decision for action '%s' with policy engine.",

@@ -54,10 +54,10 @@ TODO AI-8: Integrate AI memory into decision and planning logic
 Status: COMPLETED
 
 TODO AI-9: Define LLM adapter interface for AI decision support
-Status: PENDING
+Status: COMPLETED
 
 TODO AI-10: Implement Gemini/OpenAI adapter (one provider only)
-Status: PENDING
+Status: COMPLETED
 
 TODO AI-11: Add fallback to rule-based decision engine
 Status: PENDING
