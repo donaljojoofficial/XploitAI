@@ -79,7 +79,61 @@ def _format_event_data(data: Any) -> str:
             "</div>"
         )
 
+    # Detect Policy Decision (nested or flat)
+    policy = None
+    if isinstance(data, dict):
+        if "policy_decision" in data:
+            policy = data["policy_decision"]
+        elif "allowed" in data and "reason" in data:
+            policy = data
+
+    if policy:
+        allowed = policy.get("allowed")
+        reason = policy.get("reason", "No reason provided")
+        approval = policy.get("approval_required", False)
+
+        # Styles
+        color = "#198754" if allowed else "#dc3545"  # Green/Red
+        status_label = "ALLOWED" if allowed else "BLOCKED"
+
+        approval_badge = ""
+        if approval:
+            approval_badge = (
+                "<div style='margin-top:0.25rem; color:#fd7e14; font-weight:bold; font-size:0.9em;'>"
+                "⚠️ Approval Required"
+                "</div>"
+            )
+
+        return (
+            f"<div style='border-left: 3px solid {color}; padding-left: 0.5rem; margin: 0.2rem 0;'>"
+            f"<div style='color:{color}; font-weight:bold; font-size:0.9em;'>POLICY {status_label}</div>"
+            f"<div style='font-size:0.95em;'>{escape(str(reason))}</div>"
+            f"{approval_badge}"
+            f"</div>"
+        )
+
     return f"<pre>{escape(str(data))}</pre>"
+
+
+def _status_badge(status: str) -> str:
+    """Helper to render a colored badge for action status."""
+    s = str(status).upper()
+    bg = "#6c757d"  # Default gray
+    fg = "#fff"
+    if s == "COMPLETED":
+        bg = "#198754"  # Green
+    elif s == "FAILED":
+        bg = "#dc3545"  # Red
+    elif s == "RUNNING":
+        bg = "#0d6efd"  # Blue
+    elif s == "PENDING":
+        bg = "#ffc107"  # Yellow
+        fg = "#000"
+
+    return (
+        f"<span style='background-color:{bg}; color:{fg}; padding:0.2rem 0.4rem; "
+        f"border-radius:4px; font-size:0.85em; font-weight:bold;'>{escape(s)}</span>"
+    )
 
 
 def index(request: HttpRequest) -> HttpResponse:
@@ -129,6 +183,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
             f"<td>{escape(a.name)}</td>"
             f"<td class='muted'>{escape(a.description or '')}</td>"
             f"<td><code>{escape(a.status)}</code></td>"
+            f"<td>{_status_badge(a.status)}</td>"
             f"<td><pre>{escape(str(a.parameters))}</pre></td>"
             "</tr>"
         )
