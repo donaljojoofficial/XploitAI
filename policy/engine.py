@@ -27,6 +27,7 @@ from actions.predefined import (
     ExpectedPostconditions,
     get_action_definition,
 )
+from policy.approval import requires_human_approval
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class PolicyDecision:
     allowed: bool
     reason: str
     expected: Optional[ExpectedPostconditions] = None
+    approval_required: bool = False
 
 
 class PolicyEngine:
@@ -85,6 +87,7 @@ class PolicyEngine:
         3) Collect expected postconditions
         4) Enforce ordering rules across phases
         5) Enforce simple state prerequisites
+        6) Check approval requirements
         """
         # Step 1: Resolve definition
         definition = get_action_definition(name)
@@ -132,7 +135,13 @@ class PolicyEngine:
             state.current_phase,
             expected.phase_transition,
         )
-        return PolicyDecision(True, "Approved", expected)
+
+        # Step 6: Check for Human Approval
+        approval_required = requires_human_approval(state.current_phase, name)
+
+        return PolicyDecision(
+            True, "Approved", expected, approval_required=approval_required
+        )
 
     # -------------------
     # Internal helpers
