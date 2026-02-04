@@ -88,3 +88,9 @@ Status: COMPLETED
 
 TODO DEF-3: Integrate defender alerts into dashboard
 Status: COMPLETED
+
+## PHASE 4
+
+TODO EXEC-1: Define ExecutionTask model for execution queue
+Status: COMPLETED
+

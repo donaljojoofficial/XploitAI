@@ -268,3 +268,78 @@ class AttackTimelineEvent(models.Model):
             f"[{self.get_event_type_display()}] "
             f"{self.attack_state.name} @ {self.created_at:%Y-%m-%d %H:%M:%S}"
         )
+
+
+# -----------------------
+# Execution Task Queue (Phase 2 Bridge)
+# -----------------------
+
+EXECUTION_TASK_STATUS_CHOICES = [
+    ("PENDING", "Pending"),
+    ("RUNNING", "Running"),
+    ("COMPLETED", "Completed"),
+    ("FAILED", "Failed"),
+]
+
+
+class ExecutionTask(models.Model):
+    """
+    Represents a single, approved action queued for execution.
+
+    This model acts as a durable, auditable bridge between the policy/approval
+    layers and the execution layer. It represents the *intent* to execute an
+    action, not the execution logic itself. An external executor process will
+    poll for PENDING tasks and perform them.
+
+    Safety:
+    - This model contains no command strings or direct execution logic.
+    - The 'parameters' field must be strictly validated by the executor.
+    """
+
+    action_name = models.CharField(
+        max_length=255,
+        help_text="The registered name of the action to execute (e.g., 'NmapScan').",
+    )
+
+    parameters = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Validated parameters for the action. To be used with caution by the executor.",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=EXECUTION_TASK_STATUS_CHOICES,
+        default="PENDING",
+        db_index=True,
+        help_text="The current execution status of the task.",
+    )
+
+    requires_approval = models.BooleanField(
+        default=False,
+        help_text="Indicates if this task required explicit human approval.",
+    )
+
+    approved_by = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Identifier for the user/system that approved this task (for future use).",
+    )
+
+    output = models.JSONField(
+        null=True, blank=True, help_text="Structured output from the completed execution."
+    )
+
+    error_message = models.TextField(blank=True, help_text="Error details if the task failed.")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Execution Task"
+        verbose_name_plural = "Execution Tasks"
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"Task for '{self.action_name}' ({self.status})"
