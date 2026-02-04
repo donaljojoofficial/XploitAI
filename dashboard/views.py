@@ -16,7 +16,7 @@ Design:
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from typing import Any, Iterable
 
 from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import path
@@ -47,6 +47,39 @@ def _html_page(title: str, body: str) -> str:
         f"<body>{body}</body>"
         "</html>"
     )
+
+
+def _format_event_data(data: Any) -> str:
+    """Helper to format event data, specifically rendering AI plans."""
+    if not data:
+        return ""
+
+    # Detect Plan structure: dict with 'steps' list
+    if isinstance(data, dict) and "steps" in data and isinstance(data["steps"], list):
+        steps = data["steps"]
+        if not steps:
+            return "<em>Empty Plan</em>"
+
+        rows = []
+        for i, step in enumerate(steps, 1):
+            # Support both action_id (LLM) and action_type (internal) keys
+            action = step.get("action_id") or step.get("action_type") or "Unknown"
+            reason = step.get("reasoning", "")
+            rows.append(
+                f"<tr><td>{i}</td><td>{escape(str(action))}</td><td>{escape(str(reason))}</td></tr>"
+            )
+
+        return (
+            "<div style='border:1px solid #eee; padding:0.5rem; border-radius:4px; background:#fafafa;'>"
+            "<strong style='color:#2c3e50;'>AI Plan Proposal</strong>"
+            "<table style='margin:0.5rem 0 0 0; background:#fff;'>"
+            "<thead><tr><th>#</th><th>Action</th><th>Reasoning</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody>"
+            "</table>"
+            "</div>"
+        )
+
+    return f"<pre>{escape(str(data))}</pre>"
 
 
 def index(request: HttpRequest) -> HttpResponse:
@@ -108,7 +141,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
             f"<td><code>{escape(e.phase)}</code></td>"
             f"<td>{escape(e.created_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
             f"<td class='muted'>{escape(e.message)}</td>"
-            f"<td><pre>{escape(str(e.data))}</pre></td>"
+            f"<td>{_format_event_data(e.data)}</td>"
             "</tr>"
         )
 

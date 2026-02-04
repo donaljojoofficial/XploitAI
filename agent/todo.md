@@ -72,7 +72,7 @@ TODO AI-14: Add approval decision logging
 Status: COMPLETED
 
 TODO UI-1: Display AI-generated plans in dashboard
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-2: Visualize plan execution state and policy outcomes
 Status: PENDING
