@@ -121,6 +121,37 @@ def _format_event_data(data: Any) -> str:
             f"</div>"
         )
 
+    # Detect Defender Alert
+    if isinstance(data, dict) and "rule_id" in data and "severity" in data:
+        severity = str(data["severity"]).upper()
+        rule_id = str(data["rule_id"])
+        description = str(data.get("description", ""))
+
+        # Severity Colors (Bootstrap-ish)
+        bg_map = {
+            "CRITICAL": "#842029",  # Dark Red
+            "HIGH": "#dc3545",      # Red
+            "MEDIUM": "#fd7e14",    # Orange
+            "LOW": "#ffc107",       # Yellow
+            "INFO": "#0dcaf0",      # Cyan
+        }
+        fg_map = {"CRITICAL": "#fff", "HIGH": "#fff", "MEDIUM": "#000", "LOW": "#000", "INFO": "#000"}
+
+        bg = bg_map.get(severity, "#6c757d")
+        fg = fg_map.get(severity, "#fff")
+
+        return (
+            f"<div style='border:1px solid {bg}; border-radius:4px; overflow:hidden; margin:0.2rem 0;'>"
+            f"<div style='background:{bg}; color:{fg}; padding:0.2rem 0.5rem; font-weight:bold; font-size:0.85em;'>"
+            f"🛡️ DEFENDER DETECTED: {escape(severity)}"
+            f"</div>"
+            f"<div style='padding:0.5rem; background:#fff; border-top:1px solid {bg};'>"
+            f"<div style='font-weight:bold; margin-bottom:0.2rem; color:#212529;'>{escape(rule_id)}</div>"
+            f"<div style='font-size:0.9em; color:#212529;'>{escape(description)}</div>"
+            f"</div>"
+            f"</div>"
+        )
+
     return f"<pre>{escape(str(data))}</pre>"
 
 
