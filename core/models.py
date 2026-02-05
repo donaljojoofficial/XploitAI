@@ -14,6 +14,13 @@ KILL_CHAIN_PHASES = [
     ("COMPLETED", "Completed"),
 ]
 
+AUTONOMY_STATUS_CHOICES = [
+    ("IDLE", "Idle"),
+    ("RUNNING", "Running"),
+    ("PAUSED", "Paused"),
+    ("STOPPED", "Stopped"),
+]
+
 
 class AttackState(models.Model):
     """
@@ -34,6 +41,18 @@ class AttackState(models.Model):
         choices=KILL_CHAIN_PHASES,
         default="RECONNAISSANCE",
         help_text="The current phase of the attack in the kill chain.",
+    )
+
+    autonomy_status = models.CharField(
+        max_length=20,
+        choices=AUTONOMY_STATUS_CHOICES,
+        default="IDLE",
+        help_text="The current operating mode of the autonomous AI.",
+    )
+
+    stop_reason = models.TextField(
+        blank=True,
+        help_text="The reason why the autonomy loop stopped (if applicable).",
     )
 
     state_data = models.JSONField(
@@ -113,6 +132,11 @@ class Action(models.Model):
     description = models.TextField(
         blank=True,
         help_text="A brief description of what this action does.",
+    )
+
+    reasoning = models.TextField(
+        blank=True,
+        help_text="The AI's reasoning for choosing this action.",
     )
 
     parameters = models.JSONField(
@@ -301,6 +325,15 @@ class ExecutionTask(models.Model):
         help_text="The registered name of the action to execute (e.g., 'NmapScan').",
     )
 
+    action = models.ForeignKey(
+        Action,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="execution_tasks",
+        help_text="The high-level action this task implements.",
+    )
+
     parameters = models.JSONField(
         default=dict,
         blank=True,
@@ -343,3 +376,34 @@ class ExecutionTask(models.Model):
 
     def __str__(self):
         return f"Task for '{self.action_name}' ({self.status})"
+
+
+DEFENDER_SEVERITY_CHOICES = [
+    ("INFO", "Info"),
+    ("LOW", "Low"),
+    ("MEDIUM", "Medium"),
+    ("HIGH", "High"),
+    ("CRITICAL", "Critical"),
+]
+
+
+class DefenderAlert(models.Model):
+    """
+    Represents a defensive alert triggered by the Defender AI.
+    """
+    attack_state = models.ForeignKey(
+        AttackState, on_delete=models.CASCADE, related_name="defender_alerts"
+    )
+    severity = models.CharField(max_length=10, choices=DEFENDER_SEVERITY_CHOICES)
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    recommendation = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Defender Alert"
+        verbose_name_plural = "Defender Alerts"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"[{self.severity}] {self.title}"

@@ -61,12 +61,23 @@ class AutonomousController:
         """Start the autonomous control loop."""
         self.running = True
         self.step_count = 0
+        
+        # Sync state to DB
+        AttackState.objects.filter(id=self.attack_state_id).update(
+            autonomy_status="RUNNING", stop_reason=""
+        )
         logger.info("AutonomousController started for AttackState ID %s", self.attack_state_id)
 
-    def stop(self) -> None:
+    def stop(self, reason: str = "Manual Stop") -> None:
         """Stop the autonomous control loop."""
         self.running = False
-        logger.info("AutonomousController stopped for AttackState ID %s", self.attack_state_id)
+        
+        # Sync state to DB
+        AttackState.objects.filter(id=self.attack_state_id).update(
+            autonomy_status="STOPPED", stop_reason=reason
+        )
+        logger.info("AutonomousController stopped for AttackState ID %s. Reason: %s", 
+                    self.attack_state_id, reason)
 
     def run_cycle(self) -> bool:
         """
@@ -94,7 +105,7 @@ class AutonomousController:
             state = AttackState.objects.get(id=self.attack_state_id)
         except AttackState.DoesNotExist:
             logger.error("AttackState %s not found. Stopping controller.", self.attack_state_id)
-            self.stop()
+            self.stop(reason="AttackState not found")
             return False
 
         # 1. Sync Action states with ExecutionTasks
@@ -104,9 +115,10 @@ class AutonomousController:
         self._sync_defender_context(state)
 
         # 3. Check Stop Conditions
-        if self._check_stop_conditions(state):
-            self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": "Stop conditions met"})
-            self.stop()
+        stop_reason = self._check_stop_conditions(state)
+        if stop_reason:
+            self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": stop_reason})
+            self.stop(reason=stop_reason)
             return False
 
         # 4. Wait for execution results
@@ -119,9 +131,10 @@ class AutonomousController:
         # We request 1 proposal for the autonomous loop
         proposals = self.decision_engine.propose_next_actions(state, limit=1)
         if not proposals:
-            self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": "No proposals"})
+            reason = "No proposals returned (Goal reached or stuck)"
+            self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": reason})
             logger.info("Decision Engine returned no proposals. Goal reached or stuck. Stopping.")
-            self.stop()
+            self.stop(reason=reason)
             return False
 
         proposal = proposals[0]
@@ -211,14 +224,16 @@ class AutonomousController:
         state.state_data['defender_context'] = context
         state.save(update_fields=['state_data'])
 
-    def _check_stop_conditions(self, state: AttackState) -> bool:
+    def _check_stop_conditions(self, state: AttackState) -> Optional[str]:
         """
         Check if the autonomous loop should stop.
+        Returns the stop reason if it should stop, else None.
         """
         # 1. Max Steps
         if self.step_count >= self.max_steps:
-            logger.info("STOP CONDITION: Max steps (%d) reached.", self.max_steps)
-            return True
+            msg = f"Max steps ({self.max_steps}) reached."
+            logger.info("STOP CONDITION: %s", msg)
+            return msg
 
         # 2. Defender Alerts
         # CRITICAL -> Halt immediately
@@ -226,8 +241,9 @@ class AutonomousController:
             attack_state=state,
             severity='CRITICAL'
         ).exists():
-            logger.warning("STOP CONDITION: Critical Defender Alert detected (HALT).")
-            return True
+            msg = "Critical Defender Alert detected (HALT)."
+            logger.warning("STOP CONDITION: %s", msg)
+            return msg
 
         # HIGH -> Re-plan (Log and continue)
         if DefenderAlert.objects.filter(
@@ -245,13 +261,11 @@ class AutonomousController:
 
         if len(recent_actions) >= self.max_consecutive_failures:
             if all(a.status == 'FAILED' for a in recent_actions):
-                logger.warning(
-                    "STOP CONDITION: %d consecutive failures detected.",
-                    self.max_consecutive_failures
-                )
-                return True
+                msg = f"{self.max_consecutive_failures} consecutive failures detected."
+                logger.warning("STOP CONDITION: %s", msg)
+                return msg
 
-        return False
+        return None
 
     def _log_audit(self, cycle_id: str, event: str, details: dict) -> None:
         """Write a structured audit log entry."""

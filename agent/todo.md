@@ -104,3 +104,92 @@ Status: COMPLETED
 
 
 
+# XploitAI – Development TODO List
+
+---
+
+## Phase 4 – Frontend Observability & Dashboard Accuracy
+
+This phase focuses on making the system observable,
+accurate, and defensible through the dashboard.
+
+---
+
+### Dashboard Foundation
+
+TODO UI-1: Audit existing dashboard views and templates
+Status: COMPLETED
+
+TODO UI-2: Map dashboard components to real backend data sources
+Status: COMPLETED
+
+---
+
+### AI Autonomy Visualization
+
+TODO UI-3: Display AI autonomy state (running, paused, stopped)
+Status: COMPLETED
+
+TODO UI-4: Display AI stop reasons and retry counts
+Status: COMPLETED
+
+---
+
+### Plan & Reasoning Visualization
+
+TODO UI-5: Render AI plan steps with status indicators
+Status: COMPLETED
+
+TODO UI-6: Display reasoning summaries per plan step
+Status: COMPLETED
+
+---
+
+
+TODO UI-7: Indicate AI memory influence on decisions
+Status: PENDING
+
+---
+
+### Execution & Task Queue
+
+TODO UI-8: Display ExecutionTask queue with live status
+Status: PENDING
+
+TODO UI-9: Show sanitized commands and execution output
+Status: PENDING
+
+---
+
+### Defender AI Visualization
+
+TODO UI-10: Display defender alerts and severity levels
+Status: PENDING
+
+TODO UI-11: Visualize attacker vs defender interaction
+Status: PENDING
+
+---
+
+### Timeline & Replay
+
+TODO UI-12: Implement unified event timeline
+Status: PENDING
+
+TODO UI-13: Add replay view for AI decisions and executions
+Status: PENDING
+
+---
+
+## Bug Fixes
+
+(Add dashboard bugs here. Do NOT delete previous entries.)
+
+---
+
+## Rules
+
+- Only work on one TODO at a time
+- Mark TODO as DONE or FIXED explicitly
+- Do NOT invent new backend fields
+- Do NOT modify AI autonomy logic during this phase

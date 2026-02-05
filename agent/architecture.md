@@ -167,3 +167,144 @@ All actions must be replayable and explainable.
 - All changes must be task-driven via `todo.md`
 
 
+
+# XploitAI – Frontend & Dashboard Architecture (Phase: Observability)
+
+## Purpose of the Frontend
+
+The frontend dashboard is the **single source of truth** for observing,
+explaining, and auditing autonomous AI behavior inside the cyber range.
+
+It does NOT:
+- Control execution directly
+- Make AI decisions
+- Run commands
+
+It ONLY:
+- Visualizes system state
+- Reflects real backend data
+- Enables human understanding and intervention
+
+---
+
+## Core Design Principle
+
+Every UI element MUST map to a real backend signal.
+
+No mock data.
+No placeholders.
+No inferred state.
+
+If data does not exist in the backend, the UI must not invent it.
+
+---
+
+## High-Level Frontend Architecture
+
+[ Django Backend APIs ]
+          ↓
+[ Dashboard Data Layer ]
+          ↓
+[ UI Components ]
+          ↓
+[ Human Observer / Approver ]
+
+---
+
+## Frontend Responsibilities (Strict)
+
+### 1. AI Autonomy Visualization
+
+The dashboard must display:
+- Current AI mode (IDLE / RUNNING / PAUSED / STOPPED)
+- Current autonomy cycle state
+- Stop reason (if halted)
+- Retry count and limits
+
+Source of truth:
+- AI autonomy controller state
+- Autonomy audit logs
+
+---
+
+### 2. Plan & Reasoning View
+
+The dashboard must show:
+- Current AI plan (ordered steps)
+- Completed vs pending steps
+- Reasoning summary per step
+- Memory influence indicators
+
+Source of truth:
+- AI planning data
+- AI memory records
+- Audit logs
+
+---
+
+### 3. Execution & Task Queue View
+
+The dashboard must show:
+- ExecutionTask list
+- Task status (PENDING / RUNNING / DONE / FAILED)
+- Action name
+- Sanitized command (if applicable)
+- Execution output / error
+
+Source of truth:
+- ExecutionTask model
+- Executor API results
+
+---
+
+### 4. Defender AI View
+
+The dashboard must show:
+- Defender alerts
+- Alert severity
+- Alert reason
+- Defender recommendations (halt / re-plan)
+
+Source of truth:
+- Defender AI outputs
+- Defender audit logs
+
+---
+
+### 5. Timeline & Replay
+
+The dashboard must support:
+- Chronological timeline of events
+- Replay of AI decisions and executions
+- Clear cause–effect relationships
+
+Source of truth:
+- Unified audit log stream
+
+---
+
+## Frontend Technology Constraints
+
+- Frontend uses Django templates (initially)
+- JavaScript allowed for dynamic updates
+- No SPA rewrite required
+- Polling is acceptable (WebSockets optional later)
+
+---
+
+## Data Flow Rules
+
+- Frontend NEVER mutates AI state directly
+- Frontend actions (approve / halt) go through:
+  Controller → Policy → AI autonomy layer
+- Frontend must handle missing data gracefully
+
+---
+
+## Development Rules for AI Agents (Frontend)
+
+- Do NOT invent backend fields
+- Do NOT hardcode states
+- Do NOT duplicate business logic in templates
+- Prefer backend aggregation over frontend computation
+- Each UI component must document its data source
