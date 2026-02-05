@@ -296,6 +296,67 @@ def _severity_badge(severity: str) -> str:
     )
 
 
+def _get_unified_events(state: AttackState) -> list[dict]:
+    """Helper to aggregate all temporal events for timeline and replay."""
+    actions = Action.objects.filter(attack_state=state)
+    events = AttackTimelineEvent.objects.filter(attack_state=state)
+    tasks = ExecutionTask.objects.filter(action__attack_state=state)
+    alerts = DefenderAlert.objects.filter(attack_state=state)
+
+    unified = []
+
+    # 1. AI Actions (Decisions)
+    for a in actions:
+        unified.append({
+            'dt': a.created_at,
+            'source': 'AI',
+            'type': 'DECISION',
+            'desc': f"Planned: {a.name}",
+            'data': {'reasoning': a.reasoning, 'parameters': a.parameters},
+        })
+
+    # 2. System Events
+    for e in events:
+        unified.append({
+            'dt': e.created_at,
+            'source': 'SYSTEM',
+            'type': e.get_event_type_display(),
+            'desc': e.message,
+            'data': e.data,
+        })
+
+    # 3. Defender Alerts
+    for a in alerts:
+        unified.append({
+            'dt': a.created_at,
+            'source': 'DEFENDER',
+            'type': f"ALERT {a.severity}",
+            'desc': f"{a.rule_id}: {a.description}",
+            'data': {'recommendation': a.recommendation},
+        })
+
+    # 4. Execution Tasks
+    for t in tasks:
+        unified.append({
+            'dt': t.created_at,
+            'source': 'EXECUTOR',
+            'type': 'TASK_QUEUED',
+            'desc': f"Queued: {t.action_name}",
+            'data': t.parameters,
+        })
+        if t.status in ('COMPLETED', 'FAILED'):
+             unified.append({
+                'dt': t.updated_at,
+                'source': 'EXECUTOR',
+                'type': f"TASK_{t.status}",
+                'desc': f"Finished: {t.action_name}",
+                'data': t.output or {'error': t.error_message},
+            })
+
+    unified.sort(key=lambda x: x['dt'])
+    return unified
+
+
 def index(request: HttpRequest) -> HttpResponse:
     """List simulations (AttackState) with current phase and timestamps."""
     states = AttackState.objects.all().order_by("-updated_at")
@@ -372,6 +433,51 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         )
     autonomy_panel += "</div></div>"
 
+    # --- Interaction Visualization (Attacker vs Defender) ---
+    # Combine Actions and Alerts into a single chronological stream to visualize interaction
+    interaction_events = []
+    for a in actions:
+        interaction_events.append({'ts': a.created_at, 'type': 'ATTACKER', 'obj': a})
+    for alert in alerts:
+        interaction_events.append({'ts': alert.created_at, 'type': 'DEFENDER', 'obj': alert})
+    
+    # Sort by timestamp to show temporal flow
+    interaction_events.sort(key=lambda x: x['ts'])
+
+    interaction_rows = []
+    for event in interaction_events:
+        ts_str = event['ts'].strftime('%H:%M:%S')
+        if event['type'] == 'ATTACKER':
+            action = event['obj']
+            # Attacker Cell (Left)
+            attacker_html = (
+                f"<div style='background:#f8f9fa; padding:0.6rem; border-radius:4px; border-left:4px solid #0d6efd; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
+                f"<div style='font-weight:bold; color:#0d6efd; margin-bottom:0.2rem;'>{escape(action.name)}</div>"
+                f"<div style='font-size:0.9em; color:#212529; margin-bottom:0.3rem;'>{escape(action.description or '')}</div>"
+                f"<div>{_status_badge(action.status)}</div>"
+                f"</div>"
+            )
+            defender_html = ""
+        else:
+            alert = event['obj']
+            # Defender Cell (Right)
+            attacker_html = ""
+            defender_html = (
+                f"<div style='background:#fff5f5; padding:0.6rem; border-radius:4px; border-left:4px solid #dc3545; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
+                f"<div style='font-weight:bold; color:#dc3545; margin-bottom:0.2rem;'>🛡️ {escape(alert.rule_id)}</div>"
+                f"<div style='font-size:0.9em; color:#212529; margin-bottom:0.3rem;'>{escape(alert.description)}</div>"
+                f"<div>{_severity_badge(alert.severity)}</div>"
+                f"</div>"
+            )
+        
+        interaction_rows.append(
+            "<tr>"
+            f"<td class='muted' style='width:80px; vertical-align:top; padding-top:1rem; border:none;'>{ts_str}</td>"
+            f"<td style='width:45%; vertical-align:top; padding:0.5rem; border:none;'>{attacker_html}</td>"
+            f"<td style='width:45%; vertical-align:top; padding:0.5rem; border:none;'>{defender_html}</td>"
+            "</tr>"
+        )
+
     alert_rows: list[str] = []
     for alert in alerts:
         alert_rows.append(
@@ -419,23 +525,39 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "</tr>"
         )
 
-    event_rows: list[str] = []
-    for e in events:
-        event_rows.append(
+    unified_events = _get_unified_events(state)
+
+    timeline_rows = []
+    for item in unified_events:
+        src = item['source']
+        bg = "#6c757d"
+        if src == "DEFENDER": bg = "#dc3545"
+        elif src == "EXECUTOR": bg = "#0d6efd"
+        elif src == "SYSTEM": bg = "#198754"
+        elif src == "AI": bg = "#6610f2"
+        
+        src_badge = f"<span style='background:{bg}; color:#fff; padding:0.2rem 0.4rem; border-radius:4px; font-size:0.75em; font-weight:bold;'>{src}</span>"
+        
+        timeline_rows.append(
             "<tr>"
-            f"<td><code>{escape(e.get_event_type_display())}</code></td>"
-            f"<td><code>{escape(e.phase)}</code></td>"
-            f"<td>{escape(e.created_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
-            f"<td class='muted'>{escape(e.message)}</td>"
-            f"<td>{_format_event_data(e.data)}</td>"
+            f"<td style='white-space:nowrap; font-size:0.9em;'>{escape(item['dt'].strftime('%H:%M:%S'))}</td>"
+            f"<td>{src_badge}</td>"
+            f"<td style='font-size:0.9em;'><strong>{escape(item['type'])}</strong></td>"
+            f"<td>{escape(item['desc'])}</td>"
+            f"<td>{_format_event_data(item['data'])}</td>"
             "</tr>"
         )
 
     body = (
         "<p><a href='../../'>← Back to simulations</a></p>"
+        "<div style='float:right;'><a href='replay/' style='background:#0d6efd; color:white; padding:0.4rem 0.8rem; border-radius:4px; text-decoration:none;'>▶ Replay View</a></div>"
         f"<h1>{escape(state.name)}</h1>"
         f"<p>Current phase: <code>{escape(state.current_phase)}</code></p>"
         f"{autonomy_panel}"
+        "<h2>Attacker vs Defender Interaction</h2>"
+        "<table style='border:none; margin-bottom:2rem;'>"
+        f"<tbody>{''.join(interaction_rows) if interaction_rows else '<tr><td colspan=3 class=muted>No interactions recorded.</td></tr>'}</tbody>"
+        "</table>"
         "<h2>Defender Alerts</h2>"
         "<table>"
         "<thead><tr><th>Severity</th><th>Rule ID</th><th>Description</th><th>Detected At</th></tr></thead>"
@@ -451,17 +573,81 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "<thead><tr><th>Step</th><th>Name</th><th>Description</th><th>Reasoning</th><th>Status</th><th>Parameters</th><th>Created</th><th>Updated</th></tr></thead>"
         f"<tbody>{''.join(action_rows) if action_rows else '<tr><td colspan=8 class=muted>No actions.</td></tr>'}</tbody>"
         "</table>"
-        "<h2>Timeline</h2>"
+        "<h2>Unified Event Timeline</h2>"
         "<table>"
-        "<thead><tr><th>Type</th><th>Phase</th><th>At</th><th>Message</th><th>Data</th></tr></thead>"
-        f"<tbody>{''.join(event_rows) if event_rows else '<tr><td colspan=5 class=muted>No events.</td></tr>'}</tbody>"
+        "<thead><tr><th>Time</th><th>Source</th><th>Type</th><th>Message</th><th>Data</th></tr></thead>"
+        f"<tbody>{''.join(timeline_rows) if timeline_rows else '<tr><td colspan=5 class=muted>No events recorded.</td></tr>'}</tbody>"
         "</table>"
     )
 
     return HttpResponse(_html_page(f"XploitAI — {state.name}", body))
 
 
+def attack_replay(request: HttpRequest, pk: int) -> HttpResponse:
+    """Show a sequential replay of the attack lifecycle."""
+    try:
+        state = AttackState.objects.get(pk=pk)
+    except AttackState.DoesNotExist as exc:
+        raise Http404("Simulation not found") from exc
+
+    unified_events = _get_unified_events(state)
+
+    timeline_html = []
+    for item in unified_events:
+        src = item['source']
+        
+        # Card Styles
+        border_color = "#ccc"
+        bg_color = "#fff"
+        icon = "📝"
+        
+        if src == "AI":
+            border_color = "#6610f2"
+            bg_color = "#f3f0ff"
+            icon = "🤖"
+        elif src == "DEFENDER":
+            border_color = "#dc3545"
+            bg_color = "#fff5f5"
+            icon = "🛡️"
+        elif src == "EXECUTOR":
+            border_color = "#212529"
+            bg_color = "#f8f9fa"
+            icon = "💻"
+        elif src == "SYSTEM":
+            border_color = "#198754"
+            bg_color = "#f0fff4"
+            icon = "⚙️"
+
+        data_html = _format_event_data(item['data'])
+        
+        timeline_html.append(
+            f"<div style='display:flex; margin-bottom:1rem;'>"
+            f"<div style='min-width:80px; text-align:right; padding-right:1rem; color:#6c757d; font-size:0.9em; padding-top:0.5rem;'>"
+            f"{escape(item['dt'].strftime('%H:%M:%S'))}"
+            f"</div>"
+            f"<div style='flex-grow:1; border-left:4px solid {border_color}; background:{bg_color}; padding:0.8rem; border-radius:0 4px 4px 0; box-shadow:0 1px 2px rgba(0,0,0,0.05);'>"
+            f"<div style='display:flex; justify-content:space-between; margin-bottom:0.5rem;'>"
+            f"<strong style='color:{border_color};'>{icon} {escape(src)} &middot; {escape(item['type'])}</strong>"
+            f"</div>"
+            f"<div style='font-size:1.05em; margin-bottom:0.5rem;'>{escape(item['desc'])}</div>"
+            f"<div style='font-size:0.9em;'>{data_html}</div>"
+            f"</div>"
+            f"</div>"
+        )
+
+    body = (
+        "<p><a href='../'>← Back to details</a></p>"
+        f"<h1>Replay: {escape(state.name)}</h1>"
+        "<div style='max-width:800px; margin-top:2rem;'>"
+        f"{''.join(timeline_html) if timeline_html else '<p class=muted>No events to replay.</p>'}"
+        "</div>"
+    )
+
+    return HttpResponse(_html_page(f"Replay — {state.name}", body))
+
+
 urlpatterns = [
     path("", index, name="dashboard_index"),
     path("attack/<int:pk>/", attack_detail, name="dashboard_attack_detail"),
+    path("attack/<int:pk>/replay/", attack_replay, name="dashboard_attack_replay"),
 ]

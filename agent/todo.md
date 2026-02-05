@@ -167,17 +167,17 @@ TODO UI-10: Display defender alerts and severity levels
 Status: COMPLETED
 
 TODO UI-11: Visualize attacker vs defender interaction
-Status: PENDING
+Status: COMPLETED
 
 ---
 
 ### Timeline & Replay
 
 TODO UI-12: Implement unified event timeline
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-13: Add replay view for AI decisions and executions
-Status: PENDING
+Status: COMPLETED
 
 ---
 
