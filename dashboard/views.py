@@ -23,7 +23,7 @@ from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import path
 from django.utils.html import escape
 
-from core.models import AttackState, Action, AttackTimelineEvent
+from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,64 @@ def _html_page(title: str, body: str) -> str:
         "</head>"
         f"<body>{body}</body>"
         "</html>"
+    )
+
+
+def _render_memory_badge(data: Any) -> str:
+    """Helper to render memory influence indicators if present in data."""
+    if not data:
+        return ""
+
+    # Ensure data is a dict
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            return ""
+
+    if not isinstance(data, dict):
+        return ""
+
+    # Check direct keys (e.g. in Action.parameters)
+    mem = data.get("_memory") or data.get("memory_influence") or data.get("memory_context")
+
+    # If not found, check inside 'parameters' sub-dict (e.g. in PlanStep)
+    if not mem and "parameters" in data:
+        params = data["parameters"]
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except (json.JSONDecodeError, TypeError):
+                params = {}
+        if isinstance(params, dict):
+            mem = params.get("_memory") or params.get("memory_influence") or params.get("memory_context")
+
+    if not mem:
+        return ""
+
+    # Determine label and text
+    label = "MEMORY"
+    text = str(mem)
+
+    if isinstance(mem, dict):
+        text = mem.get("description") or mem.get("reason") or str(mem)
+        if "type" in mem:
+            label = str(mem["type"]).upper()
+    elif isinstance(mem, str):
+        # Simple heuristics for cleaner badges
+        lower_mem = mem.lower()
+        if "fail" in lower_mem:
+            label = "ADAPTATION"
+        elif "success" in lower_mem:
+            label = "REINFORCEMENT"
+        elif "retry" in lower_mem:
+            label = "RETRY"
+
+    return (
+        f"<div style='margin-top:0.3rem; font-size:0.85em; color:#563d7c;'>"
+        f"<span style='background-color:#e2d9f3; border:1px solid #d5c8ed; border-radius:3px; padding:0.1rem 0.3rem; font-weight:bold; margin-right:0.3rem;'>🧠 {escape(label)}</span>"
+        f"<span>{escape(text)}</span>"
+        f"</div>"
     )
 
 
@@ -74,8 +132,9 @@ def _format_event_data(data: Any) -> str:
             # Support both action_id (LLM) and action_type (internal) keys
             action = step.get("action_id") or step.get("action_type") or "Unknown"
             reason = step.get("reasoning", "")
+            mem_badge = _render_memory_badge(step)
             rows.append(
-                f"<tr><td>{i}</td><td>{escape(str(action))}</td><td>{escape(str(reason))}</td></tr>"
+                f"<tr><td>{i}</td><td>{escape(str(action))}</td><td>{escape(str(reason))}{mem_badge}</td></tr>"
             )
 
         return (
@@ -177,6 +236,66 @@ def _status_badge(status: str) -> str:
     )
 
 
+def _format_execution_output(task: Any) -> str:
+    """Helper to format execution output from a task."""
+    # Try common field names for result/output
+    result = getattr(task, "result", None) or getattr(task, "output", None)
+
+    if not result:
+        return "<span class='muted'>-</span>"
+
+    # If result is a JSON string, parse it
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if isinstance(result, dict):
+        # If it has stdout/stderr structure (common in executors)
+        stdout = result.get("stdout", "")
+        stderr = result.get("stderr", "")
+        return_code = result.get("return_code")
+
+        parts = []
+        if return_code is not None and return_code != 0:
+            parts.append(f"<div style='color:#dc3545; font-weight:bold; font-size:0.85em;'>Exit Code: {return_code}</div>")
+
+        if stdout:
+            parts.append(f"<div class='muted' style='font-size:0.8em;'>STDOUT:</div><pre style='max-height:150px; overflow:auto; font-size:0.85em;'>{escape(str(stdout))}</pre>")
+        if stderr:
+            parts.append(f"<div class='muted' style='font-size:0.8em;'>STDERR:</div><pre style='color:#dc3545; max-height:150px; overflow:auto; font-size:0.85em;'>{escape(str(stderr))}</pre>")
+
+        if not parts:
+            # Fallback for other dict content
+            return f"<pre style='max-height:150px; overflow:auto; font-size:0.85em;'>{escape(json.dumps(result, indent=2))}</pre>"
+
+        return "".join(parts)
+
+    return f"<pre style='max-height:150px; overflow:auto; font-size:0.85em;'>{escape(str(result))}</pre>"
+
+
+def _severity_badge(severity: str) -> str:
+    """Helper to render a colored badge for alert severity."""
+    s = str(severity).upper()
+    bg_map = {
+        "CRITICAL": "#842029",  # Dark Red
+        "HIGH": "#dc3545",      # Red
+        "MEDIUM": "#fd7e14",    # Orange
+        "LOW": "#ffc107",       # Yellow
+        "INFO": "#0dcaf0",      # Cyan
+    }
+    fg_map = {"CRITICAL": "#fff", "HIGH": "#fff", "MEDIUM": "#000", "LOW": "#000", "INFO": "#000"}
+
+    bg = bg_map.get(s, "#6c757d")
+    fg = fg_map.get(s, "#fff")
+
+    return (
+        f"<span style='background-color:{bg}; color:{fg}; padding:0.2rem 0.4rem; "
+        f"border-radius:4px; font-size:0.85em; font-weight:bold;'>{escape(s)}</span>"
+    )
+
+
 def index(request: HttpRequest) -> HttpResponse:
     """List simulations (AttackState) with current phase and timestamps."""
     states = AttackState.objects.all().order_by("-updated_at")
@@ -216,6 +335,8 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
     actions = Action.objects.filter(attack_state=state).order_by("created_at")
     events = AttackTimelineEvent.objects.filter(attack_state=state).order_by("created_at")
+    tasks = ExecutionTask.objects.filter(action__attack_state=state).order_by("-created_at")
+    alerts = DefenderAlert.objects.filter(attack_state=state).order_by("-created_at")
 
     # --- Autonomy Metrics Calculation ---
     consecutive_failures = 0
@@ -251,14 +372,46 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         )
     autonomy_panel += "</div></div>"
 
+    alert_rows: list[str] = []
+    for alert in alerts:
+        alert_rows.append(
+            "<tr>"
+            f"<td>{_severity_badge(alert.severity)}</td>"
+            f"<td>{escape(alert.rule_id)}</td>"
+            f"<td>{escape(alert.description)}</td>"
+            f"<td class='muted'>{escape(alert.created_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
+            "</tr>"
+        )
+
+    task_rows: list[str] = []
+    for t in tasks:
+        cmd = getattr(t, "command", "") or ""
+        # Render command in a scrollable block instead of truncating
+        cmd_html = f"<pre style='max-height:80px; overflow:auto; white-space:pre-wrap; word-break:break-all; font-size:0.85em; margin:0;'>{escape(cmd)}</pre>"
+
+        output_html = _format_execution_output(t)
+
+        task_rows.append(
+            "<tr>"
+            f"<td>{t.id}</td>"
+            f"<td>{escape(t.action_name)}</td>"
+            f"<td>{_status_badge(t.status)}</td>"
+            f"<td style='min-width:200px;'>{cmd_html}</td>"
+            f"<td style='min-width:200px;'>{output_html}</td>"
+            f"<td class='muted'>{escape(t.created_at.strftime('%H:%M:%S'))}</td>"
+            f"<td class='muted'>{escape(t.updated_at.strftime('%H:%M:%S'))}</td>"
+            "</tr>"
+        )
+
     action_rows: list[str] = []
     for i, a in enumerate(actions, 1):
+        mem_badge = _render_memory_badge(a.parameters)
         action_rows.append(
             "<tr>"
             f"<td><strong>{i}</strong></td>"
             f"<td>{escape(a.name)}</td>"
             f"<td class='muted'>{escape(a.description or '')}</td>"
-            f"<td style='font-size:0.9em; color:#495057; max-width:300px;'>{escape(a.reasoning or '')}</td>"
+            f"<td style='font-size:0.9em; color:#495057; max-width:300px;'>{escape(a.reasoning or '')}{mem_badge}</td>"
             f"<td>{_status_badge(a.status)}</td>"
             f"<td><pre>{escape(str(a.parameters))}</pre></td>"
             f"<td class='muted'>{escape(a.created_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
@@ -283,6 +436,16 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         f"<h1>{escape(state.name)}</h1>"
         f"<p>Current phase: <code>{escape(state.current_phase)}</code></p>"
         f"{autonomy_panel}"
+        "<h2>Defender Alerts</h2>"
+        "<table>"
+        "<thead><tr><th>Severity</th><th>Rule ID</th><th>Description</th><th>Detected At</th></tr></thead>"
+        f"<tbody>{''.join(alert_rows) if alert_rows else '<tr><td colspan=4 class=muted>No alerts detected.</td></tr>'}</tbody>"
+        "</table>"
+        "<h2>Execution Queue</h2>"
+        "<table>"
+        "<thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Command</th><th>Output</th><th>Created</th><th>Updated</th></tr></thead>"
+        f"<tbody>{''.join(task_rows) if task_rows else '<tr><td colspan=7 class=muted>No execution tasks.</td></tr>'}</tbody>"
+        "</table>"
         "<h2>Execution Plan</h2>"
         "<table>"
         "<thead><tr><th>Step</th><th>Name</th><th>Description</th><th>Reasoning</th><th>Status</th><th>Parameters</th><th>Created</th><th>Updated</th></tr></thead>"
