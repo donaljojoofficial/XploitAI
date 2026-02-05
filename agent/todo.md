@@ -208,7 +208,7 @@ TODO UI-MIG-1: Create dashboard template structure
 Status: COMPLETED
 
 TODO UI-MIG-2: Migrate dashboard index view to template
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-MIG-3: Migrate attack detail view to template
 Status: PENDING
