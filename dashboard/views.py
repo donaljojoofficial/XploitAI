@@ -160,9 +160,10 @@ def _status_badge(status: str) -> str:
     s = str(status).upper()
     bg = "#6c757d"  # Default gray
     fg = "#fff"
-    if s == "COMPLETED":
+    
+    if s in ("COMPLETED", "EXECUTED", "SUCCESS"):
         bg = "#198754"  # Green
-    elif s == "FAILED":
+    elif s in ("FAILED", "REJECTED", "BLOCKED"):
         bg = "#dc3545"  # Red
     elif s == "RUNNING":
         bg = "#0d6efd"  # Blue
@@ -251,9 +252,10 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     autonomy_panel += "</div></div>"
 
     action_rows: list[str] = []
-    for a in actions:
+    for i, a in enumerate(actions, 1):
         action_rows.append(
             "<tr>"
+            f"<td><strong>{i}</strong></td>"
             f"<td>{escape(a.name)}</td>"
             f"<td class='muted'>{escape(a.description or '')}</td>"
             f"<td>{_status_badge(a.status)}</td>"
@@ -280,10 +282,10 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         f"<h1>{escape(state.name)}</h1>"
         f"<p>Current phase: <code>{escape(state.current_phase)}</code></p>"
         f"{autonomy_panel}"
-        "<h2>Actions</h2>"
+        "<h2>Execution Plan</h2>"
         "<table>"
-        "<thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Parameters</th><th>Created</th><th>Updated</th></tr></thead>"
-        f"<tbody>{''.join(action_rows) if action_rows else '<tr><td colspan=6 class=muted>No actions.</td></tr>'}</tbody>"
+        "<thead><tr><th>Step</th><th>Name</th><th>Description</th><th>Status</th><th>Parameters</th><th>Created</th><th>Updated</th></tr></thead>"
+        f"<tbody>{''.join(action_rows) if action_rows else '<tr><td colspan=7 class=muted>No actions.</td></tr>'}</tbody>"
         "</table>"
         "<h2>Timeline</h2>"
         "<table>"
