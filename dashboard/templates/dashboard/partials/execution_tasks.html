@@ -24,9 +24,9 @@
                 <tr>
                     <td>{{ task.id }}</td>
                     <td>{{ task.action_name }}</td>
-                    <td>{{ task.rendered_status|safe }}</td>
+                    <td><span class="status status-{{ task.status }}">{{ task.status }}</span></td>
                     <td><pre>{{ task.command }}</pre></td>
-                    <td>{{ task.rendered_output|safe }}</td>
+                    <td><pre style="max-height:150px; overflow:auto; font-size:0.85em;">{{ task.output|default:task.result|pprint }}</pre></td>
                     <td class="muted">{{ task.created_at|date:"H:i:s" }}</td>
                     <td class="muted">{{ task.updated_at|date:"H:i:s" }}</td>
                 </tr>

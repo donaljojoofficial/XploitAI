@@ -13,8 +13,8 @@
                 <td><strong>{{ forloop.counter }}</strong></td>
                 <td>{{ action.name }}</td>
                 <td class="muted">{{ action.description|default:'' }}</td>
-                <td>{{ action.reasoning|default:'' }}{{ action.rendered_memory|safe }}</td>
-                <td>{{ action.rendered_status|safe }}</td>
+                <td>{{ action.reasoning|default:'' }}</td>
+                <td><span class="status status-{{ action.status }}">{{ action.status }}</span></td>
                 <td><pre>{{ action.parameters }}</pre></td>
                 <td class="muted">{{ action.created_at|date:"Y-m-d H:i:s" }}</td>
             </tr>

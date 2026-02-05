@@ -23,8 +23,7 @@
             {% for alert in alerts %}
                 <tr>
                     <td>
-                        {# The detail view provides pre-rendered HTML, so we mark it safe. #}
-                        {{ alert.rendered_severity|safe }}
+                        <span class="severity severity-{{ alert.severity }}">{{ alert.severity }}</span>
                     </td>
                     <td>{{ alert.rule_id }}</td>
                     <td>{{ alert.description|escape }}</td>
