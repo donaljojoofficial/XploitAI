@@ -1,0 +1,39 @@
+{% comment %}
+  Renders defender alerts.
+  Expects:
+  - alerts: A queryset of DefenderAlert objects.
+  - display_mode: "summary" (ul) or "table" (default).
+{% endcomment %}
+
+<div class="card">
+    {% if display_mode == "summary" %}
+        <h2>Recent Defender Alerts</h2>
+        <ul>
+            {% for alert in alerts %}
+                <li>{{ alert.created_at|date:"Y-m-d H:i:s" }} - [<span class="severity severity-{{ alert.severity }}">{{ alert.severity }}</span>]: {{ alert.description|escape }}</li>
+            {% empty %}
+                <li class="empty-state">No defender alerts recorded.</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <h2>Defender Alerts</h2>
+        <table>
+            <thead><tr><th>Severity</th><th>Rule ID</th><th>Description</th><th>Detected At</th></tr></thead>
+            <tbody>
+            {% for alert in alerts %}
+                <tr>
+                    <td>
+                        {# The detail view provides pre-rendered HTML, so we mark it safe. #}
+                        {{ alert.rendered_severity|safe }}
+                    </td>
+                    <td>{{ alert.rule_id }}</td>
+                    <td>{{ alert.description|escape }}</td>
+                    <td class="muted">{{ alert.created_at|date:"Y-m-d H:i:s" }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty-state">No alerts detected.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>

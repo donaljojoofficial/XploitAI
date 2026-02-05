@@ -1,0 +1,68 @@
+Of course. As a junior developer on this security-sensitive project, I will adhere strictly to the established rules and architecture.
+
+Here is my approach to completing the task:
+
+I will create the required directory and file structure for the Django template migration, as specified in agent/architecture.md. This involves creating the templates/dashboard, templates/dashboard/partials, static/dashboard/css, and static/dashboard/js directories within the dashboard app. I will also create empty placeholder template files and .gitkeep files to ensure the new structure is tracked by version control. This task is purely structural and does not alter any application logic or behavior.
+
+Here are the new files I will create:
+
+New file: .gitkeep
++1
+
+New file: .gitkeep
++1
+
+New file: attack_detail.html
++1
+<!-- Placeholder for Attack Detail Template -->
+New file: index.html
++1
+<!-- Placeholder for Dashboard Index Template -->
+New file: autonomy_status.html
++1
+<!-- Placeholder for Autonomy Status Partial -->
+New file: defender_alerts.html
++1
+<!-- Placeholder for Defender Alerts Partial -->
+New file: execution_tasks.html
++1
+<!-- Placeholder for Execution Tasks Partial -->
+New file: plan_steps.html
++1
+<!-- Placeholder for Plan Steps Partial -->
+New file: replay.html
++1
+<!-- Placeholder for Replay Template -->
+Summary of Changes
+Created the directory structure templates/dashboard/partials/ for reusable template components.
+Created the directory structure static/dashboard/ with css/ and js/ subdirectories for frontend assets.
+Added empty .gitkeep files to the css and js directories to ensure they are tracked by Git.
+Created empty placeholder template files for the main dashboard views (index.html, attack_detail.html, replay.html).
+Created empty placeholder partial template files for dashboard components.
+This change is purely structural and has no impact on runtime behavior.
+Files Affected
+/workspaces/XploitAI-/dashboard/static/dashboard/css/.gitkeep (new file)
+/workspaces/XploitAI-/dashboard/static/dashboard/js/.gitkeep (new file)
+/workspaces/XploitAI-/dashboard/templates/dashboard/attack_detail.html (new file)
+/workspaces/XploitAI-/dashboard/templates/dashboard/index.html (new file)
+/workspaces/XploitAI-/dashboard/templates/dashboard/partials/autonomy_status.html (new file)
+/workspaces/XploitAI-/dashboard/templates/dashboard/partials/defender_alerts.html (new file)
+/workspaces/XploitAI-/dashboard/templates/dashboard/partials/execution_tasks.html (new file)
+/workspaces/XploitAI-/dashboard/templates/dashboard/partials/plan_steps.html (new file)
+/workspaces/XploitAI-/dashboard/templates/dashboard/replay.html (new file)
+Suggested Commit Message
+plaintext
+ Show full code block 
+feat(dashboard): create template and static file structure
+
+Creates the necessary directory and file structure for the dashboard's migration to Django templates, as defined in the architecture documentation.
+
+This includes:
+- templates/dashboard/ for main page templates
+- templates/dashboard/partials/ for reusable components
+- static/dashboard/ for CSS and JS files
+
+No application logic is changed. This is a foundational step for TODO UI-MIG-2 and subsequent migration tasks.
+I have completed the task as requested. TODO UI-MIG-1 is complete.
+
+Please review the changes, commit them, and then update /agent/todo.md to mark TODO UI-MIG-1 as DONE.

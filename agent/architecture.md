@@ -308,3 +308,108 @@ Source of truth:
 - Do NOT duplicate business logic in templates
 - Prefer backend aggregation over frontend computation
 - Each UI component must document its data source
+
+
+
+# XploitAI – Dashboard Frontend Architecture (Template-Based Migration)
+
+## Purpose of This Phase
+
+This phase migrates the dashboard from backend-rendered HTML strings
+to a proper Django template-based frontend to ensure:
+
+- Accurate UI updates
+- Clear separation of logic and presentation
+- Reliable frontend iteration
+- Agent-safe frontend development
+
+Backend logic MUST remain unchanged.
+
+---
+
+## Current Problem Being Solved
+
+The existing dashboard:
+- Generates HTML directly in Python views
+- Does not use Django templates
+- Causes UI changes to appear inconsistent or invisible
+- Prevents effective frontend iteration
+
+This phase addresses presentation only.
+
+---
+
+## High-Level Frontend Architecture (After Migration)
+
+[ Backend Views (Python Logic Only) ]
+                ↓ context dict
+[ Django Templates (HTML) ]
+                ↓
+[ Browser Rendering ]
+                ↓
+[ Human Observer ]
+
+---
+
+## Directory Structure (Required)
+
+dashboard/
+├── views.py                 # Data preparation only (NO HTML)
+├── urls.py
+├── templates/
+│   └── dashboard/
+│       ├── index.html
+│       ├── attack_detail.html
+│       ├── replay.html
+│       └── partials/
+│           ├── autonomy_status.html
+│           ├── plan_steps.html
+│           ├── defender_alerts.html
+│           └── execution_tasks.html
+├── static/
+│   └── dashboard/
+│       ├── css/
+│       └── js/
+
+---
+
+## View Responsibilities (STRICT)
+
+Dashboard views MUST:
+- Query models / logs
+- Prepare structured context dictionaries
+- Call `render(request, template, context)`
+
+Dashboard views MUST NOT:
+- Generate HTML strings
+- Contain presentation logic
+- Perform formatting beyond basic serialization
+
+---
+
+## Template Responsibilities (STRICT)
+
+Templates MUST:
+- Render data passed from views
+- Use simple conditional logic only
+- Avoid business logic
+- Never compute system state
+
+---
+
+## Migration Strategy
+
+- Existing views are refactored incrementally
+- HTML is extracted into templates
+- Logic stays exactly the same
+- One view at a time
+
+---
+
+## Development Rules for Agents
+
+- Do NOT change backend logic
+- Do NOT rename existing URLs
+- Do NOT introduce new models
+- Do NOT invent context fields
+- Extract presentation only

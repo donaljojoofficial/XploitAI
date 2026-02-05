@@ -1,0 +1,39 @@
+{% comment %}
+  Renders execution tasks.
+  Expects:
+  - tasks: A queryset of ExecutionTask objects.
+  - display_mode: "summary" (ul) or "table" (default).
+{% endcomment %}
+
+<div class="card">
+    {% if display_mode == "summary" %}
+        <h2>Recent Execution Tasks</h2>
+        <ul>
+            {% for task in tasks %}
+                <li>{{ task.created_at|date:"Y-m-d H:i:s" }} - [<span class="status status-{{ task.status }}">{{ task.status }}</span>]: <code>{{ task.command|escape }}</code></li>
+            {% empty %}
+                <li class="empty-state">No execution tasks recorded.</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <h2>Execution Queue</h2>
+        <table>
+            <thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Command</th><th>Output</th><th>Created</th><th>Updated</th></tr></thead>
+            <tbody>
+            {% for task in tasks %}
+                <tr>
+                    <td>{{ task.id }}</td>
+                    <td>{{ task.action_name }}</td>
+                    <td>{{ task.rendered_status|safe }}</td>
+                    <td><pre>{{ task.command }}</pre></td>
+                    <td>{{ task.rendered_output|safe }}</td>
+                    <td class="muted">{{ task.created_at|date:"H:i:s" }}</td>
+                    <td class="muted">{{ task.updated_at|date:"H:i:s" }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="7" class="empty-state">No execution tasks.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>
