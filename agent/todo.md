@@ -68,10 +68,14 @@ TODO EXEC-3: Define action/command execution contract
 Status: COMPLETED
 
 TODO EXEC-4: Implement executor daemon (Kali)
-Status: PENDING
+Status: COMPLETED
 
 TODO EXEC-5: Add reconnection and resilience logic
-Status: PENDING
+Status: COMPLETED
+
+---
+
+### Dashboard & Audit
 
 ---
 

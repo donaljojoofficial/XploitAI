@@ -38,23 +38,39 @@ logger = logging.getLogger("executor-daemon")
 
 
 class ExecutorDaemon:
-    def __init__(self, api_url: str, poll_interval: int = 5):
+    def __init__(self, api_url: str, poll_interval: int = 5, max_backoff: int = 60):
         self.api_url = api_url.rstrip("/")
         self.poll_interval = poll_interval
+        self.max_backoff = max_backoff
         self.session = requests.Session()
         logger.info(f"Executor Daemon initialized. Target: {self.api_url}")
 
     def run(self):
         """Main loop: Poll -> Execute -> Report."""
         logger.info("Starting polling loop...")
+        consecutive_failures = 0
+
         while True:
             try:
                 task = self.fetch_task()
+
+                # Connection successful if we reached here
+                if consecutive_failures > 0:
+                    logger.info("Connection to Controller restored.")
+                    consecutive_failures = 0
+
                 if task:
                     result = self.execute_task(task)
-                    self.submit_result(result)
+                    self.submit_result_with_retry(result)
                 else:
                     time.sleep(self.poll_interval)
+
+            except requests.RequestException as e:
+                consecutive_failures += 1
+                wait_time = self._calculate_backoff(consecutive_failures)
+                logger.warning(f"Connection error: {e}. Retrying in {wait_time}s (Attempt {consecutive_failures})...")
+                time.sleep(wait_time)
+
             except KeyboardInterrupt:
                 logger.info("Stopping daemon.")
                 break
@@ -62,32 +78,35 @@ class ExecutorDaemon:
                 logger.error(f"Unexpected error in main loop: {e}")
                 time.sleep(self.poll_interval)
 
+    def _calculate_backoff(self, failures: int) -> int:
+        """Calculate exponential backoff time."""
+        # interval * 2^(failures-1)
+        backoff = self.poll_interval * (2 ** (failures - 1))
+        return min(backoff, self.max_backoff)
+
     def fetch_task(self) -> Optional[ExecutionRequest]:
         """Poll the controller for the next task."""
-        try:
-            # Endpoint defined in TODO EXEC-2 (assumed path based on architecture)
-            resp = self.session.get(f"{self.api_url}/api/executor/tasks/next")
-            if resp.status_code == 200:
-                data = resp.json()
-                if not data:
-                    return None
+        # Endpoint defined in TODO EXEC-2 (assumed path based on architecture)
+        resp = self.session.get(f"{self.api_url}/api/executor/tasks/next", timeout=10)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            if not data:
+                return None
 
-                # Deserialize manually since ExecutionRequest doesn't have from_dict yet
-                return ExecutionRequest(
-                    task_id=data['task_id'],
-                    action_name=data['action_name'],
-                    command=data['command'],
-                    parameters=data.get('parameters', {}),
-                    limits=data.get('limits', {})
-                )
-            elif resp.status_code == 204:
-                # No content / No tasks
-                return None
-            else:
-                logger.warning(f"Fetch failed: {resp.status_code} - {resp.text}")
-                return None
-        except requests.RequestException as e:
-            logger.error(f"Network error fetching task: {e}")
+            # Deserialize manually since ExecutionRequest doesn't have from_dict yet
+            return ExecutionRequest(
+                task_id=data['task_id'],
+                action_name=data['action_name'],
+                command=data['command'],
+                parameters=data.get('parameters', {}),
+                limits=data.get('limits', {})
+            )
+        elif resp.status_code == 204:
+            # No content / No tasks
+            return None
+        else:
+            resp.raise_for_status()
             return None
 
     def execute_task(self, task: ExecutionRequest) -> ExecutionResult:
@@ -150,30 +169,42 @@ class ExecutorDaemon:
                 error_message=str(e)
             )
 
+    def submit_result_with_retry(self, result: ExecutionResult) -> None:
+        """Submit result with internal retry loop for resilience."""
+        failures = 0
+        while True:
+            try:
+                self.submit_result(result)
+                return
+            except requests.RequestException as e:
+                # If it's a client error (4xx), don't retry forever (except maybe 408/429)
+                if isinstance(e, requests.HTTPError) and 400 <= e.response.status_code < 500:
+                    if e.response.status_code not in [408, 429]:
+                        logger.error(f"Client error submitting result: {e}. Dropping result.")
+                        return
+
+                failures += 1
+                wait_time = self._calculate_backoff(failures)
+                logger.error(f"Failed to submit result (Task {result.task_id}): {e}. Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+
     def submit_result(self, result: ExecutionResult) -> None:
         """Send results back to the controller."""
-        try:
-            payload = {
-                "task_id": result.task_id,
-                "status": result.status,
-                "exit_code": result.exit_code,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "duration_seconds": result.duration_seconds,
-                "artifacts": result.artifacts,
-                "error_message": result.error_message
-            }
+        payload = {
+            "task_id": result.task_id,
+            "status": result.status,
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "duration_seconds": result.duration_seconds,
+            "artifacts": result.artifacts,
+            "error_message": result.error_message
+        }
 
-            url = f"{self.api_url}/api/executor/tasks/{result.task_id}/result"
-            resp = self.session.post(url, json=payload)
-
-            if resp.status_code in [200, 201]:
-                logger.info(f"Result for Task {result.task_id} submitted successfully.")
-            else:
-                logger.error(f"Failed to submit result: {resp.status_code} - {resp.text}")
-
-        except requests.RequestException as e:
-            logger.error(f"Network error submitting result: {e}")
+        url = f"{self.api_url}/api/executor/tasks/{result.task_id}/result"
+        resp = self.session.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
+        logger.info(f"Result for Task {result.task_id} submitted successfully.")
 
 
 if __name__ == "__main__":
