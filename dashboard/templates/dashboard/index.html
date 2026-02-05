@@ -45,6 +45,8 @@
 
     {% include "dashboard/partials/executor_status.html" with executors=executors %}
 
+    {% include "dashboard/partials/target_info.html" with targets=targets %}
+
     {% include "dashboard/partials/execution_tasks.html" with tasks=tasks display_mode="summary" %}
 
     {% include "dashboard/partials/defender_alerts.html" with alerts=alerts display_mode="summary" %}

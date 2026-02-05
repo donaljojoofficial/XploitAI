@@ -288,7 +288,7 @@ TODO UI-CTRL-1: Display attacker executor status (live heartbeat)
 Status: COMPLETED
 
 TODO UI-CTRL-2: Display configured target system information
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-CTRL-3: Implement Start Autonomous Attack (real backend trigger)
 Status: PENDING
