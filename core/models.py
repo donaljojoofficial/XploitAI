@@ -14,6 +14,41 @@ KILL_CHAIN_PHASES = [
     ("COMPLETED", "Completed"),
 ]
 
+from django.db import models
+
+class AttackerExecutor(models.Model):
+    """
+    Represents a real attacker machine (VM) running the executor daemon.
+    Used for heartbeat tracking, availability checks, and autonomy gating.
+    """
+    class Status(models.TextChoices):
+        CONNECTED = 'CONNECTED', 'Connected'
+        DISCONNECTED = 'DISCONNECTED', 'Disconnected'
+
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Human-readable identifier for this attacker machine"
+    )
+    ip_address = models.GenericIPAddressField(
+        protocol='both',
+        help_text="IP address of the executor daemon"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DISCONNECTED,
+        help_text="Current connection status"
+    )
+    last_heartbeat = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of the last received heartbeat"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.ip_address}) [{self.status}]"
 AUTONOMY_STATUS_CHOICES = [
     ("IDLE", "Idle"),
     ("RUNNING", "Running"),
