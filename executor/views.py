@@ -56,7 +56,7 @@ def get_next_task(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
-def report_result(request: HttpRequest) -> JsonResponse:
+def report_result(request: HttpRequest, task_id: str = None) -> JsonResponse:
     """
     API endpoint for the executor to report task completion or failure.
     Updates ExecutionTask and the parent Action.
