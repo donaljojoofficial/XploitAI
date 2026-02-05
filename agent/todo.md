@@ -52,7 +52,7 @@ Status: COMPLETED
 ### Safety & Sandbox
 
 TODO SAFE-1: Implement command safety filter
-Status: PENDING
+Status: COMPLETED
 
 TODO SAFE-2: Enforce lab-only network scope
 Status: PENDING

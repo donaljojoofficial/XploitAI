@@ -24,6 +24,7 @@ from core.models import Action, AttackState, ExecutionTask, DefenderAlert
 # Use the concrete implementation from agent.decision
 from agent.decision import DecisionEngine
 from ai.command_generator import CommandGenerator
+from ai.safety import CommandSafety
 from policy.engine import PolicyEngine
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class AutonomousController:
         self.decision_engine = DecisionEngine()
         self.policy_engine = PolicyEngine()
         self.command_generator = CommandGenerator()
+        self.safety_filter = CommandSafety()
 
     def start(self) -> None:
         """Start the autonomous control loop."""
@@ -227,23 +229,40 @@ class AutonomousController:
         """
         Persist the decision as an Action and queue it for execution.
         """
+        # Generate the shell command first to validate it
+        generated = self.command_generator.generate(proposal.name, proposal.parameters)
+
+        # Safety Check
+        is_safe, safety_reason = self.safety_filter.validate(generated.shell_command)
+
         with transaction.atomic():
             # 1. Create the Action record (for history/audit)
+            # If unsafe, we mark it as FAILED immediately
+            status = 'PENDING' if is_safe else 'FAILED'
+
             action = Action.objects.create(
                 attack_state=state,
                 name=proposal.name,
                 description=proposal.description,
                 parameters=proposal.parameters,
-                status='PENDING'
+                status=status
             )
+
+            if not is_safe:
+                logger.warning(
+                    "Safety violation for action '%s': %s", proposal.name, safety_reason
+                )
+                self._log_audit(cycle_id, "SAFETY_VIOLATION", {
+                    "action_id": action.id,
+                    "command": generated.shell_command,
+                    "reason": safety_reason
+                })
+                return
 
             # 2. Create the ExecutionTask (for the executor)
             # We inject the action_id so the executor can link the result back
             task_params = proposal.parameters.copy()
             task_params['_action_id'] = action.id
-
-            # Generate the shell command
-            generated = self.command_generator.generate(proposal.name, proposal.parameters)
 
             ExecutionTask.objects.create(
                 action_name=proposal.name,
