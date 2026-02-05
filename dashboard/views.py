@@ -23,7 +23,7 @@ from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import path
 from django.utils.html import escape
 
-from core.models import AttackState, Action, AttackTimelineEvent
+from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +275,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
     actions = Action.objects.filter(attack_state=state).order_by("created_at")
     events = AttackTimelineEvent.objects.filter(attack_state=state).order_by("created_at")
+    tasks = ExecutionTask.objects.filter(action__attack_state=state).order_by("-created_at")
 
     # --- Autonomy Metrics Calculation ---
     consecutive_failures = 0
@@ -310,6 +311,24 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         )
     autonomy_panel += "</div></div>"
 
+    task_rows: list[str] = []
+    for t in tasks:
+        # Handle potential missing command field safely or truncate
+        cmd = getattr(t, "command", "") or ""
+        if len(cmd) > 50:
+            cmd = cmd[:47] + "..."
+        
+        task_rows.append(
+            "<tr>"
+            f"<td>{t.id}</td>"
+            f"<td>{escape(t.action_name)}</td>"
+            f"<td>{_status_badge(t.status)}</td>"
+            f"<td><code>{escape(cmd)}</code></td>"
+            f"<td class='muted'>{escape(t.created_at.strftime('%H:%M:%S'))}</td>"
+            f"<td class='muted'>{escape(t.updated_at.strftime('%H:%M:%S'))}</td>"
+            "</tr>"
+        )
+
     action_rows: list[str] = []
     for i, a in enumerate(actions, 1):
         mem_badge = _render_memory_badge(a.parameters)
@@ -343,6 +362,11 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         f"<h1>{escape(state.name)}</h1>"
         f"<p>Current phase: <code>{escape(state.current_phase)}</code></p>"
         f"{autonomy_panel}"
+        "<h2>Execution Queue</h2>"
+        "<table>"
+        "<thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Command</th><th>Created</th><th>Updated</th></tr></thead>"
+        f"<tbody>{''.join(task_rows) if task_rows else '<tr><td colspan=6 class=muted>No execution tasks.</td></tr>'}</tbody>"
+        "</table>"
         "<h2>Execution Plan</h2>"
         "<table>"
         "<thead><tr><th>Step</th><th>Name</th><th>Description</th><th>Reasoning</th><th>Status</th><th>Parameters</th><th>Created</th><th>Updated</th></tr></thead>"
