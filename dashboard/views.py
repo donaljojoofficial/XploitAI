@@ -23,7 +23,7 @@ from django.shortcuts import render, get_object_or_404
 from django.http import HttpRequest, HttpResponse
 from django.urls import path
 
-from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert
+from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -105,11 +105,14 @@ def index(request: HttpRequest) -> HttpResponse:
         tasks = []
         alerts = []
 
+    executors = AttackerExecutor.objects.all().order_by('-last_heartbeat')
+
     context = {
         'attack_state': attack_state,
         'actions': actions,
         'tasks': tasks,
         'alerts': alerts,
+        'executors': executors,
     }
     return render(request, 'dashboard/index.html', context)
 
