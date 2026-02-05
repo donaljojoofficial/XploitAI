@@ -276,7 +276,7 @@ TODO OPS-6: Create AttackContext model
 Status: COMPLETED
 
 TODO OPS-7: Bind autonomy controller to active AttackContext
-Status: PENDING
+Status: COMPLETED
 
 TODO OPS-8: Enforce context validation before autonomy start
 Status: PENDING
