@@ -193,3 +193,57 @@ Status: COMPLETED
 - Mark TODO as DONE or FIXED explicitly
 - Do NOT invent new backend fields
 - Do NOT modify AI autonomy logic during this phase
+
+
+## Phase 5 – Dashboard Frontend Migration (Template-Based)
+
+This phase migrates the dashboard from inline HTML generation
+to Django templates to ensure accurate frontend updates.
+
+---
+
+### Migration Foundation
+
+TODO UI-MIG-1: Create dashboard template structure
+Status: PENDING
+
+TODO UI-MIG-2: Migrate dashboard index view to template
+Status: PENDING
+
+TODO UI-MIG-3: Migrate attack detail view to template
+Status: PENDING
+
+---
+
+### Component Extraction
+
+TODO UI-MIG-4: Extract autonomy status into template partial
+Status: PENDING
+
+TODO UI-MIG-5: Extract AI plan steps into template partial
+Status: PENDING
+
+TODO UI-MIG-6: Extract defender alerts into template partial
+Status: PENDING
+
+TODO UI-MIG-7: Extract execution task view into template partial
+Status: PENDING
+
+---
+
+### Validation & Cleanup
+
+TODO UI-MIG-8: Remove inline HTML generation from views
+Status: PENDING
+
+TODO UI-MIG-9: Verify all UI updates reflect immediately in browser
+Status: PENDING
+
+---
+
+## Rules
+
+- Migrate ONE view or component per TODO
+- Mark each TODO explicitly DONE
+- No logic refactors allowed
+- Presentation changes only
