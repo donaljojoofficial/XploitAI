@@ -1,317 +1,169 @@
-SYSTEM ARCHITECTURE — XPLOITAI (PHASE 1)
+# XploitAI – System Architecture (Autonomous AI Mode)
 
-PHASE 1 IS A SIMULATION SYSTEM, NOT A REAL ATTACK SYSTEM.
+## Architectural Goal
 
-High-Level Flow:
+XploitAI is an AI-orchestrated cyber range designed to demonstrate
+autonomous penetration testing behavior in a controlled, isolated lab.
 
-Dashboard
-  ↓
-Orchestration Core
-  ↓
-AI Agent (Decision Engine)
-  ↓
-Policy Engine
-  ↓
-Action Registry
-  ↓
-Simulation Executor
-  ↓
-Attack State (In-Memory / DB)
+The system enables:
+- Full AI autonomy at the decision and planning layers
+- Real tool execution in an attacker VM
+- Continuous AI adaptation based on results
+- Defender AI observation and interruption
+- Complete auditability and explainability
 
-STRICT RESPONSIBILITY BOUNDARIES:
+Autonomy is intentional, bounded, logged, and sandboxed.
 
-agent/
-- AI prompts
-- Reasoning
-- Action ranking
-- NO execution logic
+---
 
-policy/
-- Validate action ordering
-- Enforce kill-chain rules
-- Reject invalid transitions
+## High-Level Architecture
 
-actions/
-- Atomic attack action definitions
-- Preconditions and postconditions
-- No execution logic
+[Autonomous AI Controller]
+        ↓
+[Safety Filter / Sandbox]
+        ↓
+[Execution Task Queue]
+        ↓
+[Executor Daemon (Attacker VM)]
+        ↓
+[Target VM (Vulnerable)]
+        ↓
+[Results + Logs + Memory]
+        ↺ (feedback loop to AI)
 
-executor/
-- Simulation-only executor
-- Produces mock outcomes
-- Updates attack state
+---
 
-core/
-- Domain models
-- State machine
-- Orchestration loop
+## Core Architectural Principle
 
-dashboard/
-- Visualization only
-- No decision logic
-- No execution logic
+AI is fully autonomous in:
+- Planning
+- Command generation
+- Retry logic
+- Stop decisions
 
-DO NOT:
-- Execute commands anywhere
-- Bypass policy validation
-- Access executor directly from agent
+AI is NOT trusted blindly.
+All execution passes through safety controls and isolation.
 
+---
 
-AI RUNTIME ARCHITECTURE (IMPLEMENTATION GUIDANCE)(PHASE 2)
+## System Layers
 
-The AI implementation in XploitAI is part of the runtime system,
-not the development agent configuration.
+### 1. AI Runtime Layer (`ai/`)
 
-The AI runtime layer is responsible for:
-- Analyzing the current attack state
-- Proposing next actions or action plans
-- Providing reasoning for decisions
+Responsibilities:
+- Analyze current attack state
+- Generate shell commands dynamically
+- Control autonomous execution loop
+- Reflect on results and adapt
+- Decide when to retry, re-plan, or stop
 
-The AI runtime layer MUST NOT:
+Components:
+- `decision_engine.py` – high-level reasoning
+- `autonomy.py` – autonomous control loop
+- `command_generator.py` – AI → shell command generation
+- `reflection.py` – evaluate success/failure
+- `memory.py` – past attempts and outcomes
+- `safety.py` – command validation & sandbox rules
+- `llm/` – LLM adapters (Gemini/OpenAI/Claude)
+
+The AI runtime MUST NOT:
+- Access the OS directly
 - Execute commands
-- Access the operating system
-- Bypass the policy engine
-- Directly invoke the executor
+- Bypass safety filters
 
-High-level AI runtime flow:
-
-[AttackState]
-      ↓
-[AI Decision Engine]
-      ↓
-[Policy Engine]
-      ↓
-[Executor (Simulation / Real)]
-      ↓
-[State Update]
+---
 
+### 2. Safety & Sandbox Layer
 
+Responsibilities:
+- Validate AI-generated commands
+- Enforce scope limits (IP range, tools, privileges)
+- Block destructive or out-of-scope behavior
 
-🔧 Phase-3 Architecture Update — AI-Driven XploitAI
-Purpose of Phase-3
+Examples of blocked behavior:
+- Commands targeting non-lab IPs
+- Destructive filesystem operations
+- Privilege abuse outside defined rules
 
-Phase-3 introduces real AI-driven behavior into XploitAI while preserving the system’s core guarantees:
+This layer is mandatory even in full autonomy mode.
 
-Deterministic execution
+---
 
-Policy authority
+### 3. Execution Interface Layer (`executor/`)
 
-Auditability
+Responsibilities:
+- Expose APIs for external executors
+- Queue approved execution tasks
+- Accept execution results
 
-Human control
+This layer:
+- Does NOT generate commands
+- Does NOT decide what to run
+- Acts as a job broker only
 
-The AI in Phase-3 is advisory and planning-oriented, not autonomous execution.
+---
 
-High-Level Runtime Architecture (Phase-3)
-┌──────────────────────────┐
-│   Attack State (DB)      │
-└─────────────▲────────────┘
-              │
-┌─────────────┴────────────┐
-│  AI Runtime Layer        │
-│  - Decision Engine       │
-│  - Planning Logic        │
-│  - Memory & Context      │
-│  - (Optional) LLM Adapter│
-└─────────────▲────────────┘
-              │
-┌─────────────┴────────────┐
-│     Policy Engine        │
-│  - Action validation     │
-│  - Safety rules          │
-│  - Approval requirements │
-└─────────────▲────────────┘
-              │
-┌─────────────┴────────────┐
-│  Human Approval Gate     │  (Conditional)
-└─────────────▲────────────┘
-              │
-┌─────────────┴────────────┐
-│   Executor Layer         │
-│  - Simulation / Real     │
-└─────────────▲────────────┘
-              │
-┌─────────────┴────────────┐
-│  Audit Logs & Dashboard  │
-└──────────────────────────┘
+### 4. Executor Daemon (Attacker VM)
 
-AI Runtime Layer (Phase-3)
-Responsibilities
+Runs on Kali Linux.
 
-The AI Runtime Layer is responsible for:
+Responsibilities:
+- Poll controller for tasks
+- Execute commands locally
+- Capture stdout/stderr
+- Return results
+- Retry connection if controller is unavailable
 
-Interpreting the current attack state
+Executor:
+- Has no AI logic
+- Has no planning logic
+- Executes exactly what it is given
 
-Generating single-step or bounded multi-step plans
+---
 
-Adapting recommendations based on past outcomes
+### 5. Defender AI Layer
 
-Providing reasoning for each recommendation
+Responsibilities:
+- Observe attacker behavior
+- Detect suspicious or risky patterns
+- Raise alerts
+- Recommend halting or re-planning
 
-Explicit Non-Responsibilities
+Defender AI:
+- Does NOT block execution directly
+- Influences AI autonomy via alerts
 
-The AI Runtime Layer MUST NOT:
+---
 
-Execute actions
+### 6. Dashboard & Audit Layer
 
-Call the executor directly
+Responsibilities:
+- Visualize AI plans and execution steps
+- Show generated commands (sanitized)
+- Display defender alerts
+- Display stop reasons and outcomes
 
-Bypass the policy engine
+All actions must be replayable and explainable.
 
-Modify system state directly
+---
 
-Run autonomous execution loops
+## Autonomy Guarantees
 
-AI Runtime Module Structure
-ai/
-├── decision_engine.py    # Core AI decision & planning logic
-├── state_adapter.py      # Converts AttackState → AI input
-├── memory.py             # Tracks past actions & outcomes
-├── schemas.py            # AI input/output schemas
-├── llm/                  # Optional AI API adapters
-│   ├── base.py
-│   ├── gemini.py
-│   ├── openai.py
-│   └── claude.py
-└── README.md
+- AI controls the loop, not the machine
+- Every action is logged
+- Every command is auditable
+- The lab is isolated
+- Failures are recoverable
+- The system can stop itself
 
-AI Decision Flow (Phase-3)
+---
 
-Current AttackState is retrieved
+## Development Rules for AI Assistants
 
-State is converted into AI-readable schema
+- AI autonomy logic lives ONLY in `ai/`
+- Execution logic lives ONLY in executor daemon
+- Safety filters are mandatory
+- No shortcuts
+- All changes must be task-driven via `todo.md`
 
-AI Decision Engine evaluates:
 
-Current phase
-
-Known information
-
-Past outcomes (memory)
-
-AI proposes:
-
-One action OR
-
-A bounded, ordered plan
-
-Proposal is sent to Policy Engine
-
-Policy Engine:
-
-Approves or rejects
-
-Flags actions requiring human approval
-
-Approved actions proceed to execution
-
-Results are logged and stored in memory
-
-AI Memory & Learning (Phase-3)
-Scope
-
-AI memory in Phase-3 is behavioral memory, not model training.
-
-Tracked information includes:
-
-Previously attempted actions
-
-Success/failure outcomes
-
-Failure reasons
-
-Confidence decay
-
-Retry limits
-
-Constraints
-
-Memory influences recommendations only
-
-Memory does NOT modify rules or policies
-
-Memory is auditable and resettable
-
-LLM Integration (Optional, Phase-3)
-
-LLM providers (Gemini, OpenAI, Claude) are integrated via adapters.
-
-Design Rules
-
-LLMs are advisors, not decision authorities
-
-Rule-based logic remains the default fallback
-
-LLM output must conform to internal schemas
-
-LLM failure must never break the system
-
-Allowed LLM Usage
-
-Action ranking
-
-Plan suggestions
-
-Explanation generation
-
-Human Approval Gates (Phase-3)
-
-Certain high-risk actions require explicit human approval.
-
-Examples:
-
-Privilege escalation
-
-Lateral movement
-
-Data collection
-
-Final compromise steps
-
-Approval Flow
-AI → Policy → Approval Gate → Executor
-
-
-Approval decisions are logged
-
-Rejected actions terminate or re-plan
-
-Defender Agent (Future-Ready)
-
-Phase-3 architecture allows for a Defender AI, operating in parallel:
-
-Observes shared system state
-
-Detects suspicious behavior
-
-Proposes defensive responses
-
-Does NOT execute countermeasures autonomously
-
-This remains read-only and advisory in Phase-3.
-
-Key Architectural Guarantees (Phase-3)
-
-AI never executes actions directly
-
-Policy engine is always authoritative
-
-Execution is one step at a time
-
-Every decision is logged
-
-Human control is preserved
-
-Behavior is explainable and replayable
-
-Development Guidance for AI Assistants
-
-When implementing Phase-3 features:
-
-AI logic must live only in ai/
-
-No AI code in views, executor, or policy
-
-All new behavior must be introduced via TODOs
-
-Incremental, auditable changes only

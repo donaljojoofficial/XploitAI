@@ -1,98 +1,102 @@
-## Bug Fixes
-- 2026-01-30: Dashboard routing showed Django welcome page at "/" due to missing app registration and URL inclusion. Fixed by adding 'dashboard' to INSTALLED_APPS, creating dashboard.urls with a root path, and including it at the project root URL.
-- 2026-01-30: Django RuntimeError indicated core.models not in INSTALLED_APPS, causing startup failure when dashboard imported models. Fixed by adding minimal core app config (apps.py, __init__.py) and registering 'core' in INSTALLED_APPS.
-- 2026-01-30: Runtime error "no such table: core_attackstate" due to missing migrations for core app. FIXED by creating and applying initial migrations for 'core'.
+# XploitAI – Development TODO List
 
-## Infrastructure
-- 2026-01-30: Added data migration to seed a deterministic initial AttackState for a fresh database. FIXED by introducing core/migrations/0002_seed_initial_attack_state.py.
+This file controls AI-assisted development.
+The agent must only work on explicitly assigned TODOs.
 
-DEVELOPMENT TODO LIST — XPLOITAI (PHASE 1)
+---
 
-TODO 1: Define core AttackState data model - [completed]
-TODO 2: Define Action and ActionResult models - [completed]
-TODO 3: Implement Action Registry with predefined actions - [completed]
-TODO 4: Implement Policy validation engine - [completed]
-TODO 5: Implement Simulation Executor - [completed]
-TODO 6: Implement AI Decision Engine interface - [completed]
-TODO 7: Implement Orchestration loop (state machine) - [completed]
-TODO 8: Implement attack timeline model - [completed]
-TODO 9: Build basic dashboard views - [completed]
+## Phase 1 – Foundation (COMPLETED)
 
-RULE:
-Request exactly ONE TODO at a time.
+- AI planning and decision engine
+- AI memory and adaptation
+- Policy enforcement
+- Defender agent (read-only)
+- Human approval gates
+- Dashboard visualization
+- Execution task model
+- Executor API endpoints
 
-Correct usage:
-> Complete TODO 1
+---
 
-## AI Runtime Implementation (PHASE 2)
+## Phase 2 – Full AI Autonomy (Style C)
 
-TODO AI-1: Define AI runtime module structure
-Status: COMPLETED
+### Autonomous Control
 
-TODO AI-2: Define AI decision input schema (state representation)
-Status: COMPLETED
-
-TODO AI-3: Implement AI decision engine (single-step recommendation)
-Status: COMPLETED
-
-TODO AI-4: Integrate AI decision output with policy engine
-Status: COMPLETED
-
-TODO AI-5: Add logging and audit trail for AI decisions
-Status: COMPLETED
-
-TODO AI-6: Extend AI to multi-step planning (optional)
-Status: COMPLETED
-
-
-## AI Runtime – Advanced (PHASE 3)
-
-TODO AI-7: Implement AI memory store for past decisions and outcomes
-Status: COMPLETED
-
-TODO AI-8: Integrate AI memory into decision and planning logic
-Status: COMPLETED
-
-TODO AI-9: Define LLM adapter interface for AI decision support
-Status: COMPLETED
-
-TODO AI-10: Implement Gemini/OpenAI adapter (one provider only)
-Status: COMPLETED
-
-TODO AI-11: Add fallback to rule-based decision engine
-Status: COMPLETED
-
-TODO AI-12: Define approval-required action categories
-Status: COMPLETED
-
-TODO AI-13: Implement approval gate before executor
-Status: COMPLETED
-
-TODO AI-14: Add approval decision logging
-Status: COMPLETED
-
-TODO UI-1: Display AI-generated plans in dashboard
-Status: COMPLETED
-
-TODO UI-2: Visualize plan execution state and policy outcomes
-Status: COMPLETED
-
-
-## Defender AI
-
-TODO DEF-1: Define defender AI observation schema
-Status: COMPLETED
-
-TODO DEF-2: Implement defender rule-based detection engine
-Status: COMPLETED
-
-TODO DEF-3: Integrate defender alerts into dashboard
-Status: COMPLETED
-
-## PHASE 4
-
-TODO EXEC-1: Define ExecutionTask model for execution queue
-Status: COMPLETED
-
-TODO EXEC-2: Implement executor-facing API endpoints to fetch and report execution tasks.
+TODO AUTO-1: Implement autonomous AI control loop
 Status: PENDING
+
+TODO AUTO-2: Add retry, re-plan, and stop conditions
+Status: PENDING
+
+TODO AUTO-3: Integrate defender alerts into autonomy decisions
+Status: PENDING
+
+TODO AUTO-4: Add autonomy audit logging and replay support
+Status: PENDING
+
+---
+
+### AI Command Generation
+
+TODO CMD-1: Implement AI-driven shell command generator
+Status: PENDING
+
+TODO CMD-2: Integrate LLM reasoning into command generation
+Status: PENDING
+
+TODO CMD-3: Add command explanation summaries for audit logs
+Status: PENDING
+
+---
+
+### Safety & Sandbox
+
+TODO SAFE-1: Implement command safety filter
+Status: PENDING
+
+TODO SAFE-2: Enforce lab-only network scope
+Status: PENDING
+
+TODO SAFE-3: Add execution timeout and resource limits
+Status: PENDING
+
+---
+
+### Execution Layer
+
+TODO EXEC-3: Define action/command execution contract
+Status: PENDING
+
+TODO EXEC-4: Implement executor daemon (Kali)
+Status: PENDING
+
+TODO EXEC-5: Add reconnection and resilience logic
+Status: PENDING
+
+---
+
+### Defender AI (Autonomous Context)
+
+TODO DEF-4: Allow defender to trigger AI halt or re-plan
+Status: PENDING
+
+TODO DEF-5: Visualize attacker vs defender interaction
+Status: PENDING
+
+---
+
+## Bug Fixes
+
+(Add bugs here. Do NOT delete previous entries.)
+
+---
+
+## Rules
+
+- Only one TODO may be worked on at a time
+- Mark TODO as DONE or FIXED explicitly
+- Do NOT invent new TODOs
+- Do NOT modify this file unless instructed
+
+
+
