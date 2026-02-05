@@ -17,9 +17,9 @@ from typing import Optional
 
 from django.db import transaction
 
-from core.models import Action, AttackState, ExecutionTask
-# Use the concrete implementation from ai.decision
-from ai.decision import DecisionEngine
+from core.models import Action, AttackState, ExecutionTask, DefenderAlert
+# Use the concrete implementation from agent.decision
+from agent.decision import DecisionEngine
 from policy.engine import PolicyEngine
 
 logger = logging.getLogger(__name__)
@@ -163,6 +163,15 @@ class AutonomousController:
         # 1. Max Steps
         if self.step_count >= self.max_steps:
             logger.info("STOP CONDITION: Max steps (%d) reached.", self.max_steps)
+            return True
+
+        # 2. Defender Alerts
+        # Stop if the defender has detected critical activity.
+        if DefenderAlert.objects.filter(
+            attack_state=state,
+            severity__in=['HIGH', 'CRITICAL']
+        ).exists():
+            logger.warning("STOP CONDITION: Critical Defender Alert detected.")
             return True
 
         # 2. Consecutive Failures
