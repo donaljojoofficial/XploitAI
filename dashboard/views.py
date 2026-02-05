@@ -216,6 +216,40 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     actions = Action.objects.filter(attack_state=state).order_by("created_at")
     events = AttackTimelineEvent.objects.filter(attack_state=state).order_by("created_at")
 
+    # --- Autonomy Metrics Calculation ---
+    consecutive_failures = 0
+    # Check recent actions for failures (proxy for retry count)
+    # We iterate the queryset in reverse (newest first)
+    for a in actions.reverse():
+        if a.status == 'FAILED':
+            consecutive_failures += 1
+        else:
+            break
+
+    # --- Autonomy Status Panel ---
+    status_color = "#6c757d"  # Default Grey
+    if state.autonomy_status == "RUNNING":
+        status_color = "#198754"  # Green
+    elif state.autonomy_status == "STOPPED":
+        status_color = "#dc3545"  # Red
+    elif state.autonomy_status == "PAUSED":
+        status_color = "#ffc107"  # Yellow
+
+    autonomy_panel = (
+        "<div style='background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:1rem; margin-bottom:1.5rem;'>"
+        "<h3 style='margin-top:0;'>Autonomy Status</h3>"
+        "<div style='display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem;'>"
+        f"<div><div class='muted'>State</div><div style='font-size:1.2rem; font-weight:bold; color:{status_color};'>{escape(state.get_autonomy_status_display())}</div></div>"
+        f"<div><div class='muted'>Consecutive Failures</div><div style='font-size:1.2rem;'>{consecutive_failures}</div></div>"
+    )
+
+    if state.autonomy_status == "STOPPED":
+        reason = state.stop_reason or "No reason provided"
+        autonomy_panel += (
+            f"<div style='grid-column: 1 / -1;'><div class='muted'>Stop Reason</div><div style='font-family:monospace; background:#fff; padding:0.5rem; border:1px solid #eee; border-radius:4px;'>{escape(reason)}</div></div>"
+        )
+    autonomy_panel += "</div></div>"
+
     action_rows: list[str] = []
     for a in actions:
         action_rows.append(
@@ -245,6 +279,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "<p><a href='../../'>← Back to simulations</a></p>"
         f"<h1>{escape(state.name)}</h1>"
         f"<p>Current phase: <code>{escape(state.current_phase)}</code></p>"
+        f"{autonomy_panel}"
         "<h2>Actions</h2>"
         "<table>"
         "<thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Parameters</th><th>Created</th><th>Updated</th></tr></thead>"

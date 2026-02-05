@@ -131,7 +131,7 @@ TODO UI-3: Display AI autonomy state (running, paused, stopped)
 Status: COMPLETED
 
 TODO UI-4: Display AI stop reasons and retry counts
-Status: PENDING
+Status: COMPLETED
 
 ---
 
