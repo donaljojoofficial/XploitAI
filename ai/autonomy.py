@@ -240,6 +240,20 @@ class AutonomousController:
         Check if the autonomous loop should stop.
         Returns the stop reason if it should stop, else None.
         """
+        # OPS-9: Check Operational Context Liveness
+        # Fail fast if executor disconnects or target becomes inactive
+        context = OperationalContextManager.get_active_context()
+        if not context:
+            msg = "Operational Context lost (no active context)."
+            logger.warning("STOP CONDITION: %s", msg)
+            return msg
+
+        is_valid, reason = OperationalContextManager.validate_readiness(context)
+        if not is_valid:
+            msg = f"Operational Context invalid: {reason}"
+            logger.warning("STOP CONDITION: %s", msg)
+            return msg
+
         # 1. Max Steps
         if self.step_count >= self.max_steps:
             msg = f"Max steps ({self.max_steps}) reached."
