@@ -69,27 +69,7 @@
     {% include "dashboard/partials/defender_alerts.html" with alerts=alerts %}
 
     <!-- Execution Queue -->
-    <div class="card">
-        <h2>Execution Queue</h2>
-        <table>
-            <thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Command</th><th>Output</th><th>Created</th><th>Updated</th></tr></thead>
-            <tbody>
-            {% for task in tasks %}
-                <tr>
-                    <td>{{ task.id }}</td>
-                    <td>{{ task.action_name }}</td>
-                    <td>{{ task.rendered_status|safe }}</td>
-                    <td><pre>{{ task.command }}</pre></td>
-                    <td>{{ task.rendered_output|safe }}</td>
-                    <td class="muted">{{ task.created_at|date:"H:i:s" }}</td>
-                    <td class="muted">{{ task.updated_at|date:"H:i:s" }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="7" class="empty-state">No execution tasks.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    {% include "dashboard/partials/execution_tasks.html" with tasks=tasks %}
 
     <!-- Execution Plan -->
     {% include "dashboard/partials/plan_steps.html" with actions=actions %}

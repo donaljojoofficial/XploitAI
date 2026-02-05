@@ -42,16 +42,7 @@
         </ul>
     </div>
 
-    <div class="card">
-        <h2>Recent Execution Tasks</h2>
-        <ul>
-            {% for task in tasks %}
-                <li>{{ task.created_at|date:"Y-m-d H:i:s" }} - [<span class="status status-{{ task.status }}">{{ task.status }}</span>]: <code>{{ task.command|escape }}</code></li>
-            {% empty %}
-                <li class="empty-state">No execution tasks recorded.</li>
-            {% endfor %}
-        </ul>
-    </div>
+    {% include "dashboard/partials/execution_tasks.html" with tasks=tasks display_mode="summary" %}
 
     {% include "dashboard/partials/defender_alerts.html" with alerts=alerts display_mode="summary" %}
 

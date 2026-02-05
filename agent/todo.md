@@ -227,7 +227,7 @@ TODO UI-MIG-6: Extract defender alerts into template partial
 Status: COMPLETED
 
 TODO UI-MIG-7: Extract execution task view into template partial
-Status: PENDING
+Status: COMPLETED
 
 ---
 
