@@ -9,7 +9,7 @@ Responsibilities:
 
 import json
 import logging
-from django.http import JsonResponse, HttpRequest
+from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_http_methods
 from django.shortcuts import get_object_or_404
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @csrf_exempt
 @require_http_methods(["GET"])
-def get_next_task(request: HttpRequest) -> JsonResponse:
+def get_next_task(request: HttpRequest) -> HttpResponse:
     """
     API endpoint for the executor daemon to poll for pending tasks.
     Returns the oldest PENDING task and marks it as RUNNING.
@@ -36,7 +36,7 @@ def get_next_task(request: HttpRequest) -> JsonResponse:
         ).order_by('created_at').first()
 
         if not task:
-            return JsonResponse({"task": None})
+            return HttpResponse(status=204)
 
         # Mark as running
         task.status = 'RUNNING'
@@ -46,12 +46,11 @@ def get_next_task(request: HttpRequest) -> JsonResponse:
         logger.info(f"Dispatching task {task.id} ({task.action_name}) to executor.")
 
         return JsonResponse({
-            "task": {
-                "id": task.id,
-                "action_name": task.action_name,
-                "command": getattr(task, 'command', ''),  # specific command if available
-                "parameters": task.parameters,
-            }
+            "task_id": task.id,
+            "action_name": task.action_name,
+            "command": getattr(task, 'command', ''),
+            "parameters": task.parameters,
+            "limits": {}
         })
 
 @csrf_exempt
