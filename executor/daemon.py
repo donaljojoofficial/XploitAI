@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import logging
+import socket
 import subprocess
 import sys
 import time
@@ -43,14 +44,53 @@ class ExecutorDaemon:
         self.poll_interval = poll_interval
         self.max_backoff = max_backoff
         self.session = requests.Session()
+        
+        # Identity & Heartbeat config
+        self.executor_name = socket.gethostname()
+        self.ip_address = self._get_local_ip()
+        self.heartbeat_interval = 10
+        self.last_heartbeat = 0.0
+        
         logger.info(f"Executor Daemon initialized. Target: {self.api_url}")
+        logger.info(f"Identity: {self.executor_name} ({self.ip_address})")
+
+    def _get_local_ip(self) -> str:
+        """Determine local IP address."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+        except Exception:
+            return "127.0.0.1"
+
+    def send_heartbeat(self):
+        """Send presence signal to controller."""
+        try:
+            # Assumes controller mounts executor URLs at /api/executor/
+            self.session.post(
+                f"{self.api_url}/api/executor/heartbeat/",
+                json={"name": self.executor_name, "ip_address": self.ip_address},
+                timeout=5
+            )
+        except Exception as e:
+            logger.warning(f"Heartbeat failed: {e}")
 
     def run(self):
         """Main loop: Poll -> Execute -> Report."""
         logger.info("Starting polling loop...")
+        
+        # Initial heartbeat
+        self.send_heartbeat()
+        self.last_heartbeat = time.time()
+        
         consecutive_failures = 0
 
         while True:
+            # Periodic heartbeat
+            if time.time() - self.last_heartbeat > self.heartbeat_interval:
+                self.send_heartbeat()
+                self.last_heartbeat = time.time()
+
             try:
                 task = self.fetch_task()
 
