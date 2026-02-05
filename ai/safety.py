@@ -50,6 +50,10 @@ class CommandSafety:
 
     ALLOWED_DOMAINS = {".local", ".lab", ".test", ".lan", "localhost"}
 
+    # Resource Limits (Defaults)
+    DEFAULT_TIMEOUT_SECONDS = 60
+    DEFAULT_MEMORY_MB = 128
+
     # Blacklist of dangerous patterns
     FORBIDDEN_PATTERNS = [
         r"rm\s+-rf",        # Recursive delete
@@ -139,3 +143,29 @@ class CommandSafety:
 
         # Safe (e.g. port number, file path with slash, plain string)
         return True
+
+    def get_resource_limits(self, action_name: str) -> dict:
+        """
+        Get execution resource limits for a specific action.
+
+        Args:
+            action_name: The name of the action.
+
+        Returns:
+            dict: Limits including 'timeout' (seconds) and 'memory_mb'.
+        """
+        limits = {
+            "timeout": self.DEFAULT_TIMEOUT_SECONDS,
+            "memory_mb": self.DEFAULT_MEMORY_MB
+        }
+
+        # Action-specific overrides
+        if action_name == "ServiceEnumeration":
+            limits["timeout"] = 300  # Nmap can take time
+            limits["memory_mb"] = 256
+        elif action_name == "PassiveRecon":
+            limits["timeout"] = 30   # DNS/Whois should be fast
+        elif action_name == "ExploitAttempt":
+            limits["timeout"] = 45   # Exploits should succeed or fail quickly
+
+        return limits

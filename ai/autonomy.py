@@ -235,6 +235,9 @@ class AutonomousController:
         # Safety Check
         is_safe, safety_reason = self.safety_filter.validate(generated.shell_command)
 
+        # Resource Limits
+        limits = self.safety_filter.get_resource_limits(proposal.name)
+
         with transaction.atomic():
             # 1. Create the Action record (for history/audit)
             # If unsafe, we mark it as FAILED immediately
@@ -263,6 +266,7 @@ class AutonomousController:
             # We inject the action_id so the executor can link the result back
             task_params = proposal.parameters.copy()
             task_params['_action_id'] = action.id
+            task_params['_limits'] = limits
 
             ExecutionTask.objects.create(
                 action_name=proposal.name,
