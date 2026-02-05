@@ -121,14 +121,14 @@ TODO UI-1: Audit existing dashboard views and templates
 Status: COMPLETED
 
 TODO UI-2: Map dashboard components to real backend data sources
-Status: PENDING
+Status: COMPLETED
 
 ---
 
 ### AI Autonomy Visualization
 
 TODO UI-3: Display AI autonomy state (running, paused, stopped)
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-4: Display AI stop reasons and retry counts
 Status: PENDING
