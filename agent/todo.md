@@ -247,3 +247,68 @@ Status: PENDING
 - Mark each TODO explicitly DONE
 - No logic refactors allowed
 - Presentation changes only
+
+
+
+Phase 6 – Operational Control & Cyber Range Binding
+Attacker Executor (Backend)
+
+TODO OPS-1: Create AttackerExecutor model
+Status: PENDING
+
+TODO OPS-2: Implement executor heartbeat API
+Status: PENDING
+
+TODO OPS-3: Register executor daemon with controller
+Status: PENDING
+
+Target Management (Backend)
+
+TODO OPS-4: Create AttackTarget model
+Status: PENDING
+
+TODO OPS-5: Add admin or seed configuration for targets
+Status: PENDING
+
+Attack Context Management (Backend)
+
+TODO OPS-6: Create AttackContext model
+Status: PENDING
+
+TODO OPS-7: Bind autonomy controller to active AttackContext
+Status: PENDING
+
+TODO OPS-8: Enforce context validation before autonomy start
+Status: PENDING
+
+Dashboard Control Panel (Frontend)
+
+TODO UI-CTRL-1: Display attacker executor status (live heartbeat)
+Status: PENDING
+
+TODO UI-CTRL-2: Display configured target system information
+Status: PENDING
+
+TODO UI-CTRL-3: Implement Start Autonomous Attack (real backend trigger)
+Status: PENDING
+
+TODO UI-CTRL-4: Disable start if executor offline or no target selected
+Status: PENDING
+
+Safety & Failure Handling
+
+TODO OPS-9: Auto-stop autonomy if executor disconnects
+Status: PENDING
+
+TODO OPS-10: Log context-level start/stop reasons
+Status: PENDING
+
+Rules (Non-Negotiable)
+
+Autonomy MUST NOT start without a valid AttackContext
+
+Executor MUST heartbeat or be considered offline
+
+Target MUST be explicitly registered
+
+UI controls must reflect backend truth only

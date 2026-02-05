@@ -413,3 +413,134 @@ Templates MUST:
 - Do NOT introduce new models
 - Do NOT invent context fields
 - Extract presentation only
+
+
+
+📐 Architecture Update — Operational Control & Cyber Range Integration
+
+This extends your existing architecture.
+It does not weaken autonomy or safety.
+
+1. New Architectural Concept: Operational Context
+
+Autonomous attacks require explicit operational context:
+
+Who is attacking?
+
+What is the target?
+
+Is the execution environment ready?
+
+This context must be validated before autonomy starts.
+
+2. Updated High-Level Architecture
+[ Dashboard Control Panel ]
+        ↓
+[ Operational Context Manager ]   ← NEW
+        ↓
+[ Autonomous AI Controller ]
+        ↓
+[ Safety Filter ]
+        ↓
+[ Execution Task Queue ]
+        ↓
+[ Executor Daemon (Attacker VM) ]
+        ↓
+[ Target VM ]
+
+3. Backend Components (NEW / EXTENDED)
+A. Attacker Executor Registry (NEW)
+
+Tracks real executor machines.
+
+Model: AttackerExecutor
+
+name
+
+ip_address
+
+status (CONNECTED / DISCONNECTED)
+
+last_heartbeat
+
+capabilities (optional)
+
+Executor daemon must periodically heartbeat.
+
+B. Target Registry (NEW)
+
+Defines explicit, approved targets.
+
+Model: AttackTarget
+
+name
+
+ip_address
+
+operating_system
+
+vulnerability_profile (label only)
+
+is_active
+
+created_at
+
+Autonomy can only target registered, active targets.
+
+C. Operational Context (NEW)
+
+Defines one active attack context at a time.
+
+Model: AttackContext
+
+attacker_executor (FK)
+
+target (FK)
+
+status (READY / RUNNING / STOPPED)
+
+started_at
+
+stopped_at
+
+stop_reason
+
+This is what the dashboard controls.
+
+D. Autonomous Controller (EXTENDED)
+
+The controller must now:
+
+Refuse to start without a valid AttackContext
+
+Bind all planning/execution to that context
+
+Stop if context becomes invalid (executor offline, target disabled)
+
+No change to planning logic — only guardrails.
+
+4. Executor Daemon Responsibility (REAL)
+
+Executor daemon must:
+
+Register itself on startup
+
+Send heartbeat every N seconds
+
+Refuse execution if context target ≠ local network scope
+
+This makes attacker readiness provable.
+
+5. Dashboard Responsibility (REAL)
+
+Dashboard must:
+
+Display live executor status
+
+Display target info from DB
+
+Allow starting autonomy only when context is READY
+
+Disable controls otherwise
+
+No fake buttons.
