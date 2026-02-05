@@ -14,6 +14,76 @@ KILL_CHAIN_PHASES = [
     ("COMPLETED", "Completed"),
 ]
 
+from django.db import models
+
+class AttackerExecutor(models.Model):
+    """
+    Represents a real attacker machine (VM) running the executor daemon.
+    Used for heartbeat tracking, availability checks, and autonomy gating.
+    """
+    class Status(models.TextChoices):
+        CONNECTED = 'CONNECTED', 'Connected'
+        DISCONNECTED = 'DISCONNECTED', 'Disconnected'
+
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Human-readable identifier for this attacker machine"
+    )
+    ip_address = models.GenericIPAddressField(
+        protocol='both',
+        help_text="IP address of the executor daemon"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DISCONNECTED,
+        help_text="Current connection status"
+    )
+    last_heartbeat = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of the last received heartbeat"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.ip_address}) [{self.status}]"
+
+
+class AttackTarget(models.Model):
+    """
+    Defines an explicit, approved target system for the cyber range.
+    Autonomy can only target registered, active targets.
+    """
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Human-readable identifier for this target system"
+    )
+    ip_address = models.GenericIPAddressField(
+        protocol='both',
+        help_text="IP address of the target system"
+    )
+    operating_system = models.CharField(
+        max_length=100,
+        help_text="OS name/version (e.g., 'Ubuntu 20.04', 'Windows Server 2019')"
+    )
+    vulnerability_profile = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Label describing the intended vulnerability set (e.g., 'Metasploitable3')"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="If False, this target cannot be selected for autonomy."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        status = "Active" if self.is_active else "Inactive"
+        return f"{self.name} ({self.ip_address}) [{status}]"
+
 AUTONOMY_STATUS_CHOICES = [
     ("IDLE", "Idle"),
     ("RUNNING", "Running"),
@@ -407,3 +477,43 @@ class DefenderAlert(models.Model):
 
     def __str__(self):
         return f"[{self.severity}] {self.title}"
+
+
+class AttackContext(models.Model):
+    """
+    Defines the operational context for an autonomous attack.
+    Binds a specific attacker executor to a specific target.
+    """
+    class Status(models.TextChoices):
+        READY = 'READY', 'Ready'
+        RUNNING = 'RUNNING', 'Running'
+        STOPPED = 'STOPPED', 'Stopped'
+
+    attacker_executor = models.ForeignKey(
+        AttackerExecutor,
+        on_delete=models.PROTECT,
+        help_text="The machine performing the attack."
+    )
+    target = models.ForeignKey(
+        AttackTarget,
+        on_delete=models.PROTECT,
+        help_text="The authorized target system."
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.READY,
+        help_text="Current operational status of this context."
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    stop_reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Attack Context"
+        verbose_name_plural = "Attack Contexts"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Context: {self.attacker_executor.name} -> {self.target.name} ({self.status})"

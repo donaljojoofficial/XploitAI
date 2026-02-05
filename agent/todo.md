@@ -234,7 +234,7 @@ Status: COMPLETED
 ### Validation & Cleanup
 
 TODO UI-MIG-8: Remove inline HTML generation from views
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-MIG-9: Verify all UI updates reflect immediately in browser
 Status: PENDING
@@ -247,3 +247,76 @@ Status: PENDING
 - Mark each TODO explicitly DONE
 - No logic refactors allowed
 - Presentation changes only
+
+
+
+Phase 6 – Operational Control & Cyber Range Binding
+Attacker Executor (Backend)
+
+TODO OPS-1: Create AttackerExecutor model
+Status: COMPLETED
+
+TODO OPS-2: Implement executor heartbeat API
+Status: COMPLETED
+
+TODO OPS-3: Register executor daemon with controller
+Status: COMPLETED
+
+Target Management (Backend)
+
+TODO OPS-4: Create AttackTarget model
+Status: COMPLETED
+
+TODO OPS-5: Add admin or seed configuration for targets
+Status: COMPLETED
+
+Attack Context Management (Backend)
+
+TODO OPS-6: Create AttackContext model
+Status: COMPLETED
+
+TODO OPS-7: Bind autonomy controller to active AttackContext
+Status: COMPLETED
+
+TODO OPS-8: Enforce context validation before autonomy start
+Status: COMPLETED
+
+
+Dashboard Control Panel (Frontend)
+
+TODO UI-CTRL-1: Display attacker executor status (live heartbeat)
+Status: COMPLETED
+
+TODO UI-CTRL-2: Display configured target system information
+Status: COMPLETED
+
+TODO UI-CTRL-3: Implement Start Autonomous Attack (real backend trigger)
+Status: COMPLETED
+
+TODO UI-CTRL-4: Disable start if executor offline or no target selected
+Status: COMPLETED
+
+---
+
+
+Safety & Failure Handling
+
+TODO OPS-9: Auto-stop autonomy if executor disconnects
+Status: COMPLETED
+
+TODO OPS-10: Log context-level start/stop reasons
+Status: COMPLETED
+
+---
+
+##
+
+Rules (Non-Negotiable)
+
+Autonomy MUST NOT start without a valid AttackContext
+
+Executor MUST heartbeat or be considered offline
+
+Target MUST be explicitly registered
+
+UI controls must reflect backend truth only

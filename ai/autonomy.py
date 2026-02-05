@@ -19,11 +19,13 @@ import uuid
 from typing import Optional
 
 from django.db import transaction
+from django.utils import timezone
 
-from core.models import Action, AttackState, ExecutionTask, DefenderAlert
+from core.models import Action, AttackState, ExecutionTask, DefenderAlert, AttackContext
 # Use the concrete implementation from agent.decision
 from agent.decision import DecisionEngine
 from ai.command_generator import CommandGenerator
+from ai.context_manager import OperationalContextManager
 from ai.safety import CommandSafety
 from policy.engine import PolicyEngine
 
@@ -59,6 +61,23 @@ class AutonomousController:
 
     def start(self) -> None:
         """Start the autonomous control loop."""
+        # OPS-8: Validate Operational Context before starting
+        try:
+            context = OperationalContextManager.ensure_running_context()
+        except RuntimeError as e:
+            logger.error("Cannot start autonomy: %s", e)
+            AttackState.objects.filter(id=self.attack_state_id).update(
+                autonomy_status="STOPPED", stop_reason=f"Context Error: {e}"
+            )
+            return
+
+        # OPS-10: Update Context Start
+        # Transition from READY to RUNNING and log start time
+        if context.status == AttackContext.Status.READY:
+            context.status = AttackContext.Status.RUNNING
+            context.started_at = timezone.now()
+            context.save(update_fields=['status', 'started_at'])
+
         self.running = True
         self.step_count = 0
         
@@ -76,6 +95,16 @@ class AutonomousController:
         AttackState.objects.filter(id=self.attack_state_id).update(
             autonomy_status="STOPPED", stop_reason=reason
         )
+
+        # OPS-10: Log context stop
+        # Transition active context to STOPPED and log reason
+        context = OperationalContextManager.get_active_context()
+        if context:
+            context.status = AttackContext.Status.STOPPED
+            context.stopped_at = timezone.now()
+            context.stop_reason = reason
+            context.save(update_fields=['status', 'stopped_at', 'stop_reason'])
+
         logger.info("AutonomousController stopped for AttackState ID %s. Reason: %s", 
                     self.attack_state_id, reason)
 
@@ -229,6 +258,20 @@ class AutonomousController:
         Check if the autonomous loop should stop.
         Returns the stop reason if it should stop, else None.
         """
+        # OPS-9: Check Operational Context Liveness
+        # Fail fast if executor disconnects or target becomes inactive
+        context = OperationalContextManager.get_active_context()
+        if not context:
+            msg = "Operational Context lost (no active context)."
+            logger.warning("STOP CONDITION: %s", msg)
+            return msg
+
+        is_valid, reason = OperationalContextManager.validate_readiness(context)
+        if not is_valid:
+            msg = f"Operational Context invalid: {reason}"
+            logger.warning("STOP CONDITION: %s", msg)
+            return msg
+
         # 1. Max Steps
         if self.step_count >= self.max_steps:
             msg = f"Max steps ({self.max_steps}) reached."

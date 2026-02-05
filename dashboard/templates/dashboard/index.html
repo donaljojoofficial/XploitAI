@@ -29,6 +29,8 @@
 <div class="container">
     <h1>XploitAI Autonomous Dashboard</h1>
 
+    {% include "dashboard/partials/control_panel.html" %}
+
     {% include "dashboard/partials/autonomy_status.html" with state=attack_state %}
 
     <div class="card">
@@ -41,6 +43,11 @@
             {% endfor %}
         </ul>
     </div>
+
+
+    {% include "dashboard/partials/executor_status.html" with executors=executors %}
+
+    {% include "dashboard/partials/target_info.html" with targets=targets %}
 
     {% include "dashboard/partials/execution_tasks.html" with tasks=tasks display_mode="summary" %}
 

@@ -1,0 +1,40 @@
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Target Systems</h5>
+        <span class="badge bg-secondary">{{ targets|length }} Configured</span>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-striped table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Name</th>
+                    <th>IP Address</th>
+                    <th>OS</th>
+                    <th>Profile</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for target in targets %}
+                <tr>
+                    <td><strong>{{ target.name }}</strong></td>
+                    <td><code>{{ target.ip_address }}</code></td>
+                    <td>{{ target.operating_system }}</td>
+                    <td><small class="text-muted">{{ target.vulnerability_profile }}</small></td>
+                    <td>
+                        {% if target.is_active %}
+                            <span class="badge bg-success">Active</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Inactive</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-3">No targets configured. Use admin or seed command.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
