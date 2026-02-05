@@ -110,6 +110,10 @@ def index(request: HttpRequest) -> HttpResponse:
     executors = AttackerExecutor.objects.all().order_by('-last_heartbeat')
     targets = AttackTarget.objects.all().order_by('name')
 
+    # Readiness checks for UI
+    has_connected_executor = executors.filter(status=AttackerExecutor.Status.CONNECTED).exists()
+    has_active_target = targets.filter(is_active=True).exists()
+
     context = {
         'attack_state': attack_state,
         'actions': actions,
@@ -117,6 +121,8 @@ def index(request: HttpRequest) -> HttpResponse:
         'alerts': alerts,
         'executors': executors,
         'targets': targets,
+        'has_connected_executor': has_connected_executor,
+        'has_active_target': has_active_target,
     }
     return render(request, 'dashboard/index.html', context)
 

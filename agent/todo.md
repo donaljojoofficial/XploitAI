@@ -294,7 +294,10 @@ TODO UI-CTRL-3: Implement Start Autonomous Attack (real backend trigger)
 Status: COMPLETED
 
 TODO UI-CTRL-4: Disable start if executor offline or no target selected
-Status: PENDING
+Status: COMPLETED
+
+---
+
 
 Safety & Failure Handling
 

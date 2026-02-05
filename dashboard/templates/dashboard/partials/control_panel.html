@@ -3,6 +3,18 @@
         <h5 class="card-title mb-0">Mission Control</h5>
     </div>
     <div class="card-body">
+        {% if not has_connected_executor or not has_active_target %}
+            <div class="alert alert-warning">
+                <strong>System Not Ready:</strong>
+                {% if not has_connected_executor %}
+                    No connected executors found. Run the executor daemon.
+                {% endif %}
+                {% if not has_active_target %}
+                    No active targets configured.
+                {% endif %}
+            </div>
+        {% endif %}
+
         <form action="{% url 'dashboard_start_attack' %}" method="POST" class="row g-3 align-items-end">
             {% csrf_token %}
             
@@ -33,10 +45,33 @@
             </div>
 
             <div class="col-md-4">
-                <button type="submit" class="btn btn-danger w-100">
+                <button type="submit" id="startAttackBtn" class="btn btn-danger w-100" disabled>
                     <span class="fw-bold">INITIATE AUTONOMOUS ATTACK</span>
                 </button>
             </div>
         </form>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const executorSelect = document.getElementById('executorSelect');
+        const targetSelect = document.getElementById('targetSelect');
+        const startBtn = document.getElementById('startAttackBtn');
+
+        function checkReadiness() {
+            if (executorSelect.value && targetSelect.value) {
+                startBtn.disabled = false;
+            } else {
+                startBtn.disabled = true;
+            }
+        }
+
+        if (executorSelect && targetSelect && startBtn) {
+            executorSelect.addEventListener('change', checkReadiness);
+            targetSelect.addEventListener('change', checkReadiness);
+            // Initial check
+            checkReadiness();
+        }
+    });
+</script>
