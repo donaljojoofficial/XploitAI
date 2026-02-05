@@ -10,6 +10,7 @@ This module acts as a sandbox guardrail before execution.
 """
 
 import logging
+import ipaddress
 import re
 from typing import Set
 
@@ -33,6 +34,21 @@ class CommandSafety:
         "cat",
         "grep",
     }
+
+    # Tools that require network scope validation
+    NETWORK_TOOLS: Set[str] = {
+        "nmap", "whois", "nslookup", "nc", "netcat", "ping"
+    }
+
+    # Allowed Network Scopes (RFC1918 + Loopback)
+    ALLOWED_NETWORKS = [
+        ipaddress.ip_network("127.0.0.0/8"),
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+    ]
+
+    ALLOWED_DOMAINS = {".local", ".lab", ".test", ".lan", "localhost"}
 
     # Blacklist of dangerous patterns
     FORBIDDEN_PATTERNS = [
@@ -87,4 +103,39 @@ class CommandSafety:
             if binary_name not in self.ALLOWED_TOOLS:
                 return False, f"Binary '{binary_name}' is not in the allowed whitelist."
 
+            # 3. Check Network Scope
+            if binary_name in self.NETWORK_TOOLS:
+                # Check arguments for network scope
+                args = tokens[1:]
+                for arg in args:
+                    if not self._is_arg_safe(arg):
+                        return False, f"Target '{arg}' is out of allowed network scope."
+
         return True, "Command is safe."
+
+    def _is_arg_safe(self, arg: str) -> bool:
+        """Check if a command argument is within the allowed scope."""
+        # Strip quotes
+        arg = arg.strip("'\"")
+
+        # Ignore options/flags
+        if arg.startswith("-"):
+            return True
+
+        # Check if IP
+        try:
+            ip = ipaddress.ip_address(arg)
+            return any(ip in net for net in self.ALLOWED_NETWORKS)
+        except ValueError:
+            pass  # Not an IP
+
+        # Check if Domain-like (has dot, no slash)
+        if '.' in arg and '/' not in arg:
+            if arg == "localhost":
+                return True
+            if any(arg.endswith(suffix) for suffix in self.ALLOWED_DOMAINS):
+                return True
+            return False  # Domain-like but not whitelisted
+
+        # Safe (e.g. port number, file path with slash, plain string)
+        return True
