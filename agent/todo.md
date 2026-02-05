@@ -327,4 +327,4 @@ BUG FIXES:
 - BUG-EXEC-1: Create executor API views - DONE
 - BUG-EXEC-2: Register executor API URLs - DONE
 - BUG-EXEC-3: Include executor API routes at project level - DONE
-- BUG-EXEC-4: Verify executor endpoints return JSON
+- BUG-EXEC-4: Verify executor endpoints return JSON - DONE

@@ -29,10 +29,10 @@ def heartbeat(request: HttpRequest) -> JsonResponse:
     try:
         data = json.loads(request.body)
         name = data.get("name")
-        ip_address = data.get("ip_address")
+        ip_address = data.get("ip_address") or request.META.get("REMOTE_ADDR")
 
-        if not name or not ip_address:
-            return JsonResponse({"error": "Missing 'name' or 'ip_address'"}, status=400)
+        if not name:
+            return JsonResponse({"error": "Missing 'name'"}, status=400)
 
         # Register or update the executor status
         executor, created = AttackerExecutor.objects.update_or_create(
