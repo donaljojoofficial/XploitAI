@@ -1,0 +1,23 @@
+{% comment %}
+  Renders the autonomy status panel.
+  Expects the following context variables:
+  - state: The AttackState object.
+  - consecutive_failures: (Optional) The number of consecutive failures.
+{% endcomment %}
+<div class="card">
+    <h2>Autonomy Status</h2>
+    {% if state %}
+        <p><strong>State:</strong> <span class="status-{{ state.autonomy_status }}">{{ state.get_autonomy_status_display }}</span></p>
+
+        {% if consecutive_failures is not None %}
+            <p><strong>Consecutive Failures:</strong> {{ consecutive_failures }}</p>
+        {% endif %}
+
+        {% if state.autonomy_status == 'STOPPED' %}
+            <p><strong>Stop Reason:</strong></p>
+            <code>{{ state.stop_reason|default:"No reason provided." }}</code>
+        {% endif %}
+    {% else %}
+        <p class="empty-state">No attack state available.</p>
+    {% endif %}
+</div>

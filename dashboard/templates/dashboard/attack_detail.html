@@ -29,15 +29,7 @@
     <p>Current phase: <code>{{ state.current_phase }}</code></p>
 
     <!-- Autonomy Panel -->
-    <div class="card">
-        <h2>Autonomy Status</h2>
-        <p><strong>State:</strong> <span class="status-{{ state.autonomy_status }}">{{ state.get_autonomy_status_display }}</span></p>
-        <p><strong>Consecutive Failures:</strong> {{ consecutive_failures }}</p>
-        {% if state.autonomy_status == 'STOPPED' %}
-            <p><strong>Stop Reason:</strong></p>
-            <code>{{ state.stop_reason|default:"No reason provided." }}</code>
-        {% endif %}
-    </div>
+    {% include "dashboard/partials/autonomy_status.html" with state=state consecutive_failures=consecutive_failures %}
 
     <!-- Interaction Visualization -->
     <div class="card">

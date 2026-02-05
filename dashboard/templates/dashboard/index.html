@@ -29,15 +29,7 @@
 <div class="container">
     <h1>XploitAI Autonomous Dashboard</h1>
 
-    <div class="card">
-        <h2>Autonomy Status</h2>
-        {% if attack_state %}
-            <p><strong>Status:</strong> <span class="status status-{{ attack_state.autonomy_status }}">{{ attack_state.autonomy_status|default:"UNKNOWN" }}</span></p>
-            <p><strong>Stop Reason:</strong> {{ attack_state.stop_reason|default:"N/A" }}</p>
-        {% else %}
-            <p class="empty-state">No attack state available.</p>
-        {% endif %}
-    </div>
+    {% include "dashboard/partials/autonomy_status.html" with state=attack_state %}
 
     <div class="card">
         <h2>Recent Plan Steps</h2>
