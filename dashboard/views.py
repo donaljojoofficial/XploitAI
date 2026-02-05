@@ -21,7 +21,6 @@ from typing import Any
 
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpRequest, HttpResponse
-from django.urls import path
 from django.views.decorators.http import require_POST
 from django.utils import timezone
 
@@ -210,11 +209,3 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     controller.start()
 
     return redirect('dashboard_index')
-
-
-urlpatterns = [
-    path("", index, name="dashboard_index"),
-    path("start/", start_attack, name="dashboard_start_attack"),
-    path("attack/<int:pk>/", attack_detail, name="dashboard_attack_detail"),
-    path("attack/<int:pk>/replay/", attack_replay, name="dashboard_attack_replay"),
-]
