@@ -53,16 +53,8 @@
         </ul>
     </div>
 
-    <div class="card">
-        <h2>Recent Defender Alerts</h2>
-        <ul>
-            {% for alert in alerts %}
-                <li>{{ alert.created_at|date:"Y-m-d H:i:s" }} - [<span class="severity severity-{{ alert.severity }}">{{ alert.severity }}</span>]: {{ alert.message|escape }}</li>
-            {% empty %}
-                <li class="empty-state">No defender alerts recorded.</li>
-            {% endfor %}
-        </ul>
-    </div>
+    {% include "dashboard/partials/defender_alerts.html" with alerts=alerts display_mode="summary" %}
+
 </div>
 </body>
 </html>

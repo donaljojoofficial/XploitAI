@@ -66,24 +66,7 @@
     </div>
 
     <!-- Defender Alerts -->
-    <div class="card">
-        <h2>Defender Alerts</h2>
-        <table>
-            <thead><tr><th>Severity</th><th>Rule ID</th><th>Description</th><th>Detected At</th></tr></thead>
-            <tbody>
-            {% for alert in alerts %}
-                <tr>
-                    <td>{{ alert.rendered_severity|safe }}</td>
-                    <td>{{ alert.rule_id }}</td>
-                    <td>{{ alert.description }}</td>
-                    <td class="muted">{{ alert.created_at|date:"Y-m-d H:i:s" }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="4" class="empty-state">No alerts detected.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    {% include "dashboard/partials/defender_alerts.html" with alerts=alerts %}
 
     <!-- Execution Queue -->
     <div class="card">
