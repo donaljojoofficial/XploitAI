@@ -49,6 +49,41 @@ class AttackerExecutor(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.ip_address}) [{self.status}]"
+
+
+class AttackTarget(models.Model):
+    """
+    Defines an explicit, approved target system for the cyber range.
+    Autonomy can only target registered, active targets.
+    """
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Human-readable identifier for this target system"
+    )
+    ip_address = models.GenericIPAddressField(
+        protocol='both',
+        help_text="IP address of the target system"
+    )
+    operating_system = models.CharField(
+        max_length=100,
+        help_text="OS name/version (e.g., 'Ubuntu 20.04', 'Windows Server 2019')"
+    )
+    vulnerability_profile = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Label describing the intended vulnerability set (e.g., 'Metasploitable3')"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="If False, this target cannot be selected for autonomy."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        status = "Active" if self.is_active else "Inactive"
+        return f"{self.name} ({self.ip_address}) [{status}]"
+
 AUTONOMY_STATUS_CHOICES = [
     ("IDLE", "Idle"),
     ("RUNNING", "Running"),
