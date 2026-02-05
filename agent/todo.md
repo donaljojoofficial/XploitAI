@@ -65,7 +65,7 @@ Status: COMPLETED
 ### Execution Layer
 
 TODO EXEC-3: Define action/command execution contract
-Status: PENDING
+Status: COMPLETED
 
 TODO EXEC-4: Implement executor daemon (Kali)
 Status: PENDING
