@@ -109,27 +109,7 @@
     </div>
 
     <!-- Execution Plan -->
-    <div class="card">
-        <h2>Execution Plan</h2>
-        <table>
-            <thead><tr><th>Step</th><th>Name</th><th>Description</th><th>Reasoning</th><th>Status</th><th>Parameters</th><th>Created</th></tr></thead>
-            <tbody>
-            {% for action in actions %}
-                <tr>
-                    <td><strong>{{ forloop.counter }}</strong></td>
-                    <td>{{ action.name }}</td>
-                    <td class="muted">{{ action.description|default:'' }}</td>
-                    <td>{{ action.reasoning|default:'' }}{{ action.rendered_memory|safe }}</td>
-                    <td>{{ action.rendered_status|safe }}</td>
-                    <td><pre>{{ action.parameters }}</pre></td>
-                    <td class="muted">{{ action.created_at|date:"Y-m-d H:i:s" }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="8" class="empty-state">No actions.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    {% include "dashboard/partials/plan_steps.html" with actions=actions %}
 
     <!-- Unified Event Timeline -->
     <div class="card">

@@ -218,10 +218,10 @@ Status: COMPLETED
 ### Component Extraction
 
 TODO UI-MIG-4: Extract autonomy status into template partial
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-MIG-5: Extract AI plan steps into template partial
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-MIG-6: Extract defender alerts into template partial
 Status: PENDING
