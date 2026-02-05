@@ -167,7 +167,7 @@ TODO UI-10: Display defender alerts and severity levels
 Status: COMPLETED
 
 TODO UI-11: Visualize attacker vs defender interaction
-Status: PENDING
+Status: COMPLETED
 
 ---
 

@@ -464,15 +464,67 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "</tr>"
         )
 
-    event_rows: list[str] = []
+    # --- Unified Timeline (UI-12) ---
+    unified_events = []
+
+    # 1. System Events
     for e in events:
-        event_rows.append(
+        unified_events.append({
+            'dt': e.created_at,
+            'source': 'SYSTEM',
+            'type': e.get_event_type_display(),
+            'desc': e.message,
+            'data': e.data
+        })
+
+    # 2. Defender Alerts
+    for a in alerts:
+        unified_events.append({
+            'dt': a.created_at,
+            'source': 'DEFENDER',
+            'type': f"ALERT {a.severity}",
+            'desc': f"{a.rule_id}: {a.description}",
+            'data': {'recommendation': a.recommendation}
+        })
+
+    # 3. Execution Tasks
+    for t in tasks:
+        unified_events.append({
+            'dt': t.created_at,
+            'source': 'EXECUTOR',
+            'type': 'TASK_QUEUED',
+            'desc': f"Queued: {t.action_name}",
+            'data': t.parameters
+        })
+        if t.status in ('COMPLETED', 'FAILED'):
+             unified_events.append({
+                'dt': t.updated_at,
+                'source': 'EXECUTOR',
+                'type': f"TASK_{t.status}",
+                'desc': f"Finished: {t.action_name}",
+                'data': t.output or {'error': t.error_message}
+            })
+
+    # Sort by timestamp
+    unified_events.sort(key=lambda x: x['dt'])
+
+    timeline_rows = []
+    for item in unified_events:
+        src = item['source']
+        bg = "#6c757d"
+        if src == "DEFENDER": bg = "#dc3545"
+        elif src == "EXECUTOR": bg = "#0d6efd"
+        elif src == "SYSTEM": bg = "#198754"
+        
+        src_badge = f"<span style='background:{bg}; color:#fff; padding:0.2rem 0.4rem; border-radius:4px; font-size:0.75em; font-weight:bold;'>{src}</span>"
+        
+        timeline_rows.append(
             "<tr>"
-            f"<td><code>{escape(e.get_event_type_display())}</code></td>"
-            f"<td><code>{escape(e.phase)}</code></td>"
-            f"<td>{escape(e.created_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
-            f"<td class='muted'>{escape(e.message)}</td>"
-            f"<td>{_format_event_data(e.data)}</td>"
+            f"<td style='white-space:nowrap; font-size:0.9em;'>{escape(item['dt'].strftime('%H:%M:%S'))}</td>"
+            f"<td>{src_badge}</td>"
+            f"<td style='font-size:0.9em;'><strong>{escape(item['type'])}</strong></td>"
+            f"<td>{escape(item['desc'])}</td>"
+            f"<td>{_format_event_data(item['data'])}</td>"
             "</tr>"
         )
 
@@ -500,10 +552,10 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "<thead><tr><th>Step</th><th>Name</th><th>Description</th><th>Reasoning</th><th>Status</th><th>Parameters</th><th>Created</th><th>Updated</th></tr></thead>"
         f"<tbody>{''.join(action_rows) if action_rows else '<tr><td colspan=8 class=muted>No actions.</td></tr>'}</tbody>"
         "</table>"
-        "<h2>Timeline</h2>"
+        "<h2>Unified Event Timeline</h2>"
         "<table>"
-        "<thead><tr><th>Type</th><th>Phase</th><th>At</th><th>Message</th><th>Data</th></tr></thead>"
-        f"<tbody>{''.join(event_rows) if event_rows else '<tr><td colspan=5 class=muted>No events.</td></tr>'}</tbody>"
+        "<thead><tr><th>Time</th><th>Source</th><th>Type</th><th>Message</th><th>Data</th></tr></thead>"
+        f"<tbody>{''.join(timeline_rows) if timeline_rows else '<tr><td colspan=5 class=muted>No events recorded.</td></tr>'}</tbody>"
         "</table>"
     )
 
