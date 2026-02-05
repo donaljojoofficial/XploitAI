@@ -177,7 +177,7 @@ TODO UI-12: Implement unified event timeline
 Status: COMPLETED
 
 TODO UI-13: Add replay view for AI decisions and executions
-Status: PENDING
+Status: COMPLETED
 
 ---
 
