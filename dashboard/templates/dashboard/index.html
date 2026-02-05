@@ -29,6 +29,8 @@
 <div class="container">
     <h1>XploitAI Autonomous Dashboard</h1>
 
+    {% include "dashboard/partials/control_panel.html" %}
+
     {% include "dashboard/partials/autonomy_status.html" with state=attack_state %}
 
     <div class="card">

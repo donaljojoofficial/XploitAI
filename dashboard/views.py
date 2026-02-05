@@ -19,11 +19,14 @@ import json
 import logging
 from typing import Any
 
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpRequest, HttpResponse
 from django.urls import path
+from django.views.decorators.http import require_POST
+from django.utils import timezone
 
-from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget
+from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
+from ai.autonomy import AutonomousController
 
 logger = logging.getLogger(__name__)
 
@@ -166,8 +169,52 @@ def attack_replay(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, 'dashboard/replay.html', context)
 
 
+@require_POST
+def start_attack(request: HttpRequest) -> HttpResponse:
+    """
+    Handles the 'Start Autonomous Attack' trigger from the dashboard.
+    Creates a new AttackState and AttackContext, then starts the controller.
+    """
+    executor_id = request.POST.get('executor_id')
+    target_id = request.POST.get('target_id')
+
+    if not executor_id or not target_id:
+        return redirect('dashboard_index')
+
+    # 1. Create new Attack State
+    state = AttackState.objects.create(
+        name=f"Autonomous Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        current_phase="RECONNAISSANCE",
+        autonomy_status="IDLE"
+    )
+
+    # 2. Create Operational Context
+    executor = get_object_or_404(AttackerExecutor, pk=executor_id)
+    target = get_object_or_404(AttackTarget, pk=target_id)
+
+    # Close any existing active contexts
+    AttackContext.objects.filter(status__in=['READY', 'RUNNING']).update(
+        status='STOPPED',
+        stop_reason='Superseded by new attack start',
+        stopped_at=timezone.now()
+    )
+
+    AttackContext.objects.create(
+        attacker_executor=executor,
+        target=target,
+        status='READY'
+    )
+
+    # 3. Initialize and Start Controller
+    controller = AutonomousController(attack_state_id=state.id)
+    controller.start()
+
+    return redirect('dashboard_index')
+
+
 urlpatterns = [
     path("", index, name="dashboard_index"),
+    path("start/", start_attack, name="dashboard_start_attack"),
     path("attack/<int:pk>/", attack_detail, name="dashboard_attack_detail"),
     path("attack/<int:pk>/replay/", attack_replay, name="dashboard_attack_replay"),
 ]

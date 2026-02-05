@@ -291,7 +291,7 @@ TODO UI-CTRL-2: Display configured target system information
 Status: COMPLETED
 
 TODO UI-CTRL-3: Implement Start Autonomous Attack (real backend trigger)
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-CTRL-4: Disable start if executor offline or no target selected
 Status: PENDING

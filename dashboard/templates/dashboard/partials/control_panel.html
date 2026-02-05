@@ -1,0 +1,42 @@
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="card-title mb-0">Mission Control</h5>
+    </div>
+    <div class="card-body">
+        <form action="{% url 'dashboard_start_attack' %}" method="POST" class="row g-3 align-items-end">
+            {% csrf_token %}
+            
+            <div class="col-md-4">
+                <label for="executorSelect" class="form-label">Attacker Executor</label>
+                <select name="executor_id" id="executorSelect" class="form-select" required>
+                    <option value="" selected disabled>Select Executor...</option>
+                    {% for executor in executors %}
+                        <option value="{{ executor.id }}" {% if executor.status != 'CONNECTED' %}disabled{% endif %}>
+                            {{ executor.name }} ({{ executor.ip_address }}) 
+                            {% if executor.status != 'CONNECTED' %}[OFFLINE]{% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-4">
+                <label for="targetSelect" class="form-label">Target System</label>
+                <select name="target_id" id="targetSelect" class="form-select" required>
+                    <option value="" selected disabled>Select Target...</option>
+                    {% for target in targets %}
+                        <option value="{{ target.id }}" {% if not target.is_active %}disabled{% endif %}>
+                            {{ target.name }} ({{ target.ip_address }})
+                            {% if not target.is_active %}[INACTIVE]{% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-danger w-100">
+                    <span class="fw-bold">INITIATE AUTONOMOUS ATTACK</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
