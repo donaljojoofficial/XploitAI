@@ -305,7 +305,11 @@ TODO OPS-9: Auto-stop autonomy if executor disconnects
 Status: COMPLETED
 
 TODO OPS-10: Log context-level start/stop reasons
-Status: PENDING
+Status: COMPLETED
+
+---
+
+##
 
 Rules (Non-Negotiable)
 

@@ -19,8 +19,9 @@ import uuid
 from typing import Optional
 
 from django.db import transaction
+from django.utils import timezone
 
-from core.models import Action, AttackState, ExecutionTask, DefenderAlert
+from core.models import Action, AttackState, ExecutionTask, DefenderAlert, AttackContext
 # Use the concrete implementation from agent.decision
 from agent.decision import DecisionEngine
 from ai.command_generator import CommandGenerator
@@ -62,13 +63,20 @@ class AutonomousController:
         """Start the autonomous control loop."""
         # OPS-8: Validate Operational Context before starting
         try:
-            OperationalContextManager.ensure_running_context()
+            context = OperationalContextManager.ensure_running_context()
         except RuntimeError as e:
             logger.error("Cannot start autonomy: %s", e)
             AttackState.objects.filter(id=self.attack_state_id).update(
                 autonomy_status="STOPPED", stop_reason=f"Context Error: {e}"
             )
             return
+
+        # OPS-10: Update Context Start
+        # Transition from READY to RUNNING and log start time
+        if context.status == AttackContext.Status.READY:
+            context.status = AttackContext.Status.RUNNING
+            context.started_at = timezone.now()
+            context.save(update_fields=['status', 'started_at'])
 
         self.running = True
         self.step_count = 0
@@ -87,6 +95,16 @@ class AutonomousController:
         AttackState.objects.filter(id=self.attack_state_id).update(
             autonomy_status="STOPPED", stop_reason=reason
         )
+
+        # OPS-10: Log context stop
+        # Transition active context to STOPPED and log reason
+        context = OperationalContextManager.get_active_context()
+        if context:
+            context.status = AttackContext.Status.STOPPED
+            context.stopped_at = timezone.now()
+            context.stop_reason = reason
+            context.save(update_fields=['status', 'stopped_at', 'stop_reason'])
+
         logger.info("AutonomousController stopped for AttackState ID %s. Reason: %s", 
                     self.attack_state_id, reason)
 
