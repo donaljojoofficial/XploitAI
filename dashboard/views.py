@@ -236,6 +236,45 @@ def _status_badge(status: str) -> str:
     )
 
 
+def _format_execution_output(task: Any) -> str:
+    """Helper to format execution output from a task."""
+    # Try common field names for result/output
+    result = getattr(task, "result", None) or getattr(task, "output", None)
+
+    if not result:
+        return "<span class='muted'>-</span>"
+
+    # If result is a JSON string, parse it
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if isinstance(result, dict):
+        # If it has stdout/stderr structure (common in executors)
+        stdout = result.get("stdout", "")
+        stderr = result.get("stderr", "")
+        return_code = result.get("return_code")
+
+        parts = []
+        if return_code is not None and return_code != 0:
+            parts.append(f"<div style='color:#dc3545; font-weight:bold; font-size:0.85em;'>Exit Code: {return_code}</div>")
+
+        if stdout:
+            parts.append(f"<div class='muted' style='font-size:0.8em;'>STDOUT:</div><pre style='max-height:150px; overflow:auto; font-size:0.85em;'>{escape(str(stdout))}</pre>")
+        if stderr:
+            parts.append(f"<div class='muted' style='font-size:0.8em;'>STDERR:</div><pre style='color:#dc3545; max-height:150px; overflow:auto; font-size:0.85em;'>{escape(str(stderr))}</pre>")
+
+        if not parts:
+            # Fallback for other dict content
+            return f"<pre style='max-height:150px; overflow:auto; font-size:0.85em;'>{escape(json.dumps(result, indent=2))}</pre>"
+
+        return "".join(parts)
+
+    return f"<pre style='max-height:150px; overflow:auto; font-size:0.85em;'>{escape(str(result))}</pre>"
+
+
 def index(request: HttpRequest) -> HttpResponse:
     """List simulations (AttackState) with current phase and timestamps."""
     states = AttackState.objects.all().order_by("-updated_at")
@@ -313,17 +352,19 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
     task_rows: list[str] = []
     for t in tasks:
-        # Handle potential missing command field safely or truncate
         cmd = getattr(t, "command", "") or ""
-        if len(cmd) > 50:
-            cmd = cmd[:47] + "..."
-        
+        # Render command in a scrollable block instead of truncating
+        cmd_html = f"<pre style='max-height:80px; overflow:auto; white-space:pre-wrap; word-break:break-all; font-size:0.85em; margin:0;'>{escape(cmd)}</pre>"
+
+        output_html = _format_execution_output(t)
+
         task_rows.append(
             "<tr>"
             f"<td>{t.id}</td>"
             f"<td>{escape(t.action_name)}</td>"
             f"<td>{_status_badge(t.status)}</td>"
-            f"<td><code>{escape(cmd)}</code></td>"
+            f"<td style='min-width:200px;'>{cmd_html}</td>"
+            f"<td style='min-width:200px;'>{output_html}</td>"
             f"<td class='muted'>{escape(t.created_at.strftime('%H:%M:%S'))}</td>"
             f"<td class='muted'>{escape(t.updated_at.strftime('%H:%M:%S'))}</td>"
             "</tr>"
@@ -364,8 +405,8 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         f"{autonomy_panel}"
         "<h2>Execution Queue</h2>"
         "<table>"
-        "<thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Command</th><th>Created</th><th>Updated</th></tr></thead>"
-        f"<tbody>{''.join(task_rows) if task_rows else '<tr><td colspan=6 class=muted>No execution tasks.</td></tr>'}</tbody>"
+        "<thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Command</th><th>Output</th><th>Created</th><th>Updated</th></tr></thead>"
+        f"<tbody>{''.join(task_rows) if task_rows else '<tr><td colspan=7 class=muted>No execution tasks.</td></tr>'}</tbody>"
         "</table>"
         "<h2>Execution Plan</h2>"
         "<table>"
