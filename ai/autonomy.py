@@ -23,6 +23,7 @@ from django.db import transaction
 from core.models import Action, AttackState, ExecutionTask, DefenderAlert
 # Use the concrete implementation from agent.decision
 from agent.decision import DecisionEngine
+from ai.command_generator import CommandGenerator
 from policy.engine import PolicyEngine
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class AutonomousController:
         # Initialize components
         self.decision_engine = DecisionEngine()
         self.policy_engine = PolicyEngine()
+        self.command_generator = CommandGenerator()
 
     def start(self) -> None:
         """Start the autonomous control loop."""
@@ -240,9 +242,13 @@ class AutonomousController:
             task_params = proposal.parameters.copy()
             task_params['_action_id'] = action.id
 
+            # Generate the shell command
+            cmd = self.command_generator.generate(proposal.name, proposal.parameters)
+
             ExecutionTask.objects.create(
                 action_name=proposal.name,
                 parameters=task_params,
+                command=cmd,
                 status='PENDING',
                 requires_approval=False,  # Future: Check policy_decision.requires_approval
             )

@@ -32,14 +32,14 @@ TODO AUTO-3: Integrate defender alerts into autonomy decisions
 Status: COMPLETED
 
 TODO AUTO-4: Add autonomy audit logging and replay support
-Status: PENDING
+Status: COMPLETED
 
 ---
 
 ### AI Command Generation
 
 TODO CMD-1: Implement AI-driven shell command generator
-Status: PENDING
+Status: COMPLETED
 
 TODO CMD-2: Integrate LLM reasoning into command generation
 Status: PENDING
