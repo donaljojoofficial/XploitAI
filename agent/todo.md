@@ -118,7 +118,7 @@ accurate, and defensible through the dashboard.
 ### Dashboard Foundation
 
 TODO UI-1: Audit existing dashboard views and templates
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-2: Map dashboard components to real backend data sources
 Status: PENDING
