@@ -82,7 +82,7 @@ Status: COMPLETED
 ### Defender AI (Autonomous Context)
 
 TODO DEF-4: Allow defender to trigger AI halt or re-plan
-Status: PENDING
+Status: COMPLETED
 
 TODO DEF-5: Visualize attacker vs defender interaction
 Status: PENDING

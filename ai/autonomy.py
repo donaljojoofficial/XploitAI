@@ -100,19 +100,22 @@ class AutonomousController:
         # 1. Sync Action states with ExecutionTasks
         self._sync_action_states(state)
 
-        # 2. Check Stop Conditions
+        # 2. Sync Defender Context (Alerts -> State)
+        self._sync_defender_context(state)
+
+        # 3. Check Stop Conditions
         if self._check_stop_conditions(state):
             self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": "Stop conditions met"})
             self.stop()
             return False
 
-        # 3. Wait for execution results
+        # 4. Wait for execution results
         if self._has_pending_tasks():
             self._log_audit(cycle_id, "CYCLE_WAITING", {"reason": "Pending tasks"})
             logger.debug("Pending tasks detected. Waiting for execution.")
             return False
 
-        # 4. Get AI Decision
+        # 5. Get AI Decision
         # We request 1 proposal for the autonomous loop
         proposals = self.decision_engine.propose_next_actions(state, limit=1)
         if not proposals:
@@ -128,7 +131,7 @@ class AutonomousController:
             "params": proposal.parameters
         })
 
-        # 5. Policy Validation
+        # 6. Policy Validation
         policy_decision = self.policy_engine.validate(
             proposal.name, state, proposal.parameters
         )
@@ -145,7 +148,7 @@ class AutonomousController:
             # TODO: Feed rejection back to AI memory (Phase 3)
             return False
 
-        # 6. Queue Execution Task
+        # 7. Queue Execution Task
         self._queue_execution(state, proposal, policy_decision, cycle_id)
         self.step_count += 1
         return True
@@ -180,6 +183,34 @@ class AutonomousController:
                 action.save(update_fields=['status'])
                 logger.debug("Synced Action %s status to %s", action.id, task.status)
 
+    def _sync_defender_context(self, state: AttackState) -> None:
+        """
+        Inject defender alerts into the attack state so the AI can react (Re-plan).
+        """
+        alerts = DefenderAlert.objects.filter(attack_state=state)
+        
+        context = {
+            "detected": alerts.exists(),
+            "alert_count": alerts.count(),
+            "max_severity": "NONE"
+        }
+
+        if alerts.exists():
+            if alerts.filter(severity='CRITICAL').exists():
+                context['max_severity'] = 'CRITICAL'
+            elif alerts.filter(severity='HIGH').exists():
+                context['max_severity'] = 'HIGH'
+            elif alerts.filter(severity='MEDIUM').exists():
+                context['max_severity'] = 'MEDIUM'
+            else:
+                context['max_severity'] = 'LOW'
+
+        if not isinstance(state.state_data, dict):
+            state.state_data = {}
+            
+        state.state_data['defender_context'] = context
+        state.save(update_fields=['state_data'])
+
     def _check_stop_conditions(self, state: AttackState) -> bool:
         """
         Check if the autonomous loop should stop.
@@ -190,15 +221,23 @@ class AutonomousController:
             return True
 
         # 2. Defender Alerts
-        # Stop if the defender has detected critical activity.
+        # CRITICAL -> Halt immediately
         if DefenderAlert.objects.filter(
             attack_state=state,
-            severity__in=['HIGH', 'CRITICAL']
+            severity='CRITICAL'
         ).exists():
-            logger.warning("STOP CONDITION: Critical Defender Alert detected.")
+            logger.warning("STOP CONDITION: Critical Defender Alert detected (HALT).")
             return True
 
-        # 2. Consecutive Failures
+        # HIGH -> Re-plan (Log and continue)
+        if DefenderAlert.objects.filter(
+            attack_state=state,
+            severity='HIGH'
+        ).exists():
+            logger.info("Defender Alert (HIGH) detected. Triggering Re-plan (continuing loop).")
+            # Do NOT return True. We want the AI to see the context and re-plan.
+
+        # 3. Consecutive Failures
         # Check the last N actions
         recent_actions = Action.objects.filter(
             attack_state=state
