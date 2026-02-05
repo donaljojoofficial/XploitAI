@@ -94,18 +94,13 @@ def index(request: HttpRequest) -> HttpResponse:
     Displays the main dashboard using a Django template.
     Shows the latest simulation by default.
     """
-    try:
-        attack_state = AttackState.objects.order_by('-updated_at').first()
-        if attack_state:
-            actions = Action.objects.filter(attack_state=attack_state).order_by('-created_at')[:10]
-            tasks = ExecutionTask.objects.filter(action__attack_state=attack_state).order_by('-created_at')[:10]
-            alerts = DefenderAlert.objects.filter(attack_state=attack_state).order_by('-created_at')[:5]
-        else:
-            actions = []
-            tasks = []
-            alerts = []
-    except Exception:
-        attack_state = None
+    attack_state = AttackState.objects.order_by('-updated_at').first()
+
+    if attack_state:
+        actions = Action.objects.filter(attack_state=attack_state).order_by('-created_at')[:10]
+        tasks = ExecutionTask.objects.filter(action__attack_state=attack_state).order_by('-created_at')[:10]
+        alerts = DefenderAlert.objects.filter(attack_state=attack_state).order_by('-created_at')[:5]
+    else:
         actions = []
         tasks = []
         alerts = []
