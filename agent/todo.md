@@ -254,26 +254,26 @@ Phase 6 – Operational Control & Cyber Range Binding
 Attacker Executor (Backend)
 
 TODO OPS-1: Create AttackerExecutor model
-Status: PENDING
+Status: COMPLETED
 
 TODO OPS-2: Implement executor heartbeat API
-Status: PENDING
+Status: COMPLETED
 
 TODO OPS-3: Register executor daemon with controller
-Status: PENDING
+Status: COMPLETED
 
 Target Management (Backend)
 
 TODO OPS-4: Create AttackTarget model
-Status: PENDING
+Status: COMPLETED
 
 TODO OPS-5: Add admin or seed configuration for targets
-Status: PENDING
+Status: COMPLETED
 
 Attack Context Management (Backend)
 
 TODO OPS-6: Create AttackContext model
-Status: PENDING
+Status: COMPLETED
 
 TODO OPS-7: Bind autonomy controller to active AttackContext
 Status: PENDING

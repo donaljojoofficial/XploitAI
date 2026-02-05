@@ -477,3 +477,43 @@ class DefenderAlert(models.Model):
 
     def __str__(self):
         return f"[{self.severity}] {self.title}"
+
+
+class AttackContext(models.Model):
+    """
+    Defines the operational context for an autonomous attack.
+    Binds a specific attacker executor to a specific target.
+    """
+    class Status(models.TextChoices):
+        READY = 'READY', 'Ready'
+        RUNNING = 'RUNNING', 'Running'
+        STOPPED = 'STOPPED', 'Stopped'
+
+    attacker_executor = models.ForeignKey(
+        AttackerExecutor,
+        on_delete=models.PROTECT,
+        help_text="The machine performing the attack."
+    )
+    target = models.ForeignKey(
+        AttackTarget,
+        on_delete=models.PROTECT,
+        help_text="The authorized target system."
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.READY,
+        help_text="Current operational status of this context."
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    stop_reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Attack Context"
+        verbose_name_plural = "Attack Contexts"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Context: {self.attacker_executor.name} -> {self.target.name} ({self.status})"
