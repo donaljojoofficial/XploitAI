@@ -23,7 +23,7 @@ from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import path
 from django.utils.html import escape
 
-from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask
+from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +275,27 @@ def _format_execution_output(task: Any) -> str:
     return f"<pre style='max-height:150px; overflow:auto; font-size:0.85em;'>{escape(str(result))}</pre>"
 
 
+def _severity_badge(severity: str) -> str:
+    """Helper to render a colored badge for alert severity."""
+    s = str(severity).upper()
+    bg_map = {
+        "CRITICAL": "#842029",  # Dark Red
+        "HIGH": "#dc3545",      # Red
+        "MEDIUM": "#fd7e14",    # Orange
+        "LOW": "#ffc107",       # Yellow
+        "INFO": "#0dcaf0",      # Cyan
+    }
+    fg_map = {"CRITICAL": "#fff", "HIGH": "#fff", "MEDIUM": "#000", "LOW": "#000", "INFO": "#000"}
+
+    bg = bg_map.get(s, "#6c757d")
+    fg = fg_map.get(s, "#fff")
+
+    return (
+        f"<span style='background-color:{bg}; color:{fg}; padding:0.2rem 0.4rem; "
+        f"border-radius:4px; font-size:0.85em; font-weight:bold;'>{escape(s)}</span>"
+    )
+
+
 def index(request: HttpRequest) -> HttpResponse:
     """List simulations (AttackState) with current phase and timestamps."""
     states = AttackState.objects.all().order_by("-updated_at")
@@ -315,6 +336,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     actions = Action.objects.filter(attack_state=state).order_by("created_at")
     events = AttackTimelineEvent.objects.filter(attack_state=state).order_by("created_at")
     tasks = ExecutionTask.objects.filter(action__attack_state=state).order_by("-created_at")
+    alerts = DefenderAlert.objects.filter(attack_state=state).order_by("-created_at")
 
     # --- Autonomy Metrics Calculation ---
     consecutive_failures = 0
@@ -349,6 +371,17 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
             f"<div style='grid-column: 1 / -1;'><div class='muted'>Stop Reason</div><div style='font-family:monospace; background:#fff; padding:0.5rem; border:1px solid #eee; border-radius:4px;'>{escape(reason)}</div></div>"
         )
     autonomy_panel += "</div></div>"
+
+    alert_rows: list[str] = []
+    for alert in alerts:
+        alert_rows.append(
+            "<tr>"
+            f"<td>{_severity_badge(alert.severity)}</td>"
+            f"<td>{escape(alert.rule_id)}</td>"
+            f"<td>{escape(alert.description)}</td>"
+            f"<td class='muted'>{escape(alert.created_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
+            "</tr>"
+        )
 
     task_rows: list[str] = []
     for t in tasks:
@@ -403,6 +436,11 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         f"<h1>{escape(state.name)}</h1>"
         f"<p>Current phase: <code>{escape(state.current_phase)}</code></p>"
         f"{autonomy_panel}"
+        "<h2>Defender Alerts</h2>"
+        "<table>"
+        "<thead><tr><th>Severity</th><th>Rule ID</th><th>Description</th><th>Detected At</th></tr></thead>"
+        f"<tbody>{''.join(alert_rows) if alert_rows else '<tr><td colspan=4 class=muted>No alerts detected.</td></tr>'}</tbody>"
+        "</table>"
         "<h2>Execution Queue</h2>"
         "<table>"
         "<thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Command</th><th>Output</th><th>Created</th><th>Updated</th></tr></thead>"
