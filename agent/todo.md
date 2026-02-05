@@ -279,7 +279,8 @@ TODO OPS-7: Bind autonomy controller to active AttackContext
 Status: COMPLETED
 
 TODO OPS-8: Enforce context validation before autonomy start
-Status: PENDING
+Status: COMPLETED
+
 
 Dashboard Control Panel (Frontend)
 

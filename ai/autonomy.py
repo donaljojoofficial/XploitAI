@@ -24,6 +24,7 @@ from core.models import Action, AttackState, ExecutionTask, DefenderAlert
 # Use the concrete implementation from agent.decision
 from agent.decision import DecisionEngine
 from ai.command_generator import CommandGenerator
+from ai.context_manager import OperationalContextManager
 from ai.safety import CommandSafety
 from policy.engine import PolicyEngine
 
@@ -59,6 +60,16 @@ class AutonomousController:
 
     def start(self) -> None:
         """Start the autonomous control loop."""
+        # OPS-8: Validate Operational Context before starting
+        try:
+            OperationalContextManager.ensure_running_context()
+        except RuntimeError as e:
+            logger.error("Cannot start autonomy: %s", e)
+            AttackState.objects.filter(id=self.attack_state_id).update(
+                autonomy_status="STOPPED", stop_reason=f"Context Error: {e}"
+            )
+            return
+
         self.running = True
         self.step_count = 0
         
