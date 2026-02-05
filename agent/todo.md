@@ -174,7 +174,7 @@ Status: PENDING
 ### Timeline & Replay
 
 TODO UI-12: Implement unified event timeline
-Status: PENDING
+Status: COMPLETED
 
 TODO UI-13: Add replay view for AI decisions and executions
 Status: PENDING

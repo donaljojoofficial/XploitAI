@@ -372,6 +372,51 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         )
     autonomy_panel += "</div></div>"
 
+    # --- Interaction Visualization (Attacker vs Defender) ---
+    # Combine Actions and Alerts into a single chronological stream to visualize interaction
+    interaction_events = []
+    for a in actions:
+        interaction_events.append({'ts': a.created_at, 'type': 'ATTACKER', 'obj': a})
+    for alert in alerts:
+        interaction_events.append({'ts': alert.created_at, 'type': 'DEFENDER', 'obj': alert})
+    
+    # Sort by timestamp to show temporal flow
+    interaction_events.sort(key=lambda x: x['ts'])
+
+    interaction_rows = []
+    for event in interaction_events:
+        ts_str = event['ts'].strftime('%H:%M:%S')
+        if event['type'] == 'ATTACKER':
+            action = event['obj']
+            # Attacker Cell (Left)
+            attacker_html = (
+                f"<div style='background:#f8f9fa; padding:0.6rem; border-radius:4px; border-left:4px solid #0d6efd; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
+                f"<div style='font-weight:bold; color:#0d6efd; margin-bottom:0.2rem;'>{escape(action.name)}</div>"
+                f"<div style='font-size:0.9em; color:#212529; margin-bottom:0.3rem;'>{escape(action.description or '')}</div>"
+                f"<div>{_status_badge(action.status)}</div>"
+                f"</div>"
+            )
+            defender_html = ""
+        else:
+            alert = event['obj']
+            # Defender Cell (Right)
+            attacker_html = ""
+            defender_html = (
+                f"<div style='background:#fff5f5; padding:0.6rem; border-radius:4px; border-left:4px solid #dc3545; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
+                f"<div style='font-weight:bold; color:#dc3545; margin-bottom:0.2rem;'>🛡️ {escape(alert.rule_id)}</div>"
+                f"<div style='font-size:0.9em; color:#212529; margin-bottom:0.3rem;'>{escape(alert.description)}</div>"
+                f"<div>{_severity_badge(alert.severity)}</div>"
+                f"</div>"
+            )
+        
+        interaction_rows.append(
+            "<tr>"
+            f"<td class='muted' style='width:80px; vertical-align:top; padding-top:1rem; border:none;'>{ts_str}</td>"
+            f"<td style='width:45%; vertical-align:top; padding:0.5rem; border:none;'>{attacker_html}</td>"
+            f"<td style='width:45%; vertical-align:top; padding:0.5rem; border:none;'>{defender_html}</td>"
+            "</tr>"
+        )
+
     alert_rows: list[str] = []
     for alert in alerts:
         alert_rows.append(
@@ -436,6 +481,10 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         f"<h1>{escape(state.name)}</h1>"
         f"<p>Current phase: <code>{escape(state.current_phase)}</code></p>"
         f"{autonomy_panel}"
+        "<h2>Attacker vs Defender Interaction</h2>"
+        "<table style='border:none; margin-bottom:2rem;'>"
+        f"<tbody>{''.join(interaction_rows) if interaction_rows else '<tr><td colspan=3 class=muted>No interactions recorded.</td></tr>'}</tbody>"
+        "</table>"
         "<h2>Defender Alerts</h2>"
         "<table>"
         "<thead><tr><th>Severity</th><th>Rule ID</th><th>Description</th><th>Detected At</th></tr></thead>"
