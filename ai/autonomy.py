@@ -12,7 +12,10 @@ autonomous behavior of the system in Phase 2.
 
 from __future__ import annotations
 
+import datetime
+import json
 import logging
+import uuid
 from typing import Optional
 
 from django.db import transaction
@@ -23,6 +26,7 @@ from agent.decision import DecisionEngine
 from policy.engine import PolicyEngine
 
 logger = logging.getLogger(__name__)
+audit_logger = logging.getLogger("ai_audit")
 
 
 class AutonomousController:
@@ -76,6 +80,9 @@ class AutonomousController:
         Returns:
             bool: True if a task was queued, False otherwise (waiting or stopped).
         """
+        cycle_id = str(uuid.uuid4())
+        self._log_audit(cycle_id, "CYCLE_START", {"step_count": self.step_count})
+
         if not self.running:
             return False
 
@@ -91,11 +98,13 @@ class AutonomousController:
 
         # 2. Check Stop Conditions
         if self._check_stop_conditions(state):
+            self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": "Stop conditions met"})
             self.stop()
             return False
 
         # 3. Wait for execution results
         if self._has_pending_tasks():
+            self._log_audit(cycle_id, "CYCLE_WAITING", {"reason": "Pending tasks"})
             logger.debug("Pending tasks detected. Waiting for execution.")
             return False
 
@@ -103,18 +112,29 @@ class AutonomousController:
         # We request 1 proposal for the autonomous loop
         proposals = self.decision_engine.propose_next_actions(state, limit=1)
         if not proposals:
+            self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": "No proposals"})
             logger.info("Decision Engine returned no proposals. Goal reached or stuck. Stopping.")
             self.stop()
             return False
 
         proposal = proposals[0]
+        self._log_audit(cycle_id, "AI_PROPOSAL", {
+            "name": proposal.name,
+            "score": proposal.score,
+            "params": proposal.parameters
+        })
 
         # 5. Policy Validation
         policy_decision = self.policy_engine.validate(
             proposal.name, state, proposal.parameters
         )
+        self._log_audit(cycle_id, "POLICY_DECISION", {
+            "allowed": policy_decision.allowed,
+            "reason": policy_decision.reason
+        })
 
         if not policy_decision.allowed:
+            self._log_audit(cycle_id, "ACTION_BLOCKED", {"reason": policy_decision.reason})
             logger.warning(
                 "Policy rejected action '%s': %s", proposal.name, policy_decision.reason
             )
@@ -122,7 +142,7 @@ class AutonomousController:
             return False
 
         # 6. Queue Execution Task
-        self._queue_execution(state, proposal, policy_decision)
+        self._queue_execution(state, proposal, policy_decision, cycle_id)
         self.step_count += 1
         return True
 
@@ -190,7 +210,18 @@ class AutonomousController:
 
         return False
 
-    def _queue_execution(self, state: AttackState, proposal, policy_decision) -> None:
+    def _log_audit(self, cycle_id: str, event: str, details: dict) -> None:
+        """Write a structured audit log entry."""
+        payload = {
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "cycle_id": cycle_id,
+            "event": event,
+            "attack_state_id": self.attack_state_id,
+            "details": details
+        }
+        audit_logger.info(json.dumps(payload))
+
+    def _queue_execution(self, state: AttackState, proposal, policy_decision, cycle_id: str) -> None:
         """
         Persist the decision as an Action and queue it for execution.
         """
@@ -221,3 +252,8 @@ class AutonomousController:
                 proposal.name,
                 action.id
             )
+
+            self._log_audit(cycle_id, "EXECUTION_QUEUED", {
+                "action_id": action.id,
+                "action_name": proposal.name
+            })
