@@ -42,10 +42,10 @@ TODO CMD-1: Implement AI-driven shell command generator
 Status: COMPLETED
 
 TODO CMD-2: Integrate LLM reasoning into command generation
-Status: PENDING
+Status: COMPLETED
 
 TODO CMD-3: Add command explanation summaries for audit logs
-Status: PENDING
+Status: COMPLETED
 
 ---
 

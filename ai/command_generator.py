@@ -11,9 +11,11 @@ This module is the bridge between "What to do" (Decision) and "How to do it" (Ex
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import shlex
+from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
 # Attempt to import the LLM adapter (Phase 3/Auto feature)
@@ -24,6 +26,12 @@ except ImportError:
     LLM_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GeneratedCommand:
+    shell_command: str
+    explanation: str
 
 
 class CommandGenerator:
@@ -51,7 +59,7 @@ class CommandGenerator:
                 logger.warning("Failed to initialize LLM adapter: %s. Reverting to rule-based.", e)
                 self.use_llm = False
 
-    def generate(self, action_name: str, parameters: Mapping[str, Any]) -> str:
+    def generate(self, action_name: str, parameters: Mapping[str, Any]) -> GeneratedCommand:
         """
         Generate a shell command for the given action.
 
@@ -60,23 +68,23 @@ class CommandGenerator:
             parameters: Dictionary of parameters for the action.
 
         Returns:
-            str: The executable shell command.
+            GeneratedCommand: Object containing the shell command and an explanation.
         """
         logger.debug("Generating command for action: %s", action_name)
 
         # 1. Try LLM Generation if enabled
         if self.use_llm:
             try:
-                command = self._generate_with_llm(action_name, parameters)
-                if command:
-                    return command
+                result = self._generate_with_llm(action_name, parameters)
+                if result:
+                    return result
             except Exception as e:
                 logger.error("LLM generation failed for '%s': %s. Falling back to rules.", action_name, e)
 
         # 2. Fallback to Rule-Based Generation
         return self._generate_rule_based(action_name, parameters)
 
-    def _generate_rule_based(self, action_name: str, parameters: Mapping[str, Any]) -> str:
+    def _generate_rule_based(self, action_name: str, parameters: Mapping[str, Any]) -> GeneratedCommand:
         """Dispatch to specific rule-based generators."""
         if action_name == "PassiveRecon":
             return self._generate_passive_recon(parameters)
@@ -90,9 +98,12 @@ class CommandGenerator:
             return self._generate_proof_of_compromise(parameters)
         else:
             logger.warning("Unknown action '%s'. Returning fallback echo.", action_name)
-            return f"echo 'Unknown action: {shlex.quote(action_name)}'"
+            return GeneratedCommand(
+                shell_command=f"echo 'Unknown action: {shlex.quote(action_name)}'",
+                explanation="Fallback command for unknown action type."
+            )
 
-    def _generate_with_llm(self, action_name: str, parameters: Mapping[str, Any]) -> Optional[str]:
+    def _generate_with_llm(self, action_name: str, parameters: Mapping[str, Any]) -> Optional[GeneratedCommand]:
         """Generate command using the LLM."""
         if not self.llm_client:
             return None
@@ -105,7 +116,7 @@ class CommandGenerator:
         if not response:
             return None
 
-        return self._extract_command(response)
+        return self._parse_llm_response(response)
 
     def _construct_prompt(self, action_name: str, parameters: Mapping[str, Any]) -> str:
         """Construct the prompt for the LLM."""
@@ -117,47 +128,67 @@ class CommandGenerator:
             f"Action: {action_name}\n"
             f"Parameters: {safe_params}\n\n"
             f"Constraints:\n"
-            f"- Return ONLY the shell command.\n"
-            f"- Do not use markdown formatting unless wrapping code.\n"
-            f"- No explanations.\n"
+            f"- Return a valid JSON object.\n"
+            f"- Keys: 'command' (string), 'explanation' (string).\n"
+            f"- 'explanation': Brief summary (1 sentence) of what the command does.\n"
             f"- Use standard tools (nmap, whois, netcat, curl, etc.).\n"
             f"- Ensure the command is non-interactive.\n"
         )
 
-    def _extract_command(self, text: str) -> str:
-        """Extract the command from LLM response (handling markdown)."""
-        match = re.search(r'```(?:bash|sh)?\s*(.*?)\s*```', text, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return text.strip()
+    def _parse_llm_response(self, text: str) -> GeneratedCommand:
+        """Parse JSON response from LLM."""
+        # Attempt to find JSON block if wrapped in markdown
+        match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
+        clean_text = match.group(1).strip() if match else text.strip()
 
-    def _generate_passive_recon(self, params: Mapping[str, Any]) -> str:
+        try:
+            data = json.loads(clean_text)
+            return GeneratedCommand(
+                shell_command=data.get("command", "").strip(),
+                explanation=data.get("explanation", "No explanation provided.")
+            )
+        except json.JSONDecodeError:
+            # If parsing fails, raise error to trigger fallback
+            raise ValueError("Failed to parse JSON from LLM response")
+
+    def _generate_passive_recon(self, params: Mapping[str, Any]) -> GeneratedCommand:
         domain = params.get("target_domain", "localhost")
         safe_domain = shlex.quote(str(domain))
-        # Example recon chain
-        return f"whois {safe_domain} && nslookup {safe_domain}"
+        return GeneratedCommand(
+            shell_command=f"whois {safe_domain} && nslookup {safe_domain}",
+            explanation=f"Performs WHOIS lookup and DNS query for {domain}."
+        )
 
-    def _generate_service_enumeration(self, params: Mapping[str, Any]) -> str:
+    def _generate_service_enumeration(self, params: Mapping[str, Any]) -> GeneratedCommand:
         host = params.get("target_host", "localhost")
         safe_host = shlex.quote(str(host))
-        # Standard service scan
-        return f"nmap -sV -T4 {safe_host}"
+        return GeneratedCommand(
+            shell_command=f"nmap -sV -T4 {safe_host}",
+            explanation=f"Scans {host} for open ports and service versions."
+        )
 
-    def _generate_exploit_attempt(self, params: Mapping[str, Any]) -> str:
+    def _generate_exploit_attempt(self, params: Mapping[str, Any]) -> GeneratedCommand:
         host = params.get("target_host", "localhost")
         vuln_id = params.get("vulnerability_id", "unknown")
         safe_host = shlex.quote(str(host))
         safe_vuln = shlex.quote(str(vuln_id))
-        # Simulation placeholder: In Phase 2/3 this would invoke a specific exploit script
-        return f"echo 'Exploiting {safe_host} using {safe_vuln}'"
+        return GeneratedCommand(
+            shell_command=f"echo 'Exploiting {safe_host} using {safe_vuln}'",
+            explanation=f"Simulates exploitation of {vuln_id} on {host}."
+        )
 
-    def _generate_privilege_escalation(self, params: Mapping[str, Any]) -> str:
+    def _generate_privilege_escalation(self, params: Mapping[str, Any]) -> GeneratedCommand:
         host = params.get("target_host", "localhost")
         safe_host = shlex.quote(str(host))
-        # Simulation placeholder
-        return f"echo 'Attempting privilege escalation on {safe_host}'"
+        return GeneratedCommand(
+            shell_command=f"echo 'Attempting privilege escalation on {safe_host}'",
+            explanation=f"Attempts to escalate privileges on {host}."
+        )
 
-    def _generate_proof_of_compromise(self, params: Mapping[str, Any]) -> str:
+    def _generate_proof_of_compromise(self, params: Mapping[str, Any]) -> GeneratedCommand:
         tag = params.get("evidence_tag", "proof")
         safe_tag = shlex.quote(str(tag))
-        return f"echo 'PROOF_OF_COMPROMISE: {safe_tag}' > /tmp/proof.txt"
+        return GeneratedCommand(
+            shell_command=f"echo 'PROOF_OF_COMPROMISE: {safe_tag}' > /tmp/proof.txt",
+            explanation=f"Writes proof tag '{tag}' to /tmp/proof.txt."
+        )

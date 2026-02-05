@@ -243,12 +243,12 @@ class AutonomousController:
             task_params['_action_id'] = action.id
 
             # Generate the shell command
-            cmd = self.command_generator.generate(proposal.name, proposal.parameters)
+            generated = self.command_generator.generate(proposal.name, proposal.parameters)
 
             ExecutionTask.objects.create(
                 action_name=proposal.name,
                 parameters=task_params,
-                command=cmd,
+                command=generated.shell_command,
                 status='PENDING',
                 requires_approval=False,  # Future: Check policy_decision.requires_approval
             )
