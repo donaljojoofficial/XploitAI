@@ -50,6 +50,64 @@ def _html_page(title: str, body: str) -> str:
     )
 
 
+def _render_memory_badge(data: Any) -> str:
+    """Helper to render memory influence indicators if present in data."""
+    if not data:
+        return ""
+
+    # Ensure data is a dict
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            return ""
+
+    if not isinstance(data, dict):
+        return ""
+
+    # Check direct keys (e.g. in Action.parameters)
+    mem = data.get("_memory") or data.get("memory_influence") or data.get("memory_context")
+
+    # If not found, check inside 'parameters' sub-dict (e.g. in PlanStep)
+    if not mem and "parameters" in data:
+        params = data["parameters"]
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except (json.JSONDecodeError, TypeError):
+                params = {}
+        if isinstance(params, dict):
+            mem = params.get("_memory") or params.get("memory_influence") or params.get("memory_context")
+
+    if not mem:
+        return ""
+
+    # Determine label and text
+    label = "MEMORY"
+    text = str(mem)
+
+    if isinstance(mem, dict):
+        text = mem.get("description") or mem.get("reason") or str(mem)
+        if "type" in mem:
+            label = str(mem["type"]).upper()
+    elif isinstance(mem, str):
+        # Simple heuristics for cleaner badges
+        lower_mem = mem.lower()
+        if "fail" in lower_mem:
+            label = "ADAPTATION"
+        elif "success" in lower_mem:
+            label = "REINFORCEMENT"
+        elif "retry" in lower_mem:
+            label = "RETRY"
+
+    return (
+        f"<div style='margin-top:0.3rem; font-size:0.85em; color:#563d7c;'>"
+        f"<span style='background-color:#e2d9f3; border:1px solid #d5c8ed; border-radius:3px; padding:0.1rem 0.3rem; font-weight:bold; margin-right:0.3rem;'>🧠 {escape(label)}</span>"
+        f"<span>{escape(text)}</span>"
+        f"</div>"
+    )
+
+
 def _format_event_data(data: Any) -> str:
     """Helper to format event data, specifically rendering AI plans."""
     if not data:
@@ -74,8 +132,9 @@ def _format_event_data(data: Any) -> str:
             # Support both action_id (LLM) and action_type (internal) keys
             action = step.get("action_id") or step.get("action_type") or "Unknown"
             reason = step.get("reasoning", "")
+            mem_badge = _render_memory_badge(step)
             rows.append(
-                f"<tr><td>{i}</td><td>{escape(str(action))}</td><td>{escape(str(reason))}</td></tr>"
+                f"<tr><td>{i}</td><td>{escape(str(action))}</td><td>{escape(str(reason))}{mem_badge}</td></tr>"
             )
 
         return (
@@ -253,12 +312,13 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
     action_rows: list[str] = []
     for i, a in enumerate(actions, 1):
+        mem_badge = _render_memory_badge(a.parameters)
         action_rows.append(
             "<tr>"
             f"<td><strong>{i}</strong></td>"
             f"<td>{escape(a.name)}</td>"
             f"<td class='muted'>{escape(a.description or '')}</td>"
-            f"<td style='font-size:0.9em; color:#495057; max-width:300px;'>{escape(a.reasoning or '')}</td>"
+            f"<td style='font-size:0.9em; color:#495057; max-width:300px;'>{escape(a.reasoning or '')}{mem_badge}</td>"
             f"<td>{_status_badge(a.status)}</td>"
             f"<td><pre>{escape(str(a.parameters))}</pre></td>"
             f"<td class='muted'>{escape(a.created_at.strftime('%Y-%m-%d %H:%M:%S'))}</td>"
