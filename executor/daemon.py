@@ -39,6 +39,11 @@ logger = logging.getLogger("executor-daemon")
 
 
 class ExecutorDaemon:
+    # Security Allowlist
+    ALLOWED_COMMANDS = {
+        "nmap", "echo", "whois", "nslookup", "dig", "ping", "nc", "netcat"
+    }
+
     def __init__(self, api_url: str, poll_interval: int = 5, max_backoff: int = 60):
         self.api_url = api_url.rstrip("/")
         self.poll_interval = poll_interval
@@ -161,6 +166,33 @@ class ExecutorDaemon:
 
         # Default limits
         timeout = task.limits.get("timeout", 60)
+
+        # Security Check (Executor-side)
+        cmd_parts = (task.command or "").strip().split()
+        if not cmd_parts:
+            return ExecutionResult(
+                task_id=task.task_id,
+                status=ExecutionStatus.FAILED,
+                exit_code=-1,
+                stdout="",
+                stderr="Empty command",
+                duration_seconds=0,
+                error_message="Empty command"
+            )
+
+        binary = cmd_parts[0].split('/')[-1]
+        if binary not in self.ALLOWED_COMMANDS:
+            msg = f"Rejected command (not allowed): {task.command}"
+            logger.warning(msg)
+            return ExecutionResult(
+                task_id=task.task_id,
+                status=ExecutionStatus.FAILED,
+                exit_code=-1,
+                stdout="",
+                stderr=msg,
+                duration_seconds=0,
+                error_message=f"Command '{binary}' not in allowlist"
+            )
 
         try:
             # SECURITY: This executes arbitrary commands.
