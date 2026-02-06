@@ -20,11 +20,11 @@ def index(request):
     
     # Fetch infrastructure status
     executors = AttackerExecutor.objects.all()
-    targets = AttackTarget.objects.all()
+    targets = AttackTarget.objects.exclude(base_url='')
     
     # Determine readiness for new simulations
-    connected_executors = executors.filter(status=AttackerExecutor.Status.CONNECTED)
-    active_targets = targets.filter(is_active=True)
+    connected_executors = executors.filter(status=AttackerExecutor.Status.CONNECTED).order_by('-last_heartbeat')
+    active_targets = targets.filter(is_active=True).order_by('name')
     has_connected_executor = connected_executors.exists()
     has_active_target = active_targets.exists()
     
