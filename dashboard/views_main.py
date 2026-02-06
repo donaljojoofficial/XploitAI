@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from core.models import AttackState, Action, DefenderAlert, AttackerExecutor, AttackTarget
+from core.models import AttackState, Action, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
 
 def index(request):
     """
@@ -9,8 +9,11 @@ def index(request):
     # Fetch the latest attack state (Mission Control)
     attack_state = AttackState.objects.last()
 
-    # Fetch recent activity (global log)
-    actions = Action.objects.select_related('attack_state').order_by('-created_at')[:10]
+    # Fetch recent activity (current session only)
+    if attack_state:
+        actions = Action.objects.filter(attack_state=attack_state).order_by('-created_at')[:50]
+    else:
+        actions = []
     
     # Fetch recent alerts
     alerts = DefenderAlert.objects.all().order_by('-created_at')[:5]
@@ -25,6 +28,9 @@ def index(request):
     has_connected_executor = connected_executors.exists()
     has_active_target = active_targets.exists()
     
+    # Fetch currently active operational context
+    active_context = AttackContext.objects.filter(status__in=['READY', 'RUNNING']).last()
+
     context = {
         'attack_state': attack_state,
         'actions': actions,
@@ -35,5 +41,6 @@ def index(request):
         'has_active_target': has_active_target,
         'default_executor': connected_executors.first(),
         'default_target': active_targets.first(),
+        'active_context': active_context,
     }
     return render(request, 'dashboard/index.html', context)

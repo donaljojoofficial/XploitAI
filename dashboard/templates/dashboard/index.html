@@ -33,6 +33,14 @@
                                 {% endif %}
                             </h4>
                             <small class="text-muted">Phase: {{ attack_state.current_phase|default:"N/A" }}</small>
+                            {% if active_context %}
+                                <div class="mt-2">
+                                    <span class="badge bg-info text-dark">Active Context</span>
+                                    <span class="ms-1 fw-bold">{{ active_context.attacker_executor.name }}</span>
+                                    <span class="text-muted mx-1">&rarr;</span>
+                                    <span class="fw-bold">{{ active_context.target.name }}</span>
+                                </div>
+                            {% endif %}
                         </div>
                         <div>
                             {% if has_connected_executor and has_active_target %}
@@ -62,7 +70,7 @@
                     <div class="card-header bg-primary text-white">
                         <h5 class="card-title mb-0">Recent Activity</h5>
                     </div>
-                    <div class="list-group list-group-flush">
+                    <div class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
                         {% for action in actions %}
                         <div class="list-group-item">
                             <div class="d-flex w-100 justify-content-between">
