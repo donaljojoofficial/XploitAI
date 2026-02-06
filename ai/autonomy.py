@@ -16,6 +16,8 @@ import datetime
 import json
 import logging
 import uuid
+import threading
+import time
 from typing import Optional
 
 from django.db import transaction
@@ -87,9 +89,8 @@ class AutonomousController:
         )
         logger.info("AutonomousController started for AttackState ID %s", self.attack_state_id)
 
-        # Trigger the planner loop immediately
-        logger.info("PLANNER LOOP ENTERED")
-        self.run_cycle()
+        # Trigger the planner loop in a background thread
+        threading.Thread(target=self._autonomy_loop, daemon=True).start()
 
     def stop(self, reason: str = "Manual Stop") -> None:
         """Stop the autonomous control loop."""
@@ -111,6 +112,26 @@ class AutonomousController:
 
         logger.info("AutonomousController stopped for AttackState ID %s. Reason: %s", 
                     self.attack_state_id, reason)
+
+    def _autonomy_loop(self) -> None:
+        """
+        Background loop to drive autonomy.
+        Checks DB state to ensure it should keep running.
+        """
+        logger.info("PLANNER LOOP ENTERED (Threaded) for AttackState %s", self.attack_state_id)
+        while self.running:
+            # Verify we are still supposed to be running according to DB
+            try:
+                status = AttackState.objects.values_list('autonomy_status', flat=True).get(id=self.attack_state_id)
+                if status != 'RUNNING':
+                    self.running = False
+                    break
+            except AttackState.DoesNotExist:
+                self.running = False
+                break
+
+            self.run_cycle()
+            time.sleep(2)  # Polling interval to prevent busy loop
 
     def run_cycle(self) -> bool:
         """
@@ -231,6 +252,10 @@ class AutonomousController:
             ).first()
 
             if task and task.status in ['COMPLETED', 'FAILED']:
+                # Part B: Evaluate Result (Lightweight)
+                if task.status == 'COMPLETED' and not task.output:
+                    logger.warning("Task for action %s completed with empty output.", action.name)
+
                 action.status = task.status
                 action.save(update_fields=['status'])
                 
