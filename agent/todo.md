@@ -374,10 +374,10 @@ TODO FB-1:
 Store execution output visibly in dashboard.
 
 TODO FB-2:
-Pass previous results into next AI planning cycle.
+Pass previous results into next AI planning cycle. - COMPLETED
 
 TODO FB-3:
-Allow multi-step autonomy until stop condition.
+Allow multi-step autonomy until stop condition. - COMPLETED
 
 ==================================================
 PHASE 4 — STABILIZATION

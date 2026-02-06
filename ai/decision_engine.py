@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, List
-from core.models import AttackState, Action, AttackTarget
-from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary
+from core.models import AttackState, Action, AttackTarget, ActionResult
+from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary
 
 # Attempt to import GeminiAdapter
 try:
@@ -117,11 +117,29 @@ class DecisionEngine:
                 timestamp=str(a.created_at)
             ))
 
+        # Retrieve the result of the last finished action to provide feedback
+        last_result_summary = None
+        last_finished_action = state.actions.exclude(status='PENDING').order_by('-created_at').first()
+        
+        if last_finished_action:
+            result = ActionResult.objects.filter(action=last_finished_action).first()
+            if result:
+                # Truncate output to avoid context window overflow
+                output_text = str(result.output) if result.output else "No output."
+                if len(output_text) > 2000:
+                    output_text = output_text[:2000] + "... (truncated)"
+                
+                last_result_summary = ActionResultSummary(
+                    success=result.success,
+                    output_summary=output_text,
+                    error=result.log_message if not result.success else None
+                )
+
         decision_input = DecisionInput(
             phase=state.current_phase,
             known_services=known_services,
             past_actions=past_actions,
-            last_result=None 
+            last_result=last_result_summary 
         )
 
         context = state.state_data.get('planner_context', {})

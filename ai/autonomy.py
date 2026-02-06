@@ -130,7 +130,13 @@ class AutonomousController:
                 self.running = False
                 break
 
-            self.run_cycle()
+            try:
+                self.run_cycle()
+            except Exception as e:
+                logger.exception("Unexpected error in autonomy cycle: %s", e)
+                self.stop(reason=f"Internal Error: {e}")
+                break
+
             time.sleep(2)  # Polling interval to prevent busy loop
 
     def run_cycle(self) -> bool:
