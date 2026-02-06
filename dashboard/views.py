@@ -187,6 +187,21 @@ def attack_replay(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, 'dashboard/replay.html', context)
 
 
+def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
+    """
+    Dedicated view to show the full AI generated plan (Actions) for an attack.
+    Highlights the current stage and completion status.
+    """
+    state = get_object_or_404(AttackState, pk=pk)
+    actions = Action.objects.filter(attack_state=state).order_by("created_at")
+
+    context = {
+        'attack_state': state,
+        'actions': actions,
+    }
+    return render(request, 'dashboard/attack_plan.html', context)
+
+
 @require_POST
 def start_attack(request: HttpRequest) -> HttpResponse:
     """

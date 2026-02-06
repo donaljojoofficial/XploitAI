@@ -8,7 +8,8 @@
             <div class="d-flex gap-2">
                 <span class="badge bg-primary">Phase: {{ attack_state.get_current_phase_display }}</span>
                 <span class="badge bg-info">Target: {{ attack_state.state_data.planner_context.targets.0.ip|default:"Unknown" }}</span>
-                <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn btn-sm btn-outline-secondary ms-auto">Replay Attack</a>
+                <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="btn btn-sm btn-outline-primary ms-auto">View Full Plan</a>
+                <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn btn-sm btn-outline-secondary">Replay Attack</a>
             </div>
         </div>
     </div>

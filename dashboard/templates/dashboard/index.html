@@ -41,6 +41,13 @@
                                     <span class="fw-bold">{{ active_context.target.name }}</span>
                                 </div>
                             {% endif %}
+                            {% if attack_state %}
+                                <div class="mt-3">
+                                    <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="btn btn-sm btn-outline-primary">View Operation</a>
+                                    <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="btn btn-sm btn-outline-secondary">View Plan</a>
+                                    <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn btn-sm btn-outline-secondary">Replay</a>
+                                </div>
+                            {% endif %}
                         </div>
                         <div>
                             {% if has_connected_executor and has_active_target %}
