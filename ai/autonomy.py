@@ -295,14 +295,19 @@ class AutonomousController:
 
         target = context.target
         
+        # Determine primary target reference (URL or IP)
+        target_ref = target.base_url if target.base_url else target.ip_address
+        
         planner_context = {
             "goal": "Perform reconnaissance to discover services and attempt exploitation of found vulnerabilities.",
             "targets": [{
                 "name": target.name,
                 "ip": target.ip_address,
+                "url": target.base_url,
+                "primary_ref": target_ref,
                 "os": getattr(target, "operating_system", "Linux")
             }],
-            "allowed_actions": ["PassiveRecon", "ServiceEnumeration", "ExploitAttempt", "PrivilegeEscalation", "ProofOfCompromise"],
+            "allowed_actions": ["PassiveRecon", "ServiceEnumeration", "ExploitAttempt", "PrivilegeEscalation", "ProofOfCompromise", "HTTPHeaderFetch", "TechnologyFingerprint", "EndpointDiscovery"],
             "instructions": ["Return at least ONE action if possible.", "Output must be valid JSON."]
         }
         
@@ -314,12 +319,12 @@ class AutonomousController:
         # Seed legacy fields for deterministic fallback
         # This ensures that if the AI fails, the deterministic engine has enough data to proceed.
         if not state.state_data.get('target_domain'):
-            state.state_data['target_domain'] = target.ip_address
+            state.state_data['target_domain'] = target_ref
             
         if 'recon' not in state.state_data:
             state.state_data['recon'] = {}
         if 'domains' not in state.state_data['recon']:
-            state.state_data['recon']['domains'] = [target.ip_address]
+            state.state_data['recon']['domains'] = [target_ref] if target_ref else []
 
         state.save(update_fields=['state_data'])
 
