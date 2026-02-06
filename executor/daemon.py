@@ -185,8 +185,12 @@ class ExecutorDaemon:
         # Handle paths (e.g. /usr/bin/nmap -> nmap)
         if "/" in binary:
             binary = binary.split("/")[-1]
+            
+        # Normalize: lowercase and strip quotes/whitespace
+        binary = binary.lower().strip().strip("'\"")
 
         if binary not in self.ALLOWED_COMMANDS:
+            logger.warning(f"Security Rejection: Binary '{binary}' not in allowlist.")
             return ExecutionResult(
                 task_id=task.task_id,
                 status=ExecutionStatus.FAILED,
