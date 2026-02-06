@@ -180,20 +180,6 @@ class ExecutorDaemon:
                 error_message="Empty command"
             )
 
-        binary = cmd_parts[0].split('/')[-1]
-        if binary not in self.ALLOWED_COMMANDS:
-            msg = f"Rejected command (not allowed): {task.command}"
-            logger.warning(msg)
-            return ExecutionResult(
-                task_id=task.task_id,
-                status=ExecutionStatus.FAILED,
-                exit_code=-1,
-                stdout="",
-                stderr=msg,
-                duration_seconds=0,
-                error_message=f"Command '{binary}' not in allowlist"
-            )
-
         try:
             # SECURITY: This executes arbitrary commands.
             # In XploitAI, this is intentional for the Attacker VM.
