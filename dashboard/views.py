@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 def _get_unified_events(state: AttackState) -> list[dict]:
     """Helper to aggregate all temporal events for timeline and replay."""
     actions = Action.objects.filter(attack_state=state)
-    events = AttackTimelineEvent.objects.filter(attack_state=state)
-    tasks = ExecutionTask.objects.filter(action__attack_state=state)
+    events = AttackTimelineEvent.objects.filter(attack_state=state).select_related('action')
+    tasks = ExecutionTask.objects.filter(action__attack_state=state).select_related('action')
     alerts = DefenderAlert.objects.filter(attack_state=state)
 
     unified = []
@@ -51,12 +51,18 @@ def _get_unified_events(state: AttackState) -> list[dict]:
 
     # 2. System Events
     for e in events:
+        # Enrich with reasoning if linked to an action
+        data = e.data.copy() if e.data else {}
+        if e.action and e.action.reasoning:
+            data['reasoning'] = e.action.reasoning
+        data['phase'] = e.phase
+
         unified.append({
             'dt': e.created_at,
             'source': 'SYSTEM',
             'type': e.get_event_type_display(),
             'desc': e.message,
-            'data': e.data,
+            'data': data,
         })
 
     # 3. Defender Alerts
@@ -71,12 +77,17 @@ def _get_unified_events(state: AttackState) -> list[dict]:
 
     # 4. Execution Tasks
     for t in tasks:
+        # Enrich with reasoning from the parent action
+        data = t.parameters.copy() if t.parameters else {}
+        if t.action and t.action.reasoning:
+            data['reasoning'] = t.action.reasoning
+
         unified.append({
             'dt': t.created_at,
             'source': 'EXECUTOR',
             'type': 'TASK_QUEUED',
             'desc': f"Queued: {t.action_name}",
-            'data': t.parameters,
+            'data': data,
         })
         if t.status in ('COMPLETED', 'FAILED'):
              unified.append({

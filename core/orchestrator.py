@@ -156,6 +156,7 @@ class Orchestrator:
             attack_state=state,
             name=proposal.name,
             description=proposal.description,
+            reasoning=getattr(proposal, "reasoning", getattr(proposal, "rationale", "")),
             parameters=dict(proposal.parameters),
             status="PENDING",
         )

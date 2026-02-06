@@ -423,6 +423,7 @@ class AutonomousController:
                 attack_state=state,
                 name=proposal.name,
                 description=proposal.description,
+                reasoning=getattr(proposal, "reasoning", getattr(proposal, "rationale", "")),
                 parameters=proposal.parameters,
                 status=status
             )
@@ -447,6 +448,7 @@ class AutonomousController:
 
             ExecutionTask.objects.create(
                 action_name=proposal.name,
+                action=action,
                 parameters=task_params,
                 status='PENDING',
                 requires_approval=False,  # Future: Check policy_decision.requires_approval
