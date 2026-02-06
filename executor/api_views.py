@@ -56,6 +56,16 @@ def _resolve_command(action_name, parameters):
     elif action_name == "ping_target":
         target = params.get("ip") or params.get("target") or "127.0.0.1"
         return f"ping -c 4 {target}"
+    elif action_name == "PassiveRecon":
+        target = params.get("target_domain") or "localhost"
+        return f"whois {target}"
+    elif action_name == "ServiceEnumeration":
+        target = params.get("target_host") or "localhost"
+        return f"nmap -sV {target}"
+    elif action_name == "ExploitAttempt":
+        vuln_id = params.get("vulnerability_id", "UNKNOWN_VULN")
+        target = params.get("target_host", "localhost")
+        return f"echo 'SIMULATING EXPLOIT {vuln_id} on {target}'"
         
     return f"echo 'No command mapping defined for action: {action_name}'"
 
@@ -63,7 +73,7 @@ def _resolve_command(action_name, parameters):
 def get_tasks(request):
     """
     Returns pending execution tasks.
-    Output: [ { "task_id": 1, "action_name": "...", "command": "..." }, ... ]
+    Output: [ { "id": 1, "action_name": "...", "command": "..." }, ... ]
     """
     try:
         tasks = ExecutionTask.objects.filter(status="PENDING").values(
@@ -73,7 +83,7 @@ def get_tasks(request):
         task_list = []
         for t in tasks:
             task_list.append({
-                "task_id": t["id"],
+                "id": t["id"],
                 "action_name": t["action_name"],
                 "command": _resolve_command(t["action_name"], t.get("parameters")),
                 "parameters": t.get("parameters", {}),
