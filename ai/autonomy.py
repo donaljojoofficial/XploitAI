@@ -23,7 +23,7 @@ from django.utils import timezone
 
 from core.models import Action, AttackState, ExecutionTask, DefenderAlert, AttackContext
 # Use the concrete implementation from agent.decision
-from agent.decision import DecisionEngine
+from ai.decision_engine import DecisionEngine
 from ai.command_generator import CommandGenerator
 from ai.context_manager import OperationalContextManager
 from ai.safety import CommandSafety
@@ -165,7 +165,7 @@ class AutonomousController:
 
         # 5. Get AI Decision
         # We request 1 proposal for the autonomous loop
-        proposals = self.decision_engine.propose_next_actions(state, limit=1)
+        proposals = self.decision_engine.generate_actions(state)
         if not proposals:
             reason = "No proposals returned (Goal reached or stuck)"
             self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": reason})
@@ -176,7 +176,7 @@ class AutonomousController:
         proposal = proposals[0]
         self._log_audit(cycle_id, "AI_PROPOSAL", {
             "name": proposal.name,
-            "score": proposal.score,
+            "score": getattr(proposal, 'score', 1.0),
             "params": proposal.parameters
         })
 
