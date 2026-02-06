@@ -96,6 +96,12 @@ class CommandGenerator:
             return self._generate_privilege_escalation(parameters)
         elif action_name == "ProofOfCompromise":
             return self._generate_proof_of_compromise(parameters)
+        elif action_name == "HTTPHeaderFetch":
+            return self._generate_http_header_fetch(parameters)
+        elif action_name == "TechnologyFingerprint":
+            return self._generate_technology_fingerprint(parameters)
+        elif action_name == "EndpointDiscovery":
+            return self._generate_endpoint_discovery(parameters)
         else:
             logger.warning("Unknown action '%s'. Returning fallback echo.", action_name)
             return GeneratedCommand(
@@ -191,4 +197,29 @@ class CommandGenerator:
         return GeneratedCommand(
             shell_command=f"echo 'PROOF_OF_COMPROMISE: {safe_tag}' > /tmp/proof.txt",
             explanation=f"Writes proof tag '{tag}' to /tmp/proof.txt."
+        )
+
+    def _generate_http_header_fetch(self, params: Mapping[str, Any]) -> GeneratedCommand:
+        url = params.get("target_url", "http://localhost")
+        safe_url = shlex.quote(str(url))
+        return GeneratedCommand(
+            shell_command=f"curl -I {safe_url}",
+            explanation=f"Fetches HTTP headers from {url}."
+        )
+
+    def _generate_technology_fingerprint(self, params: Mapping[str, Any]) -> GeneratedCommand:
+        url = params.get("target_url", "http://localhost")
+        safe_url = shlex.quote(str(url))
+        return GeneratedCommand(
+            shell_command=f"whatweb {safe_url}",
+            explanation=f"Identifies web technologies used by {url}."
+        )
+
+    def _generate_endpoint_discovery(self, params: Mapping[str, Any]) -> GeneratedCommand:
+        url = params.get("target_url", "http://localhost")
+        # Ensure no trailing slash for clean concatenation
+        safe_url = shlex.quote(str(url).rstrip('/') + "/robots.txt")
+        return GeneratedCommand(
+            shell_command=f"curl {safe_url}",
+            explanation=f"Checks for robots.txt at {url}."
         )

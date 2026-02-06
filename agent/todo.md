@@ -342,10 +342,10 @@ TODO CORE-1:
 Ensure AI generates at least one action for any active target. - COMPLETED
 
 TODO CORE-2:
-Ensure planner loop runs when autonomy is started.
+Ensure planner loop runs when autonomy is started. - COMPLETED
 
 TODO CORE-3:
-Ensure generated actions create executable tasks.
+Ensure generated actions create executable tasks. - COMPLETED
 
 TODO CORE-4:
 Ensure executor successfully runs commands and returns output.
