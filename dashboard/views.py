@@ -132,6 +132,8 @@ def index(request: HttpRequest) -> HttpResponse:
         'alerts': alerts,
         'executors': executors,
         'targets': targets,
+        'connected_executors': executors.filter(status=AttackerExecutor.Status.CONNECTED),
+        'active_targets': targets.filter(is_active=True),
         'has_connected_executor': has_connected_executor,
         'has_active_target': has_active_target,
     }
@@ -163,7 +165,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     unified_events = _get_unified_events(state)
 
     context = {
-        'state': state,
+        'attack_state': state,
         'actions': actions,
         'tasks': tasks,
         'alerts': alerts,

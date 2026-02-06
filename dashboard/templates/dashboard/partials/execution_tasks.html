@@ -1,39 +1,37 @@
-{% comment %}
-  Renders execution tasks.
-  Expects:
-  - tasks: A queryset of ExecutionTask objects.
-  - display_mode: "summary" (ul) or "table" (default).
-{% endcomment %}
-
-<div class="card">
-    {% if display_mode == "summary" %}
-        <h2>Recent Execution Tasks</h2>
-        <ul>
-            {% for task in tasks %}
-                <li>{{ task.created_at|date:"Y-m-d H:i:s" }} - [<span class="status status-{{ task.status }}">{{ task.status }}</span>]: <code>{{ task.command|escape }}</code></li>
-            {% empty %}
-                <li class="empty-state">No execution tasks recorded.</li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <h2>Execution Queue</h2>
-        <table>
-            <thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Command</th><th>Output</th><th>Created</th><th>Updated</th></tr></thead>
-            <tbody>
-            {% for task in tasks %}
-                <tr>
-                    <td>{{ task.id }}</td>
-                    <td>{{ task.action_name }}</td>
-                    <td><span class="status status-{{ task.status }}">{{ task.status }}</span></td>
-                    <td><pre>{{ task.command }}</pre></td>
-                    <td><pre style="max-height:150px; overflow:auto; font-size:0.85em;">{{ task.output|default:task.result|pprint }}</pre></td>
-                    <td class="muted">{{ task.created_at|date:"H:i:s" }}</td>
-                    <td class="muted">{{ task.updated_at|date:"H:i:s" }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="7" class="empty-state">No execution tasks.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    {% endif %}
+<div class="card shadow-sm">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="card-title mb-0">Execution Tasks</h5>
+    </div>
+    <div class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+        {% for task in tasks %}
+        <div class="list-group-item">
+            <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                <h6 class="mb-0">{{ task.action_name }}</h6>
+                {% if task.status == 'COMPLETED' %}
+                    <span class="badge bg-success">COMPLETED</span>
+                {% elif task.status == 'FAILED' %}
+                    <span class="badge bg-danger">FAILED</span>
+                {% elif task.status == 'RUNNING' %}
+                    <span class="badge bg-primary">RUNNING</span>
+                {% else %}
+                    <span class="badge bg-secondary">{{ task.status }}</span>
+                {% endif %}
+            </div>
+            <div class="bg-light p-2 rounded font-monospace small mb-2" style="white-space: pre-wrap;">$ {{ task.command }}</div>
+            
+            {% if task.output %}
+            <details>
+                <summary class="small text-primary cursor-pointer">Show Output</summary>
+                <div class="mt-2 bg-dark text-success p-2 rounded font-monospace small" style="max-height: 200px; overflow: auto;">
+                    {{ task.output|pprint }}
+                </div>
+            </details>
+            {% endif %}
+            
+            <small class="text-muted mt-1 d-block">Created: {{ task.created_at|date:"H:i:s" }}</small>
+        </div>
+        {% empty %}
+        <div class="list-group-item text-center text-muted">No tasks queued or executed.</div>
+        {% endfor %}
+    </div>
 </div>

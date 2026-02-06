@@ -1,38 +1,20 @@
-{% comment %}
-  Renders defender alerts.
-  Expects:
-  - alerts: A queryset of DefenderAlert objects.
-  - display_mode: "summary" (ul) or "table" (default).
-{% endcomment %}
-
-<div class="card">
-    {% if display_mode == "summary" %}
-        <h2>Recent Defender Alerts</h2>
-        <ul>
-            {% for alert in alerts %}
-                <li>{{ alert.created_at|date:"Y-m-d H:i:s" }} - [<span class="severity severity-{{ alert.severity }}">{{ alert.severity }}</span>]: {{ alert.description|escape }}</li>
-            {% empty %}
-                <li class="empty-state">No defender alerts recorded.</li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <h2>Defender Alerts</h2>
-        <table>
-            <thead><tr><th>Severity</th><th>Rule ID</th><th>Description</th><th>Detected At</th></tr></thead>
-            <tbody>
-            {% for alert in alerts %}
-                <tr>
-                    <td>
-                        <span class="severity severity-{{ alert.severity }}">{{ alert.severity }}</span>
-                    </td>
-                    <td>{{ alert.rule_id }}</td>
-                    <td>{{ alert.description|escape }}</td>
-                    <td class="muted">{{ alert.created_at|date:"Y-m-d H:i:s" }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="4" class="empty-state">No alerts detected.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    {% endif %}
+<div class="card shadow-sm">
+    <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Defender Alerts</h5>
+        <span class="badge bg-white text-danger">{{ alerts|length }}</span>
+    </div>
+    <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
+        {% for alert in alerts %}
+        <div class="list-group-item">
+            <div class="d-flex w-100 justify-content-between">
+                <h6 class="mb-1">{{ alert.title }}</h6>
+                <span class="badge bg-warning text-dark">{{ alert.severity }}</span>
+            </div>
+            <p class="mb-1 small">{{ alert.description }}</p>
+            <small class="text-muted">{{ alert.created_at|timesince }} ago</small>
+        </div>
+        {% empty %}
+        <div class="list-group-item text-center text-muted">No active alerts.</div>
+        {% endfor %}
+    </div>
 </div>

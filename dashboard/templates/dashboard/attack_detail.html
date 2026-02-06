@@ -8,6 +8,7 @@
             <div class="d-flex gap-2">
                 <span class="badge bg-primary">Phase: {{ attack_state.get_current_phase_display }}</span>
                 <span class="badge bg-info">Target: {{ attack_state.state_data.planner_context.targets.0.ip|default:"Unknown" }}</span>
+                <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn btn-sm btn-outline-secondary ms-auto">Replay Attack</a>
             </div>
         </div>
     </div>
@@ -20,7 +21,7 @@
             </div>
         </div>
         <div class="col-lg-8">
-            {% include "dashboard/partials/plan_steps.html" with actions=attack_state.actions.all %}
+            {% include "dashboard/partials/plan_steps.html" %}
             <div class="mt-4">
                 {% include "dashboard/partials/execution_tasks.html" %}
             </div>
