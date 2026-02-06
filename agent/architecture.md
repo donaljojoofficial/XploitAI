@@ -544,3 +544,172 @@ Allow starting autonomy only when context is READY
 Disable controls otherwise
 
 No fake buttons.
+
+##NEW ARCHITECTURE
+
+ ---
+
+
+# SYSTEM ARCHITECTURE — XploitAI (Development Mode)
+
+## Architectural Intent
+
+XploitAI is an AI-assisted penetration testing framework designed for
+controlled, educational environments.
+
+During early development phases, the system prioritizes:
+- End-to-end functionality
+- AI planning visibility
+- Execution reliability
+- Debuggability
+
+Strict security enforcement is intentionally deferred to later phases
+once system behavior is validated.
+
+---
+
+## High-Level Flow
+
+[ Dashboard / UI ]
+        |
+        v
+[ Django Backend ]
+        |
+        v
+[ Autonomy Controller ]
+        |
+        v
+[ Decision Engine ]
+   (AI-first, fallback rules)
+        |
+        v
+[ Task Generator ]
+        |
+        v
+[ Executor API ]
+        |
+        v
+[ Kali Linux Executor (WSL) ]
+        |
+        v
+[ Vulnerable Web Application ]
+
+---
+
+## Deployment Model
+
+### Attacker
+- Kali Linux via WSL
+- Executor daemon runs locally
+- Executes generated commands
+
+### Target
+- Intentionally vulnerable web application
+- Hosted locally or via Docker
+- Example: OWASP Juice Shop
+
+### Controller
+- Django application
+- Hosts autonomy logic and AI planning
+- Provides REST APIs to executor and UI
+
+---
+
+## Core Components
+
+### 1. Autonomy Controller
+**Purpose**
+- Manages autonomy lifecycle (START / RUN / STOP)
+- Triggers planning cycles
+- Stops when no actions are available
+
+**Current Mode**
+- Single-cycle execution
+- No background scheduling yet
+
+---
+
+### 2. Decision Engine
+**Purpose**
+- Generates next actions to perform
+- Uses LLM when available
+- Falls back to simple heuristics when needed
+
+**Current Mode**
+- LLM output trusted in development
+- Minimal validation
+- Structured JSON expected but not enforced strictly
+
+---
+
+### 3. AI Adapter (Gemini)
+**Purpose**
+- Connects to Gemini Flash model
+- Generates high-level attack plans
+- Returns action descriptions and parameters
+
+**Current Mode**
+- Free-tier compatible model
+- Logging enabled for observability
+- No hard rejection of imperfect outputs
+
+---
+
+### 4. Task Generator
+**Purpose**
+- Converts AI actions into executable tasks
+- Performs basic translation (action → command)
+
+**Current Mode**
+- Direct mappings
+- Limited safety filtering
+- Designed to evolve into policy engine later
+
+---
+
+### 5. Executor (Kali WSL)
+**Purpose**
+- Executes commands received from backend
+- Returns stdout/stderr
+
+**Current Mode**
+- Basic allowlist
+- Execution-focused
+- No advanced sandboxing yet
+
+---
+
+## Data Flow (Simplified)
+
+Autonomy START
+→ Decision Engine generates actions
+→ Tasks created
+→ Executor executes
+→ Results stored
+→ Autonomy evaluates continuation
+
+---
+
+## Deferred Concerns (Explicitly Postponed)
+
+The following are **intentionally NOT enforced yet**:
+
+- Strict command whitelisting
+- Multi-level policy validation
+- Human approval gates
+- Advanced sandboxing
+- Memory / learning loops
+
+These will be introduced **after system stability**.
+
+---
+
+## Why This Architecture Is Still Serious
+
+- Clear separation of concerns
+- Explicit autonomy lifecycle
+- Real AI planning integration
+- Real execution environment
+- Clear upgrade path to hardened mode
+
+This is a development-phase architecture, not a toy.

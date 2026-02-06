@@ -63,7 +63,14 @@ class AttackTarget(models.Model):
     )
     ip_address = models.GenericIPAddressField(
         protocol='both',
-        help_text="IP address of the target system"
+        help_text="IP address of the target system",
+        null=True,
+        blank=True
+    )
+    base_url = models.URLField(
+        max_length=255,
+        blank=True,
+        help_text="Base URL for web-based targets (e.g., http://localhost:3000)"
     )
     operating_system = models.CharField(
         max_length=100,

@@ -328,3 +328,92 @@ BUG FIXES:
 - BUG-EXEC-2: Register executor API URLs - DONE
 - BUG-EXEC-3: Include executor API routes at project level - DONE
 - BUG-EXEC-4: Verify executor endpoints return JSON - DONE
+
+
+
+
+# DEVELOPMENT TODO LIST — XploitAI (Working-First Mode)
+
+==================================================
+PHASE 1 — MAKE IT WORK (CURRENT)
+==================================================
+
+TODO CORE-1:
+Ensure AI generates at least one action for any active target.
+
+TODO CORE-2:
+Ensure planner loop runs when autonomy is started.
+
+TODO CORE-3:
+Ensure generated actions create executable tasks.
+
+TODO CORE-4:
+Ensure executor successfully runs commands and returns output.
+
+==================================================
+PHASE 2 — WEB ATTACK FLOW
+==================================================
+
+TODO WEB-1:
+Support URL-based targets instead of IP-only targets.
+
+TODO WEB-2:
+Add basic web recon actions:
+- HTTPHeaderFetch
+- TechnologyFingerprint
+- EndpointDiscovery
+
+TODO WEB-3:
+Map web actions to executable commands (curl, nikto, etc).
+
+==================================================
+PHASE 3 — FEEDBACK LOOP
+==================================================
+
+TODO FB-1:
+Store execution output visibly in dashboard.
+
+TODO FB-2:
+Pass previous results into next AI planning cycle.
+
+TODO FB-3:
+Allow multi-step autonomy until stop condition.
+
+==================================================
+PHASE 4 — STABILIZATION
+==================================================
+
+TODO STAB-1:
+Add basic error handling for failed commands.
+
+TODO STAB-2:
+Prevent infinite execution loops.
+
+TODO STAB-3:
+Add minimal logging for debugging autonomy.
+
+==================================================
+PHASE 5 — HARDENING (LATER)
+==================================================
+
+TODO HARD-1:
+Introduce strict action → command policies.
+
+TODO HARD-2:
+Implement human approval gates.
+
+TODO HARD-3:
+Add audit logging and enforcement.
+
+==================================================
+PHASE 6 — PRESENTATION & REVIEW
+==================================================
+
+TODO DEMO-1:
+Prepare repeatable demo scenario.
+
+TODO DEMO-2:
+Explain AI vs fallback decisions.
+
+TODO DEMO-3:
+Document safety boundaries and limitations.
