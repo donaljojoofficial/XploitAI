@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, MutableMapping, Optional, Protocol
 
 from actions.predefined import validate_action
+from ai.llm.gemini import GeminiAdapter
+from ai.schemas import DecisionInput, KnownService, PastActionSummary
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +54,19 @@ class ActionProposal:
 
 
 class DecisionEngine:
-    """Deterministic AI decision engine (Phase 1 interface).
+    """Hybrid AI decision engine (Phase 1+ interface).
 
     Provides propose_next_actions which returns a ranked list of action
     proposals based on the current state. The ranking is deterministic and
     relies on simple heuristics aligned with the kill chain.
+
+    Now includes a Hybrid mode:
+    1. Attempt Gemini LLM decision.
+    2. Fallback to deterministic heuristics if LLM fails or is invalid.
     """
+
+    def __init__(self) -> None:
+        self.llm_adapter = GeminiAdapter()
 
     def propose_next_actions(
         self, state: AttackStateLike, limit: int = 3
@@ -71,6 +80,15 @@ class DecisionEngine:
 
         phase = state.current_phase
         logger.debug("Proposing next actions for phase: %s", phase)
+
+        # --- HYBRID AI ATTEMPT ---
+        ai_proposal = self._attempt_ai_decision(state)
+        if ai_proposal:
+            logger.info("DecisionEngine: using Gemini LLM output")
+            return [ai_proposal]
+
+        logger.info("DecisionEngine: falling back to deterministic logic")
+        # -------------------------
 
         candidates: list[ActionProposal] = []
 
@@ -116,6 +134,48 @@ class DecisionEngine:
     # -------------------
     # Internal helpers
     # -------------------
+
+    def _attempt_ai_decision(self, state: AttackStateLike) -> Optional[ActionProposal]:
+        """Attempts to generate a valid action proposal using the LLM adapter."""
+        try:
+            decision_input = self._build_decision_input(state)
+            decision = self.llm_adapter.get_recommendation(decision_input)
+
+            if not decision:
+                return None
+
+            # Validate that the action exists and preconditions are met locally
+            ok, reason = validate_action(decision.action_type, state, decision.parameters)
+            if not ok:
+                logger.warning(
+                    "Gemini proposed invalid action '%s': %s", decision.action_type, reason
+                )
+                return None
+
+            return ActionProposal(
+                name=decision.action_type,
+                description=decision.rationale or "AI generated decision",
+                parameters=decision.parameters,
+                score=1.0,
+            )
+        except Exception as e:
+            logger.error("Error during AI decision attempt: %s", e)
+            return None
+
+    def _build_decision_input(self, state: AttackStateLike) -> DecisionInput:
+        """Constructs the AI input schema from the current attack state."""
+        data = state.state_data or {}
+        
+        # Best-effort extraction of known services for context
+        known_services = []
+        # (Future: Extract services from data['enumeration']['services'] if available)
+
+        return DecisionInput(
+            phase=state.current_phase,
+            known_services=known_services,
+            past_actions=[],  # History not currently available in AttackStateLike
+            last_result=None,
+        )
 
     def _propose_passive_recon(self, state: AttackStateLike) -> Optional[ActionProposal]:
         data = state.state_data or {}
