@@ -45,10 +45,15 @@ def get_next_task(request: HttpRequest) -> HttpResponse:
 
         logger.info(f"Dispatching task {task.id} ({task.action_name}) to executor.")
 
+        # Ensure command is populated (handle schema migration)
+        cmd = getattr(task, 'command', '')
+        if not cmd and isinstance(task.parameters, dict):
+            cmd = task.parameters.get('command', '')
+
         return JsonResponse({
             "task_id": task.id,
             "action_name": task.action_name,
-            "command": getattr(task, 'command', ''),
+            "command": cmd,
             "parameters": task.parameters,
             "limits": {}
         })

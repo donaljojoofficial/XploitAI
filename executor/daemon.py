@@ -134,12 +134,16 @@ class ExecutorDaemon:
             if not data:
                 return None
 
+            params = data.get('parameters', {})
+            # Support command in parameters (new schema) or top-level (legacy)
+            cmd = data.get('command') or params.get('command')
+
             # Deserialize manually since ExecutionRequest doesn't have from_dict yet
             return ExecutionRequest(
                 task_id=data['task_id'],
                 action_name=data['action_name'],
-                command=data['command'],
-                parameters=data.get('parameters', {}),
+                command=cmd,
+                parameters=params,
                 limits=data.get('limits', {})
             )
         elif resp.status_code == 204:

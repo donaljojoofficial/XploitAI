@@ -272,13 +272,13 @@ class AutonomousController:
         target = context.target
         
         planner_context = {
-            "goal": "Perform initial reconnaissance to discover open ports and services.",
-            "target": {
+            "goal": "Perform reconnaissance to discover services and attempt exploitation of found vulnerabilities.",
+            "targets": [{
                 "name": target.name,
                 "ip": target.ip_address,
                 "os": getattr(target, "operating_system", "Linux")
-            },
-            "allowed_actions": ["PassiveRecon", "ServiceEnumeration"],
+            }],
+            "allowed_actions": ["PassiveRecon", "ServiceEnumeration", "ExploitAttempt", "PrivilegeEscalation", "ProofOfCompromise"],
             "instructions": ["Return at least ONE action if possible.", "Output must be valid JSON."]
         }
         
@@ -286,6 +286,17 @@ class AutonomousController:
             state.state_data = {}
             
         state.state_data['planner_context'] = planner_context
+
+        # Seed legacy fields for deterministic fallback
+        # This ensures that if the AI fails, the deterministic engine has enough data to proceed.
+        if not state.state_data.get('target_domain'):
+            state.state_data['target_domain'] = target.ip_address
+            
+        if 'recon' not in state.state_data:
+            state.state_data['recon'] = {}
+        if 'domains' not in state.state_data['recon']:
+            state.state_data['recon']['domains'] = [target.ip_address]
+
         state.save(update_fields=['state_data'])
 
     def _check_stop_conditions(self, state: AttackState) -> Optional[str]:
@@ -398,11 +409,11 @@ class AutonomousController:
             task_params = proposal.parameters.copy()
             task_params['_action_id'] = action.id
             task_params['_limits'] = limits
+            task_params['command'] = generated.shell_command
 
             ExecutionTask.objects.create(
                 action_name=proposal.name,
                 parameters=task_params,
-                command=generated.shell_command,
                 status='PENDING',
                 requires_approval=False,  # Future: Check policy_decision.requires_approval
             )

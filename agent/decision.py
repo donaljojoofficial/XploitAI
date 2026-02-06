@@ -27,7 +27,7 @@ from typing import Any, Iterable, Mapping, MutableMapping, Optional, Protocol
 
 from actions.predefined import validate_action
 from ai.llm.gemini import GeminiAdapter
-from ai.schemas import DecisionInput, KnownService, PastActionSummary
+from ai.schemas import DecisionInput, KnownService, PastActionSummary, DecisionRequest
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,12 @@ class DecisionEngine:
         """Attempts to generate a valid action proposal using the LLM adapter."""
         try:
             decision_input = self._build_decision_input(state)
-            decision = self.llm_adapter.get_recommendation(decision_input)
+            
+            # Pass planner context via DecisionRequest
+            context = state.state_data.get('planner_context') if state.state_data else None
+            request = DecisionRequest(decision_input=decision_input, context=context)
+            
+            decision = self.llm_adapter.get_recommendation(request)
 
             if not decision:
                 return None
