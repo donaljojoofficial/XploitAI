@@ -20,8 +20,10 @@ def index(request):
     targets = AttackTarget.objects.all()
     
     # Determine readiness for new simulations
-    has_connected_executor = executors.filter(status=AttackerExecutor.Status.CONNECTED).exists()
-    has_active_target = targets.filter(is_active=True).exists()
+    connected_executors = executors.filter(status=AttackerExecutor.Status.CONNECTED)
+    active_targets = targets.filter(is_active=True)
+    has_connected_executor = connected_executors.exists()
+    has_active_target = active_targets.exists()
     
     context = {
         'attack_state': attack_state,
@@ -31,5 +33,7 @@ def index(request):
         'targets': targets,
         'has_connected_executor': has_connected_executor,
         'has_active_target': has_active_target,
+        'default_executor': connected_executors.first(),
+        'default_target': active_targets.first(),
     }
     return render(request, 'dashboard/index.html', context)
