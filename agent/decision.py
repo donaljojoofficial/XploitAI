@@ -27,7 +27,7 @@ from typing import Any, Iterable, Mapping, MutableMapping, Optional, Protocol
 
 from actions.predefined import validate_action
 from ai.llm.gemini import GeminiAdapter
-from ai.schemas import DecisionInput, KnownService, PastActionSummary, DecisionRequest
+from ai.schemas import DecisionInput, KnownService, PastActionSummary, DecisionRequest, ActionResultSummary
 
 logger = logging.getLogger(__name__)
 
@@ -174,12 +174,36 @@ class DecisionEngine:
         # Best-effort extraction of known services for context
         known_services = []
         # (Future: Extract services from data['enumeration']['services'] if available)
+        
+        # Extract history from state_data (populated by AutonomousController)
+        past_actions = []
+        raw_history = data.get('execution_history', [])
+        
+        for item in raw_history:
+            past_actions.append(PastActionSummary(
+                action_type=item.get('action', 'Unknown'),
+                parameters=item.get('parameters', {}),
+                phase=None,
+                timestamp=item.get('timestamp')
+            ))
+
+        last_result = None
+        if raw_history:
+            last_item = raw_history[-1]
+            success = (last_item.get('status') == 'COMPLETED')
+            output_text = last_item.get('result', '')
+            
+            last_result = ActionResultSummary(
+                success=success,
+                output_summary=output_text if success else None,
+                error=output_text if not success else None
+            )
 
         return DecisionInput(
             phase=state.current_phase,
             known_services=known_services,
-            past_actions=[],  # History not currently available in AttackStateLike
-            last_result=None,
+            past_actions=past_actions,
+            last_result=last_result,
         )
 
     def _propose_passive_recon(self, state: AttackStateLike) -> Optional[ActionProposal]:
