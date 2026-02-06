@@ -41,6 +41,8 @@ def index(request):
         'has_active_target': has_active_target,
         'default_executor': connected_executors.first(),
         'default_target': active_targets.first(),
+        'connected_executors': connected_executors,
+        'active_targets': active_targets,
         'active_context': active_context,
     }
     return render(request, 'dashboard/index.html', context)
