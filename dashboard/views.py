@@ -102,6 +102,26 @@ def _get_unified_events(state: AttackState) -> list[dict]:
     return unified
 
 
+def _get_global_context() -> dict[str, Any]:
+    """Helper to provide global context variables (executors, targets) for navigation/modals."""
+    executors = AttackerExecutor.objects.all().order_by('-last_heartbeat')
+    targets = AttackTarget.objects.all().order_by('name')
+    active_context = AttackContext.objects.filter(status__in=['READY', 'RUNNING']).first()
+
+    connected_executors = executors.filter(status=AttackerExecutor.Status.CONNECTED)
+    active_targets = targets.filter(is_active=True)
+
+    return {
+        'executors': executors,
+        'targets': targets,
+        'connected_executors': connected_executors,
+        'active_targets': active_targets,
+        'has_connected_executor': connected_executors.exists(),
+        'has_active_target': active_targets.exists(),
+        'active_context': active_context,
+    }
+
+
 def index(request: HttpRequest) -> HttpResponse:
     """
     Displays the main dashboard using a Django template.
@@ -118,24 +138,12 @@ def index(request: HttpRequest) -> HttpResponse:
         tasks = []
         alerts = []
 
-    executors = AttackerExecutor.objects.all().order_by('-last_heartbeat')
-    targets = AttackTarget.objects.all().order_by('name')
-
-    # Readiness checks for UI
-    has_connected_executor = executors.filter(status=AttackerExecutor.Status.CONNECTED).exists()
-    has_active_target = targets.filter(is_active=True).exists()
-
     context = {
         'attack_state': attack_state,
         'actions': actions,
         'tasks': tasks,
         'alerts': alerts,
-        'executors': executors,
-        'targets': targets,
-        'connected_executors': executors.filter(status=AttackerExecutor.Status.CONNECTED),
-        'active_targets': targets.filter(is_active=True),
-        'has_connected_executor': has_connected_executor,
-        'has_active_target': has_active_target,
+        **_get_global_context(),
     }
     return render(request, 'dashboard/index.html', context)
 
@@ -172,6 +180,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'unified_events': unified_events,
         'consecutive_failures': consecutive_failures,
         'interaction_events': interaction_events,
+        **_get_global_context(),
     }
     return render(request, 'dashboard/attack_detail.html', context)
 
@@ -198,6 +207,7 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         'attack_state': state,
         'actions': actions,
+        **_get_global_context(),
     }
     return render(request, 'dashboard/attack_plan.html', context)
 
