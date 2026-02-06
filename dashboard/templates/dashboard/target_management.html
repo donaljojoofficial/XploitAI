@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Target Management - XploitAI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'dashboard_index' %}">XploitAI Dashboard</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="{% url 'dashboard_index' %}">Home</a>
+                <a class="nav-link active" href="#">Target Management</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row">
+            <!-- Form Section -->
+            <div class="col-md-4">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Add New Target</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="post">
+                            {% csrf_token %}
+                            {% if form.errors %}
+                                <div class="alert alert-danger">
+                                    {{ form.errors }}
+                                </div>
+                            {% endif %}
+                            
+                            <div class="mb-3">
+                                <label for="{{ form.name.id_for_label }}" class="form-label">Target Name</label>
+                                {{ form.name }}
+                            </div>
+                            <div class="mb-3">
+                                <label for="{{ form.ip_address.id_for_label }}" class="form-label">IP Address</label>
+                                {{ form.ip_address }}
+                            </div>
+                            <div class="mb-3">
+                                <label for="{{ form.operating_system.id_for_label }}" class="form-label">Operating System</label>
+                                {{ form.operating_system }}
+                            </div>
+                            <div class="mb-3">
+                                <label for="{{ form.vulnerability_profile.id_for_label }}" class="form-label">Vulnerability Profile</label>
+                                {{ form.vulnerability_profile }}
+                            </div>
+                            <div class="mb-3 form-check">
+                                {{ form.is_active }}
+                                <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Active</label>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-success w-100">Register Target</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- List Section -->
+            <div class="col-md-8">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0">Registered Targets</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if messages %}
+                            {% for message in messages %}
+                                <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                                    {{ message }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>IP Address</th>
+                                        <th>OS</th>
+                                        <th>Profile</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for target in targets %}
+                                    <tr>
+                                        <td><strong>{{ target.name }}</strong></td>
+                                        <td><code>{{ target.ip_address }}</code></td>
+                                        <td>{{ target.operating_system }}</td>
+                                        <td><span class="badge bg-info text-dark">{{ target.vulnerability_profile|default:"N/A" }}</span></td>
+                                        <td>
+                                            {% if target.is_active %}
+                                                <span class="badge bg-success">Active</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">Inactive</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted py-4">
+                                            No targets registered yet. Use the form to add one.
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

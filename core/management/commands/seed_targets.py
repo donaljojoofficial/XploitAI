@@ -8,8 +8,8 @@ class Command(BaseCommand):
         targets = [
             {
                 "name": "Target-Alpha (Ubuntu)",
-                "ip_address": "192.168.1.105",
-                "operating_system": "Ubuntu 20.04 LTS",
+                "ip_address": "10.0.2.15",
+                "operating_system": "windows 10",
                 "vulnerability_profile": "Standard-Lab-Build",
                 "is_active": True
             },

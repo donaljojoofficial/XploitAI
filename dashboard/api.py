@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET
 from django.core.serializers.json import DjangoJSONEncoder
 
-from core.models import Action, AttackState, DefenderAlert
+from core.models import Action, AttackState, DefenderAlert, AttackTarget
 
 
 @require_GET
@@ -72,3 +72,13 @@ def interaction_timeline(request, attack_id: int) -> JsonResponse:
         'event_count': len(timeline),
         'timeline': timeline
     }, encoder=DjangoJSONEncoder)
+
+@require_GET
+def target_list(request) -> JsonResponse:
+    """
+    Return a list of available targets for the dashboard.
+    """
+    targets = list(AttackTarget.objects.values(
+        'id', 'name', 'ip_address', 'operating_system', 'is_active'
+    ))
+    return JsonResponse({'targets': targets}, encoder=DjangoJSONEncoder)
