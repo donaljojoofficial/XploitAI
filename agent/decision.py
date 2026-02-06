@@ -68,6 +68,10 @@ class DecisionEngine:
     def __init__(self) -> None:
         self.llm_adapter = GeminiAdapter()
 
+    def generate_actions(self, state: AttackStateLike, limit: int = 3) -> list[ActionProposal]:
+        """Alias for propose_next_actions to satisfy AutonomousController interface."""
+        return self.propose_next_actions(state, limit)
+
     def propose_next_actions(
         self, state: AttackStateLike, limit: int = 3
     ) -> list[ActionProposal]:
@@ -79,7 +83,7 @@ class DecisionEngine:
             return []
 
         phase = state.current_phase
-        logger.debug("Proposing next actions for phase: %s", phase)
+        logger.info("Proposing next actions for phase: %s", phase)
 
         # --- HYBRID AI ATTEMPT ---
         ai_proposal = self._attempt_ai_decision(state)
@@ -231,13 +235,22 @@ class DecisionEngine:
 
     def _propose_service_enumeration(self, state: AttackStateLike) -> Optional[ActionProposal]:
         data = state.state_data or {}
-        recon = data.get("recon", {}) if isinstance(data.get("recon"), dict) else {}
-        domains = recon.get("domains", []) if isinstance(recon.get("domains"), list) else []
-        if not domains:
-            logger.debug("No recon domains present for ServiceEnumeration proposal")
+        
+        # Try planner context first (Phase 2 standard)
+        planner_ctx = data.get('planner_context', {})
+        targets = planner_ctx.get('targets', [])
+        if targets:
+            host = targets[0].get('primary_ref')
+        else:
+            # Fallback to legacy recon data
+            recon = data.get("recon", {}) if isinstance(data.get("recon"), dict) else {}
+            domains = recon.get("domains", []) if isinstance(recon.get("domains"), list) else []
+            host = self._first_list_value(domains)
+
+        if not host:
+            logger.debug("No target host found for ServiceEnumeration proposal")
             return None
 
-        host = self._first_list_value(domains)
         params = {"target_host": host}
         return ActionProposal(
             name="ServiceEnumeration",
