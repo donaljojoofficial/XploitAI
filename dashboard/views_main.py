@@ -44,3 +44,17 @@ def index(request):
         'active_context': active_context,
     }
     return render(request, 'dashboard/index.html', context)
+
+def load_more_activity(request):
+    """
+    AJAX view to load older activity logs.
+    """
+    offset = int(request.GET.get('offset', 0))
+    limit = 50
+    attack_state = AttackState.objects.last()
+    
+    actions = []
+    if attack_state:
+        actions = Action.objects.filter(attack_state=attack_state).order_by('-created_at')[offset:offset+limit]
+    
+    return render(request, 'dashboard/partials/activity_items.html', {'actions': actions})

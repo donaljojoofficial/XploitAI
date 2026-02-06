@@ -1,0 +1,10 @@
+{% for action in actions %}
+<div class="list-group-item">
+    <div class="d-flex w-100 justify-content-between">
+        <h6 class="mb-1">{{ action.name }}</h6>
+        <small>{{ action.created_at|timesince }} ago</small>
+    </div>
+    <p class="mb-1">{{ action.description }}</p>
+    <small class="text-muted">Status: {{ action.status }}</small>
+</div>
+{% endfor %}

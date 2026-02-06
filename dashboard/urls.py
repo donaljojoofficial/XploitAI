@@ -11,4 +11,5 @@ urlpatterns = [
     path("attack/<int:pk>/replay/", views.attack_replay, name="dashboard_attack_replay"),
     path("targets/", views_targets.target_management, name="target_management"),
     path("executors/", views_executors.executor_management, name="executor_management"),
+    path("activity/load/", views_main.load_more_activity, name="dashboard_load_activity"),
 ]
