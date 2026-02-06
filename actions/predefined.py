@@ -407,6 +407,102 @@ class ProofOfCompromise(ActionDefinition):
         )
 
 
+class HTTPHeaderFetch(ActionDefinition):
+    """Fetch HTTP headers from the target URL."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="HTTPHeaderFetch",
+            description="Fetch HTTP headers from the target URL to identify server information.",
+            allowed_phases=["RECONNAISSANCE"],
+            required_parameters=["target_url"],
+        )
+
+    def validate_preconditions(
+        self, state: AttackStateLike, parameters: Mapping[str, Any]
+    ) -> tuple[bool, str]:
+        ok, reason = self._validate_common(state, parameters)
+        if not ok:
+            return ok, reason
+
+        url = parameters.get("target_url")
+        if not isinstance(url, str) or not url:
+            return False, "Parameter 'target_url' must be a non-empty string"
+
+        return True, "OK"
+
+    def expected_postconditions(
+        self, state: AttackStateLike, parameters: Mapping[str, Any]
+    ) -> ExpectedPostconditions:
+        return ExpectedPostconditions(
+            state_updates={"recon": {"http_headers": True}}
+        )
+
+
+class TechnologyFingerprint(ActionDefinition):
+    """Identify technologies used by the target web application."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="TechnologyFingerprint",
+            description="Identify technologies used by the target web application.",
+            allowed_phases=["RECONNAISSANCE", "ENUMERATION"],
+            required_parameters=["target_url"],
+        )
+
+    def validate_preconditions(
+        self, state: AttackStateLike, parameters: Mapping[str, Any]
+    ) -> tuple[bool, str]:
+        ok, reason = self._validate_common(state, parameters)
+        if not ok:
+            return ok, reason
+
+        url = parameters.get("target_url")
+        if not isinstance(url, str) or not url:
+            return False, "Parameter 'target_url' must be a non-empty string"
+
+        return True, "OK"
+
+    def expected_postconditions(
+        self, state: AttackStateLike, parameters: Mapping[str, Any]
+    ) -> ExpectedPostconditions:
+        return ExpectedPostconditions(
+            state_updates={"recon": {"technologies": True}}
+        )
+
+
+class EndpointDiscovery(ActionDefinition):
+    """Discover hidden endpoints and directories on the target."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="EndpointDiscovery",
+            description="Discover hidden endpoints and directories on the target.",
+            allowed_phases=["ENUMERATION"],
+            required_parameters=["target_url"],
+        )
+
+    def validate_preconditions(
+        self, state: AttackStateLike, parameters: Mapping[str, Any]
+    ) -> tuple[bool, str]:
+        ok, reason = self._validate_common(state, parameters)
+        if not ok:
+            return ok, reason
+
+        url = parameters.get("target_url")
+        if not isinstance(url, str) or not url:
+            return False, "Parameter 'target_url' must be a non-empty string"
+
+        return True, "OK"
+
+    def expected_postconditions(
+        self, state: AttackStateLike, parameters: Mapping[str, Any]
+    ) -> ExpectedPostconditions:
+        return ExpectedPostconditions(
+            state_updates={"enumeration": {"endpoints": True}}
+        )
+
+
 # -------------
 # Static Registry
 # -------------
@@ -417,6 +513,9 @@ _REGISTRY: Dict[str, ActionDefinition] = {
     "ExploitAttempt": ExploitAttempt(),
     "PrivilegeEscalation": PrivilegeEscalation(),
     "ProofOfCompromise": ProofOfCompromise(),
+    "HTTPHeaderFetch": HTTPHeaderFetch(),
+    "TechnologyFingerprint": TechnologyFingerprint(),
+    "EndpointDiscovery": EndpointDiscovery(),
 }
 
 

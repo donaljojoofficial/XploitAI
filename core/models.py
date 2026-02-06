@@ -89,7 +89,8 @@ class AttackTarget(models.Model):
 
     def __str__(self):
         status = "Active" if self.is_active else "Inactive"
-        return f"{self.name} ({self.ip_address}) [{status}]"
+        target_ref = self.base_url if self.base_url else self.ip_address
+        return f"{self.name} ({target_ref}) [{status}]"
 
 AUTONOMY_STATUS_CHOICES = [
     ("IDLE", "Idle"),
