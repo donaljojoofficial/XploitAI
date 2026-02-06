@@ -1,9 +1,8 @@
 from django.urls import path
-from . import views
-from .api_heartbeat import heartbeat
+from . import api_views
 
 urlpatterns = [
-    path("tasks/next", views.get_next_task, name="executor_next_task"),
-    path("tasks/<str:task_id>/result", views.report_result, name="executor_report_result"),
-    path("heartbeat/", heartbeat, name="executor_heartbeat"),
+    path("heartbeat/", api_views.heartbeat, name="executor_heartbeat"),
+    path("tasks/", api_views.get_tasks, name="executor_tasks"),
+    path("results/", api_views.report_result, name="executor_results"),
 ]
