@@ -87,6 +87,10 @@ class AutonomousController:
         )
         logger.info("AutonomousController started for AttackState ID %s", self.attack_state_id)
 
+        # Trigger the planner loop immediately
+        logger.info("PLANNER LOOP ENTERED")
+        self.run_cycle()
+
     def stop(self, reason: str = "Manual Stop") -> None:
         """Stop the autonomous control loop."""
         self.running = False
@@ -142,6 +146,9 @@ class AutonomousController:
 
         # 2. Sync Defender Context (Alerts -> State)
         self._sync_defender_context(state)
+
+        # Sync Planner Context (Goal/Target -> State)
+        self._sync_planner_context(state)
 
         # 3. Check Stop Conditions
         stop_reason = self._check_stop_conditions(state)
@@ -251,6 +258,34 @@ class AutonomousController:
             state.state_data = {}
             
         state.state_data['defender_context'] = context
+        state.save(update_fields=['state_data'])
+
+    def _sync_planner_context(self, state: AttackState) -> None:
+        """
+        Inject explicit goal and target context into state for the AI planner.
+        This ensures the decision engine has a clear objective and target scope.
+        """
+        context = OperationalContextManager.get_active_context()
+        if not context or not context.target:
+            return
+
+        target = context.target
+        
+        planner_context = {
+            "goal": "Perform initial reconnaissance to discover open ports and services.",
+            "target": {
+                "name": target.name,
+                "ip": target.ip_address,
+                "os": getattr(target, "operating_system", "Linux")
+            },
+            "allowed_actions": ["PassiveRecon", "ServiceEnumeration"],
+            "instructions": ["Return at least ONE action if possible.", "Output must be valid JSON."]
+        }
+        
+        if not isinstance(state.state_data, dict):
+            state.state_data = {}
+            
+        state.state_data['planner_context'] = planner_context
         state.save(update_fields=['state_data'])
 
     def _check_stop_conditions(self, state: AttackState) -> Optional[str]:
