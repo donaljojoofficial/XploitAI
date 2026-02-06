@@ -348,23 +348,23 @@ TODO CORE-3:
 Ensure generated actions create executable tasks. - COMPLETED
 
 TODO CORE-4:
-Ensure executor successfully runs commands and returns output.
+Ensure executor successfully runs commands and returns output. - COMPLETED
 
 ==================================================
 PHASE 2 — WEB ATTACK FLOW
 ==================================================
 
 TODO WEB-1:
-Support URL-based targets instead of IP-only targets.
+Support URL-based targets instead of IP-only targets. - COMPLETED
 
 TODO WEB-2:
-Add basic web recon actions:
+Add basic web recon actions: - COMPLETED
 - HTTPHeaderFetch
 - TechnologyFingerprint
 - EndpointDiscovery
 
 TODO WEB-3:
-Map web actions to executable commands (curl, nikto, etc).
+Map web actions to executable commands (curl, nikto, etc). - COMPLETED
 
 ==================================================
 PHASE 3 — FEEDBACK LOOP

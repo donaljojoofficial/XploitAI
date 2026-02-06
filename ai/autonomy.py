@@ -21,7 +21,7 @@ from typing import Optional
 from django.db import transaction
 from django.utils import timezone
 
-from core.models import Action, AttackState, ExecutionTask, DefenderAlert, AttackContext, ActionResult
+from core.models import Action, AttackState, ExecutionTask, DefenderAlert, AttackContext, ActionResult, AttackTimelineEvent
 # Use the concrete implementation from agent.decision
 from ai.decision_engine import DecisionEngine
 from ai.command_generator import CommandGenerator
@@ -232,7 +232,7 @@ class AutonomousController:
                 action.save(update_fields=['status'])
                 
                 # Sync output to ActionResult (CORE-4)
-                ActionResult.objects.update_or_create(
+                result, _ = ActionResult.objects.update_or_create(
                     action=action,
                     defaults={
                         "success": task.status == 'COMPLETED',
@@ -241,6 +241,20 @@ class AutonomousController:
                     }
                 )
                 logger.debug("Synced Action %s status to %s", action.id, task.status)
+
+                # Create Timeline Event for Dashboard Visibility (FB-1)
+                AttackTimelineEvent.objects.create(
+                    attack_state=state,
+                    action=action,
+                    event_type="EXECUTION",
+                    phase=state.current_phase,
+                    message=f"Executed {action.name}: {task.status}",
+                    data={
+                        "command": task.parameters.get('command', 'N/A'),
+                        "output": task.output,
+                        "error": task.error_message
+                    }
+                )
 
     def _sync_defender_context(self, state: AttackState) -> None:
         """
