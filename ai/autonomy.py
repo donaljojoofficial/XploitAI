@@ -21,7 +21,7 @@ from typing import Optional
 from django.db import transaction
 from django.utils import timezone
 
-from core.models import Action, AttackState, ExecutionTask, DefenderAlert, AttackContext, ActionResult, AttackTimelineEvent
+from core.models import Action, AttackState, ExecutionTask, DefenderAlert, AttackContext, ActionResult, AttackTimelineEvent, KILL_CHAIN_PHASES
 # Use the concrete implementation from agent.decision
 from ai.decision_engine import DecisionEngine
 from ai.command_generator import CommandGenerator
@@ -150,6 +150,9 @@ class AutonomousController:
         # Sync Planner Context (Goal/Target -> State)
         self._sync_planner_context(state)
 
+        # Sync Execution History (Results -> State)
+        self._sync_execution_history(state)
+
         # 3. Check Stop Conditions
         stop_reason = self._check_stop_conditions(state)
         if stop_reason:
@@ -256,6 +259,54 @@ class AutonomousController:
                     }
                 )
 
+                if task.status == 'COMPLETED':
+                    self._check_phase_progression(state, action)
+
+    def _check_phase_progression(self, state: AttackState, action: Action) -> None:
+        """
+        Heuristic to automatically advance the attack phase based on successful actions.
+        """
+        # Map successful actions to the *next* logical phase
+        transitions = {
+            "PassiveRecon": "ENUMERATION",
+            "HTTPHeaderFetch": "ENUMERATION",
+            "EndpointDiscovery": "ENUMERATION",
+            "ServiceEnumeration": "EXPLOITATION",
+            "TechnologyFingerprint": "EXPLOITATION",
+            "ExploitAttempt": "PRIVILEGE_ESCALATION",
+            "PrivilegeEscalation": "PROOF_OF_COMPROMISE",
+            "ProofOfCompromise": "COMPLETED"
+        }
+
+        next_phase = transitions.get(action.name)
+        if not next_phase:
+            return
+
+        # Determine phase order indices
+        phase_order = [p[0] for p in KILL_CHAIN_PHASES]
+        
+        try:
+            current_idx = phase_order.index(state.current_phase)
+            next_idx = phase_order.index(next_phase)
+
+            # Only advance forward
+            if next_idx > current_idx:
+                old_phase = state.current_phase
+                state.advance_phase(next_phase)
+                
+                logger.info("Auto-advancing phase: %s -> %s (Trigger: %s success)", 
+                            old_phase, next_phase, action.name)
+                
+                AttackTimelineEvent.objects.create(
+                    attack_state=state,
+                    event_type="PHASE_TRANSITION",
+                    phase=next_phase,
+                    message=f"Phase auto-advanced to {next_phase} following successful {action.name}.",
+                    action=action
+                )
+        except ValueError:
+            logger.warning("Phase mismatch in progression check: %s or %s not in definitions.", state.current_phase, next_phase)
+
     def _sync_defender_context(self, state: AttackState) -> None:
         """
         Inject defender alerts into the attack state so the AI can react (Re-plan).
@@ -326,6 +377,42 @@ class AutonomousController:
         if 'domains' not in state.state_data['recon']:
             state.state_data['recon']['domains'] = [target_ref] if target_ref else []
 
+        state.save(update_fields=['state_data'])
+
+    def _sync_execution_history(self, state: AttackState) -> None:
+        """
+        Inject execution history into state_data so the AI can learn from results.
+        """
+        history = []
+        # Fetch last 15 actions (most recent) to preserve context window
+        recent_actions = Action.objects.filter(
+            attack_state=state
+        ).exclude(status='PENDING').order_by('-created_at')[:15]
+
+        # Process in chronological order
+        for action in reversed(list(recent_actions)):
+            output_summary = "No output available"
+            result = ActionResult.objects.filter(action=action).first()
+            if result:
+                if result.success:
+                    # Truncate output to 800 chars to save tokens
+                    raw = str(result.output)
+                    output_summary = (raw[:800] + "...") if len(raw) > 800 else raw
+                else:
+                    output_summary = f"Failed: {result.log_message}"
+            
+            history.append({
+                "action": action.name,
+                "parameters": action.parameters,
+                "status": action.status,
+                "result": output_summary,
+                "timestamp": action.created_at.isoformat()
+            })
+
+        if not isinstance(state.state_data, dict):
+            state.state_data = {}
+            
+        state.state_data['execution_history'] = history
         state.save(update_fields=['state_data'])
 
     def _check_stop_conditions(self, state: AttackState) -> Optional[str]:
