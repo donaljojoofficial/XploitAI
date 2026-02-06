@@ -339,7 +339,7 @@ PHASE 1 — MAKE IT WORK (CURRENT)
 ==================================================
 
 TODO CORE-1:
-Ensure AI generates at least one action for any active target.
+Ensure AI generates at least one action for any active target. - COMPLETED
 
 TODO CORE-2:
 Ensure planner loop runs when autonomy is started.
