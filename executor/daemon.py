@@ -41,7 +41,8 @@ logger = logging.getLogger("executor-daemon")
 class ExecutorDaemon:
     # Security Allowlist
     ALLOWED_COMMANDS = {
-        "nmap", "echo", "whois", "nslookup", "dig", "ping", "nc", "netcat"
+        "nmap", "echo", "whois", "nslookup", "dig", "ping", "nc", "netcat",
+        "curl", "whatweb", "wget", "nikto", "gobuster"
     }
 
     def __init__(self, api_url: str, poll_interval: int = 5, max_backoff: int = 60):

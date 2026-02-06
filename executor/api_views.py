@@ -66,6 +66,15 @@ def _resolve_command(action_name, parameters):
         vuln_id = params.get("vulnerability_id", "UNKNOWN_VULN")
         target = params.get("target_host", "localhost")
         return f"echo 'SIMULATING EXPLOIT {vuln_id} on {target}'"
+    elif action_name == "HTTPHeaderFetch":
+        target = params.get("target_url") or params.get("url") or "http://localhost"
+        return f"curl -I {target}"
+    elif action_name == "TechnologyFingerprint":
+        target = params.get("target_url") or params.get("url") or "http://localhost"
+        return f"whatweb {target}"
+    elif action_name == "EndpointDiscovery":
+        target = params.get("target_url") or params.get("url") or "http://localhost"
+        return f"curl {target}/robots.txt"
         
     return f"echo 'No command mapping defined for action: {action_name}'"
 
@@ -82,11 +91,17 @@ def get_tasks(request):
         
         task_list = []
         for t in tasks:
+            params = t.get("parameters") or {}
+            # Prefer pre-generated command from AI, fallback to resolver
+            cmd = params.get("command")
+            if not cmd:
+                cmd = _resolve_command(t["action_name"], params)
+
             task_list.append({
                 "id": t["id"],
                 "action_name": t["action_name"],
-                "command": _resolve_command(t["action_name"], t.get("parameters")),
-                "parameters": t.get("parameters", {}),
+                "command": cmd,
+                "parameters": params,
                 "limits": {}  # Default limits
             })
             

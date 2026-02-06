@@ -33,6 +33,10 @@ class CommandSafety:
         "ping",
         "cat",
         "grep",
+        "curl",
+        "whatweb",
+        "nikto",
+        "gobuster",
     }
 
     # Tools that require network scope validation
@@ -61,8 +65,6 @@ class CommandSafety:
         r">\s*/dev/",       # Device write
         r":(){ :|:& };:",   # Fork bomb
         r"chmod\s+777",     # Permissive chmod
-        r"wget",            # Downloaders (unless whitelisted)
-        r"curl",
         r"bash\s+-i",       # Interactive shells
         r"nc\s+-e",         # Reverse shells (unless explicitly allowed for exploit simulation)
     ]
