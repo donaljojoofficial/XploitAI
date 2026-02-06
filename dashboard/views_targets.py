@@ -1,22 +1,45 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
+from django import forms
 from core.models import AttackTarget
-from dashboard.forms import AttackTargetForm
+
+class WebTargetForm(forms.ModelForm):
+    """Form focused on Web Targets (Phase 2)."""
+    class Meta:
+        model = AttackTarget
+        fields = ['name', 'base_url', 'operating_system', 'vulnerability_profile', 'is_active']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Target Name'}),
+            'base_url': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'http://localhost:3000'}),
+            'operating_system': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Ubuntu 20.04'}),
+            'vulnerability_profile': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. OWASP Juice Shop'}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
 
 def target_management(request):
     """
     View to list existing targets and provide a form to add new ones.
+    Supports deleting targets and focuses on Web-based targets.
     """
     if request.method == 'POST':
-        form = AttackTargetForm(request.POST)
+        # Handle Deletion
+        if 'delete_target' in request.POST:
+            target_id = request.POST.get('target_id')
+            target = get_object_or_404(AttackTarget, pk=target_id)
+            target.delete()
+            messages.success(request, f"Target '{target.name}' removed.")
+            return redirect('target_management')
+
+        form = WebTargetForm(request.POST)
         if form.is_valid():
             target = form.save()
             messages.success(request, f"Target '{target.name}' added successfully.")
             return redirect('target_management')
     else:
-        form = AttackTargetForm()
+        form = WebTargetForm()
 
-    targets = AttackTarget.objects.all().order_by('-created_at')
+    # Filter to show only Web Targets (Phase 2 focus) and hide legacy VM-only targets
+    targets = AttackTarget.objects.exclude(base_url='').order_by('-created_at')
     
     context = {
         'targets': targets,

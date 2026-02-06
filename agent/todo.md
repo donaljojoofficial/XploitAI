@@ -360,7 +360,7 @@ Support URL-based targets instead of IP-only targets. - COMPLETED
 TODO WEB-2:
 Add basic web recon actions: - COMPLETED
 - HTTPHeaderFetch
-- TechnologyFingerprint
+- TechnologyFingerprint 
 - EndpointDiscovery
 
 TODO WEB-3:
