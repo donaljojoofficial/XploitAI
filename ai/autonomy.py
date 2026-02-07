@@ -210,6 +210,22 @@ class AutonomousController:
             "params": proposal.parameters
         })
 
+        # 5.5 Loop Prevention: Check for repetitive actions
+        if self._is_repetitive_action(state, proposal):
+            self._log_audit(cycle_id, "ACTION_BLOCKED", {"reason": "Repetitive action"})
+            logger.warning("Blocking repetitive action '%s'", proposal.name)
+            
+            # Record as failed so AI sees it in history and tries something else
+            Action.objects.create(
+                attack_state=state,
+                name=proposal.name,
+                description=proposal.description,
+                reasoning="System: Action blocked because it was recently executed successfully. Please choose a different action.",
+                parameters=proposal.parameters,
+                status='FAILED'
+            )
+            return True
+
         # 6. Policy Validation
         policy_decision = self.policy_engine.validate(
             proposal.name, state, proposal.parameters
@@ -232,6 +248,23 @@ class AutonomousController:
         self.step_count += 1
         return True
 
+    def _is_repetitive_action(self, state: AttackState, proposal) -> bool:
+        """
+        Check if this action was recently executed successfully with the same parameters.
+        Helps prevent infinite loops if the AI keeps proposing the same valid action.
+        """
+        # Check last 5 completed actions
+        recent = Action.objects.filter(
+            attack_state=state,
+            name=proposal.name,
+            status='COMPLETED'
+        ).order_by('-created_at')[:5]
+
+        for action in recent:
+            if action.parameters == proposal.parameters:
+                return True
+        return False
+
     def _has_pending_tasks(self) -> bool:
         """
         Check if there are pending execution tasks.
@@ -253,9 +286,8 @@ class AutonomousController:
         for action in pending_actions:
             # Find the task linked to this action
             # Note: parameters is a JSONField
-            task = ExecutionTask.objects.filter(
-                parameters__contains={'_action_id': action.id}
-            ).first()
+            # FIX: Use direct foreign key instead of JSON lookup which fails on SQLite
+            task = ExecutionTask.objects.filter(action=action).first()
 
             if task and task.status in ['COMPLETED', 'FAILED']:
                 # Part B: Evaluate Result (Lightweight)
