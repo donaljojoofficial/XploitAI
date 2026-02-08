@@ -1,7 +1,10 @@
+import json
 import logging
+import re
 from typing import Optional, List
 from core.models import AttackState, Action, AttackTarget, ActionResult
 from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary
+from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary, Plan, PlanStep
 
 # Attempt to import GeminiAdapter
 try:
@@ -89,6 +92,70 @@ class DecisionEngine:
                     proposed_actions.append(fallback_action)
                     
         return proposed_actions
+
+    def generate_plan(self, attack_state: AttackState) -> Optional[Plan]:
+        """
+        Generates a full attack plan based on the current state using the LLM.
+        """
+        if not self.llm_adapter:
+            logger.warning("LLM adapter not available for planning.")
+            return None
+
+        # 1. Construct Prompt
+        context = attack_state.state_data.get('planner_context', {})
+        goal = context.get('goal', 'Security Assessment')
+        targets = context.get('targets', [])
+        allowed_actions = context.get('allowed_actions', [])
+        
+        prompt = (
+            f"You are a strategic cyber security planner.\n"
+            f"Goal: {goal}\n"
+            f"Targets: {json.dumps(targets, indent=2)}\n"
+            f"Allowed Actions: {json.dumps(allowed_actions)}\n\n"
+            f"Task: Create a detailed, ordered execution plan to achieve the goal.\n"
+            f"Output Format: JSON only. Structure:\n"
+            f"{{\n"
+            f"  \"goal\": \"<goal_string>\",\n"
+            f"  \"plan\": [\n"
+            f"    {{\n"
+            f"      \"step\": <int>,\n"
+            f"      \"action\": \"<ActionName>\",\n"
+            f"      \"parameters\": {{ <args> }},\n"
+            f"      \"rationale\": \"<reasoning>\"\n"
+            f"    }}\n"
+            f"  ]\n"
+            f"}}\n"
+        )
+
+        # 2. Call LLM
+        try:
+            response_text = self.llm_adapter.generate(prompt)
+            if not response_text:
+                return None
+                
+            # 3. Parse Response
+            match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            clean_json = match.group(1).strip() if match else response_text.strip()
+            data = json.loads(clean_json)
+            
+            # 4. Convert to Schema
+            steps = []
+            for s in data.get('plan', []):
+                steps.append(PlanStep(
+                    step=s.get('step', 0),
+                    action=s.get('action', 'Unknown'),
+                    parameters=s.get('parameters', {}),
+                    rationale=s.get('rationale', '')
+                ))
+                
+            return Plan(
+                plan=steps,
+                goal=data.get('goal')
+            )
+            
+        except Exception as e:
+            logger.error(f"Error generating plan: {e}")
+            return None
 
     def _get_ai_proposal(self, state: AttackState) -> Optional[Action]:
         """
