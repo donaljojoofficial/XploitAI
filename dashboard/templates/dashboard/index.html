@@ -156,6 +156,14 @@
                                 {% endfor %}
                             </select>
                         </div>
+                        <div class="mb-3">
+                            <label for="llmProviderSelect" class="block text-sm font-bold text-gray-400 mb-2">AI Brain</label>
+                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="llmProviderSelect" name="llm_provider">
+                                <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
+                                <option value="gemini" {% if default_llm_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
+                                <option value="claude" {% if default_llm_provider == 'claude' %}selected{% endif %}>Anthropic Claude</option>
+                            </select>
+                        </div>
                         <div class="p-3 bg-warning/10 border border-warning/20 rounded text-warning text-sm">
                             <span class="font-bold">WARNING:</span> Starting autonomy will override any existing active sessions.
                         </div>

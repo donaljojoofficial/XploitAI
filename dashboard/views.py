@@ -157,6 +157,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'alerts': alerts,
         'plan_completed': plan_completed,
         'waiting_for_approval': waiting_for_approval,
+        'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'gemini'),
         **_get_global_context(),
     }
     return render(request, 'dashboard/index.html', context)
@@ -331,16 +332,20 @@ def configuration(request: HttpRequest) -> HttpResponse:
     if request.method == 'POST':
         gemini_key = request.POST.get('gemini_key', '').strip()
         claude_key = request.POST.get('claude_key', '').strip()
+        default_provider = request.POST.get('default_provider', '').strip()
         
         if gemini_key:
             set_config('GOOGLE_API_KEY', gemini_key)
         if claude_key:
             set_config('ANTHROPIC_API_KEY', claude_key)
+        if default_provider:
+            set_config('DEFAULT_LLM_PROVIDER', default_provider)
             
         return redirect('configuration')
         
     context = _get_global_context()
     context['gemini_key'] = get_config('GOOGLE_API_KEY', '')
     context['claude_key'] = get_config('ANTHROPIC_API_KEY', '')
+    context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'gemini')
     
     return render(request, 'dashboard/configuration.html', context)

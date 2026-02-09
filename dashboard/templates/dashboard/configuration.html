@@ -39,6 +39,16 @@
                             <div class="form-text">Required for Anthropic Adapter.</div>
                         </div>
 
+                        <div class="mb-3">
+                            <label for="defaultProvider" class="form-label">Default AI Brain</label>
+                            <select class="form-select" id="defaultProvider" name="default_provider">
+                                <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
+                                <option value="gemini" {% if default_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
+                                <option value="claude" {% if default_provider == 'claude' %}selected{% endif %}>Anthropic Claude</option>
+                            </select>
+                            <div class="form-text">Preferred provider for new attacks.</div>
+                        </div>
+
                         <button type="submit" class="btn btn-primary">Save Configuration</button>
                     </form>
                 </div>
