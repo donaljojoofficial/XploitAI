@@ -1,4 +1,5 @@
 {% extends 'dashboard/base.html' %}
+{% extends 'base.html' %}
 
 {% block title %}Attack Detail - {{ attack_state.name }}{% endblock %}
 
@@ -11,18 +12,61 @@
             <div class="px-3 py-1 rounded text-sm font-bold {% if attack_state.autonomy_status == 'RUNNING' %}bg-accent/20 text-accent{% elif attack_state.autonomy_status == 'STOPPED' %}bg-error/20 text-error{% elif attack_state.autonomy_status == 'PLANNING' %}bg-info/20 text-info{% else %}bg-gray-700 text-gray-400{% endif %}">
                 {% if attack_state.autonomy_status == 'PLANNING' %}
                     <span class="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></span>
+<div class="container-fluid py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+        <div>
+            <h1 class="h2">Operation: {{ attack_state.name }}</h1>
+            <div class="mt-2">
+                <span class="badge bg-secondary">{{ attack_state.current_phase }}</span>
+                <span class="badge bg-{% if attack_state.autonomy_status == 'RUNNING' %}success{% elif attack_state.autonomy_status == 'STOPPED' %}danger{% else %}warning{% endif %}">
                     {{ attack_state.autonomy_status }}
                 {% else %}
                     {{ attack_state.autonomy_status }}
                 {% endif %}
+                </span>
+                <span class="badge bg-info text-dark" title="AI Provider">
+                    <i class="bi bi-cpu"></i> {{ attack_state.state_data.llm_provider|default:"AUTO"|upper }}
+                </span>
             </div>
         </div>
+        <div class="btn-toolbar mb-2 mb-md-0">
+            <div class="btn-group me-2">
+                <a href="{% url 'dashboard_attack_replay' attack_state.id %}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-rewind-circle"></i> Replay
+                </a>
+                <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="btn btn-sm btn-outline-info">
+                    <i class="bi bi-journal-text"></i> Plan
+                </a>
+            </div>
+            
+            {% if attack_state.autonomy_status == 'STOPPED' %}
+                <form action="{% url 'resume_attack' attack_state.id %}" method="POST" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-success">
+                        <i class="bi bi-play-fill"></i> Resume
+                    </button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
 
         {% if attack_state.stop_reason %}
         <div class="mb-6 p-4 bg-warning/10 border border-warning/20 rounded text-warning">
             <strong class="font-bold">Stop Reason:</strong> {{ attack_state.stop_reason }}
+    <!-- Stop Reason Alert -->
+    {% if attack_state.autonomy_status == 'STOPPED' %}
+        <div class="alert alert-{% if waiting_for_approval %}warning{% elif plan_completed %}success{% else %}danger{% endif %} mb-4">
+            <strong>Stopped:</strong> {{ attack_state.stop_reason }}
+            {% if waiting_for_approval %}
+                <form action="{% url 'approve_plan' attack_state.id %}" method="POST" class="d-inline ms-3">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning btn-sm">Approve & Continue</button>
+                </form>
+            {% endif %}
         </div>
         {% endif %}
+    {% endif %}
 
         {% if waiting_for_approval %}
         <div class="mb-6 bg-gray-800 border border-info rounded-lg overflow-hidden">
@@ -40,6 +84,46 @@
                         {% csrf_token %}
                         <button type="submit" class="px-4 py-2 border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 rounded transition-colors">Resume (Force)</button>
                     </form>
+    <!-- Main Grid -->
+    <div class="row">
+        <!-- Timeline / Events -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                    <h5 class="my-0 fw-normal">Live Event Log</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush" style="max-height: 600px; overflow-y: auto;">
+                        {% for event in unified_events reversed %}
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">
+                                        {% if event.source == 'AI' %}
+                                            <span class="badge bg-primary">AI</span>
+                                        {% elif event.source == 'EXECUTOR' %}
+                                            <span class="badge bg-secondary">EXEC</span>
+                                        {% elif event.source == 'DEFENDER' %}
+                                            <span class="badge bg-danger">DEFENDER</span>
+                                        {% else %}
+                                            <span class="badge bg-light text-dark">{{ event.source }}</span>
+                                        {% endif %}
+                                        {{ event.type }}
+                                    </h6>
+                                    <small class="text-muted">{{ event.dt|date:"H:i:s" }}</small>
+                                </div>
+                                <p class="mb-1">{{ event.desc }}</p>
+                                {% if event.data %}
+                                    <small class="text-muted">
+                                        <pre class="mb-0 mt-1 bg-light p-1 border rounded" style="font-size: 0.75em;">{{ event.data|pprint }}</pre>
+                                    </small>
+                                {% endif %}
+                            </div>
+                        {% empty %}
+                            <div class="list-group-item text-center text-muted py-4">
+                                No events recorded yet.
+                            </div>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
         </div>
@@ -51,6 +135,10 @@
             <p>All steps in the current plan have been executed.</p>
         </div>
         {% endif %}
+        <!-- Sidebar Stats -->
+        <div class="col-lg-4">
+            <!-- Alerts -->
+            {% include "dashboard/partials/defender_alerts.html" with alerts=alerts %}
 
         <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden">
             <div class="bg-gray-700/50 px-4 py-3 border-b border-gray-700">
@@ -64,12 +152,21 @@
                         <small class="text-gray-500 font-mono">{{ event.dt|date:"H:i:s" }}</small>
                     </div>
                     <p class="text-gray-400 text-sm">{{ event.desc }}</p>
+            <!-- Stats -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">Statistics</div>
+                <div class="card-body">
+                    <p><strong>Actions:</strong> {{ actions.count }}</p>
+                    <p><strong>Tasks:</strong> {{ tasks.count }}</p>
+                    <p><strong>Failures (Consecutive):</strong> {{ consecutive_failures }}</p>
                 </div>
                 {% empty %}
                 <div class="p-4 text-center text-gray-500 italic">No events recorded.</div>
                 {% endfor %}
             </div>
         </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}

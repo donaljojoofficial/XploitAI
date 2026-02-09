@@ -47,18 +47,20 @@ class AutonomousController:
         self,
         attack_state_id: int,
         max_steps: int = 50,
-        max_consecutive_failures: int = 3
+        max_consecutive_failures: int = 3,
+        llm_provider: str = "auto"
     ) -> None:
         self.attack_state_id = attack_state_id
         self.running = False
         self.max_steps = max_steps
         self.max_consecutive_failures = max_consecutive_failures
         self.step_count = 0
+        self.llm_provider = llm_provider
 
         # Initialize components
-        self.decision_engine = DecisionEngine()
+        self.decision_engine = DecisionEngine(provider=llm_provider)
         self.policy_engine = PolicyEngine()
-        self.command_generator = CommandGenerator()
+        self.command_generator = CommandGenerator(llm_provider=llm_provider)
         self.safety_filter = CommandSafety()
 
     def start(self) -> None:

@@ -21,9 +21,17 @@ from typing import Any, Mapping, Optional
 # Attempt to import the LLM adapter (Phase 3/Auto feature)
 try:
     from ai.llm.gemini import GeminiAdapter
-    LLM_AVAILABLE = True
+    GEMINI_AVAILABLE = True
 except ImportError:
-    LLM_AVAILABLE = False
+    GEMINI_AVAILABLE = False
+
+try:
+    from ai.llm.anthropic import AnthropicAdapter
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+
+LLM_AVAILABLE = GEMINI_AVAILABLE or ANTHROPIC_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -40,21 +48,32 @@ class CommandGenerator:
     Supports both rule-based generation (deterministic) and LLM-based generation (dynamic).
     """
 
-    def __init__(self, use_llm: bool = True) -> None:
+    def __init__(self, use_llm: bool = True, llm_provider: str = "auto") -> None:
         """
         Initialize the command generator.
 
         Args:
             use_llm: Whether to attempt using the LLM for generation.
                      Automatically falls back to rule-based if LLM is unavailable.
+            llm_provider: 'auto', 'gemini', or 'claude'.
         """
         self.use_llm = use_llm and LLM_AVAILABLE
         self.llm_client = None
 
         if self.use_llm:
             try:
-                self.llm_client = GeminiAdapter()
-                logger.info("CommandGenerator initialized with LLM support (Gemini).")
+                if llm_provider == "gemini" and GEMINI_AVAILABLE:
+                    self.llm_client = GeminiAdapter()
+                elif llm_provider == "claude" and ANTHROPIC_AVAILABLE:
+                    self.llm_client = AnthropicAdapter()
+                else:
+                    if GEMINI_AVAILABLE:
+                        self.llm_client = GeminiAdapter()
+                    elif ANTHROPIC_AVAILABLE:
+                        self.llm_client = AnthropicAdapter()
+
+                if self.llm_client:
+                    logger.info(f"CommandGenerator initialized with LLM support ({self.llm_client.__class__.__name__}).")
             except Exception as e:
                 logger.warning("Failed to initialize LLM adapter: %s. Reverting to rule-based.", e)
                 self.use_llm = False

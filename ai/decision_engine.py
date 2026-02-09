@@ -6,12 +6,20 @@ from core.models import AttackState, Action, AttackTarget, ActionResult
 from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary
 from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary, Plan, PlanStep
 
-# Attempt to import GeminiAdapter
+# Attempt to import Adapters
 try:
     from ai.llm.gemini import GeminiAdapter
-    LLM_AVAILABLE = True
+    GEMINI_AVAILABLE = True
 except ImportError:
-    LLM_AVAILABLE = False
+    GEMINI_AVAILABLE = False
+
+try:
+    from ai.llm.anthropic import AnthropicAdapter
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+
+from ai.llm.fallback import FallbackAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +28,55 @@ class DecisionEngine:
     AI Decision Engine responsible for generating attack actions.
     """
     
-    def __init__(self):
+    def __init__(self, provider: str = "auto"):
         self.llm_adapter = None
-        if LLM_AVAILABLE:
-            try:
-                self.llm_adapter = GeminiAdapter()
-                logger.info("DecisionEngine initialized with GeminiAdapter.")
-            except Exception as e:
-                logger.error(f"Failed to initialize GeminiAdapter: {e}")
+        
+        adapters = []
+        
+        def _init_gemini():
+            if GEMINI_AVAILABLE:
+                try:
+                    gemini = GeminiAdapter()
+                    if gemini._client:
+                        return gemini
+                except Exception as e:
+                    logger.error(f"Failed to initialize GeminiAdapter: {e}")
+            return None
+
+        def _init_anthropic():
+            if ANTHROPIC_AVAILABLE:
+                try:
+                    anthropic = AnthropicAdapter()
+                    if anthropic._client:
+                        return anthropic
+                except Exception as e:
+                    logger.error(f"Failed to initialize AnthropicAdapter: {e}")
+            return None
+
+        if provider == "gemini":
+            adapter = _init_gemini()
+            if adapter:
+                adapters.append(adapter)
+        elif provider == "claude":
+            adapter = _init_anthropic()
+            if adapter:
+                adapters.append(adapter)
+        else:
+            # Auto / Fallback mode
+            g = _init_gemini()
+            if g: adapters.append(g)
+            a = _init_anthropic()
+            if a: adapters.append(a)
+
+        if adapters:
+            if len(adapters) > 1:
+                self.llm_adapter = FallbackAdapter(adapters)
+                logger.info(f"DecisionEngine initialized with FallbackAdapter ({len(adapters)} providers).")
+            else:
+                self.llm_adapter = adapters[0]
+                logger.info(f"DecisionEngine initialized with {adapters[0].__class__.__name__}.")
+        else:
+            logger.warning("No LLM adapters available.")
 
     def generate_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
         """

@@ -245,6 +245,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     """
     executor_id = request.POST.get('executor_id')
     target_id = request.POST.get('target_id')
+    llm_provider = request.POST.get('llm_provider', 'auto')
 
     if not executor_id or not target_id:
         return redirect('dashboard_index')
@@ -255,6 +256,12 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         current_phase="RECONNAISSANCE",
         autonomy_status="IDLE"
     )
+    
+    # Persist provider preference
+    if not state.state_data:
+        state.state_data = {}
+    state.state_data['llm_provider'] = llm_provider
+    state.save(update_fields=['state_data'])
 
     # 2. Create Operational Context
     executor = get_object_or_404(AttackerExecutor, pk=executor_id)
@@ -274,7 +281,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     )
 
     # 3. Initialize Controller and Request Plan (Do not start loop yet)
-    controller = AutonomousController(attack_state_id=state.id)
+    controller = AutonomousController(attack_state_id=state.id, llm_provider=llm_provider)
     controller.request_initial_plan()
 
     return redirect('dashboard_index')
@@ -294,7 +301,8 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    controller = AutonomousController(attack_state_id=state.id)
+    llm_provider = (state.state_data or {}).get('llm_provider', 'auto')
+    controller = AutonomousController(attack_state_id=state.id, llm_provider=llm_provider)
     controller.start()
 
     return redirect('dashboard_attack_detail', pk=pk)
@@ -310,6 +318,7 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    controller = AutonomousController(attack_state_id=state.id)
+    llm_provider = (state.state_data or {}).get('llm_provider', 'auto')
+    controller = AutonomousController(attack_state_id=state.id, llm_provider=llm_provider)
     controller.start()
     return redirect('dashboard_attack_detail', pk=pk)
