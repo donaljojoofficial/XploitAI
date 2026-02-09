@@ -22,5 +22,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/executor/', include('executor.urls')),
     path('settings/', dashboard_views.configuration, name='configuration'),
+    path('settings/check_status/', dashboard_views.check_llm_status, name='check_llm_status'),
     path('', include('dashboard.urls')),
 ]

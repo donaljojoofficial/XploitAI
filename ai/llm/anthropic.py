@@ -27,18 +27,22 @@ except ImportError:
 class AnthropicAdapter(BaseLLMAdapter):
     """Adapter for Anthropic's Claude models."""
 
-    def __init__(self, model_name: str = "claude-sonnet-4-5-20250929"):
+    def __init__(self, model_name: str = None, api_key: str = None):
         config_model = get_config("ANTHROPIC_MODEL")
-        self.model_name = config_model if config_model else model_name
+        default_model = "claude-3-5-sonnet-20240620"
+        self.model_name = model_name or config_model or default_model
         
         known_models = [
+            "claude-3-5-sonnet-20240620",
+            "claude-3-opus-20240229",
+            "claude-3-haiku-20240307",
             "claude-sonnet-4-5-20250929",
             "claude-opus-4-6-20260204",
             "claude-haiku-4-5-20251001"
         ]
         self.fallback_models = [m for m in known_models if m != self.model_name]
         
-        self.api_key = get_config("ANTHROPIC_API_KEY")
+        self.api_key = api_key or get_config("ANTHROPIC_API_KEY")
         self._client = None
         self._use_raw_http = False
 
@@ -112,6 +116,9 @@ class AnthropicAdapter(BaseLLMAdapter):
                     resp_data = json.loads(response.read().decode('utf-8'))
                     if "content" in resp_data and len(resp_data["content"]) > 0:
                         return resp_data["content"][0]["text"]
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            logger.error(f"Anthropic raw HTTP request failed: {e} - Body: {error_body}")
         except Exception as e:
             logger.error(f"Anthropic raw HTTP request failed: {e}")
         return None

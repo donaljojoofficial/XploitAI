@@ -20,7 +20,7 @@ import logging
 from typing import Any
 
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
@@ -353,7 +353,58 @@ def configuration(request: HttpRequest) -> HttpResponse:
     context['has_gemini_key'] = bool(get_config('GOOGLE_API_KEY', ''))
     context['has_claude_key'] = bool(get_config('ANTHROPIC_API_KEY', ''))
     context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'gemini')
-    context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-sonnet-4-5-20250929')
+    context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
     
     return render(request, 'dashboard/configuration.html', context)
+
+@require_POST
+def check_llm_status(request: HttpRequest) -> JsonResponse:
+    """
+    Verifies the LLM provider configuration by attempting a simple generation.
+    """
+    try:
+        data = json.loads(request.body)
+        provider = data.get('provider')
+        api_key = data.get('api_key')
+        model = data.get('model')
+        
+        if not provider:
+            return JsonResponse({'success': False, 'message': 'Provider is required.'})
+
+        adapter = None
+        
+        if provider == 'gemini':
+            try:
+                from ai.llm.gemini import GeminiAdapter
+                adapter = GeminiAdapter(model_name=model, api_key=api_key)
+            except ImportError:
+                return JsonResponse({'success': False, 'message': 'Gemini SDK not installed.'})
+            except Exception as e:
+                return JsonResponse({'success': False, 'message': f'Gemini init failed: {str(e)}'})
+
+        elif provider == 'claude':
+            try:
+                from ai.llm.anthropic import AnthropicAdapter
+                adapter = AnthropicAdapter(model_name=model, api_key=api_key)
+            except Exception as e:
+                return JsonResponse({'success': False, 'message': f'Claude init failed: {str(e)}'})
+
+        else:
+            return JsonResponse({'success': False, 'message': f'Unknown provider: {provider}'})
+
+        if not adapter:
+             return JsonResponse({'success': False, 'message': 'Failed to initialize adapter.'})
+
+        # Attempt generation
+        try:
+            response = adapter.generate("Reply with 'OK'.")
+            if response:
+                return JsonResponse({'success': True, 'message': 'Connection successful!', 'response': response})
+            else:
+                return JsonResponse({'success': False, 'message': 'Provider returned empty response.'})
+        except Exception as e:
+            return JsonResponse({'success': False, 'message': f'API Call Failed: {str(e)}'})
+
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': f'Server Error: {str(e)}'})
