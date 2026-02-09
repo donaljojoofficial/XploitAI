@@ -60,11 +60,79 @@
 <body class="min-h-screen flex flex-col bg-gray-900 text-gray-200">
     <!-- Navbar -->
     <nav class="border-b border-gray-700 bg-gray-800 px-6 py-4 flex justify-between items-center">
-        <div class="flex items-center gap-3">
-            <div class="w-3 h-3 rounded-full bg-accent animate-pulse"></div>
-            <a href="{% url 'dashboard_index' %}" class="text-xl font-bold tracking-tight text-white hover:text-accent transition-colors">
-                XPLOIT<span class="text-accent">AI</span>_CONSOLE
-            </a>
+        <div class="flex items-center gap-8">
+            <div class="flex items-center gap-3">
+                <div class="w-3 h-3 rounded-full bg-accent animate-pulse"></div>
+                <a href="{% url 'dashboard_index' %}" class="text-xl font-bold tracking-tight text-white hover:text-accent transition-colors">
+                    XPLOIT<span class="text-accent">AI</span>_CONSOLE
+                </a>
+            </div>
+
+            <!-- Navigation Links -->
+            <div class="hidden md:flex items-center gap-6 text-sm font-mono">
+                <!-- Targets Dropdown -->
+                <div class="relative" x-data="{ open: false }">
+                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-1 text-gray-400 hover:text-white transition-colors">
+                        TARGETS
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </button>
+                    <div x-show="open" class="absolute top-full left-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded shadow-xl z-50" x-cloak>
+                        {% for target in targets %}
+                        <div class="px-4 py-2 border-b border-gray-700 last:border-0 text-xs">
+                            <div class="text-white font-bold">{{ target.name }}</div>
+                            <div class="text-gray-500">{{ target.ip_address }}</div>
+                        </div>
+                        {% empty %}
+                        <div class="px-4 py-2 text-gray-500 text-xs">No targets.</div>
+                        {% endfor %}
+                        <a href="{% url 'target_management' %}" class="block px-4 py-2 text-accent hover:bg-gray-700 text-xs font-bold border-t border-gray-700">MANAGE TARGETS &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Executors Dropdown -->
+                <div class="relative" x-data="{ open: false }">
+                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-1 text-gray-400 hover:text-white transition-colors">
+                        EXECUTORS
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </button>
+                    <div x-show="open" class="absolute top-full left-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded shadow-xl z-50" x-cloak>
+                        {% for executor in executors %}
+                        <div class="px-4 py-2 border-b border-gray-700 last:border-0 text-xs">
+                            <div class="flex justify-between">
+                                <span class="text-white font-bold">{{ executor.name }}</span>
+                                <span class="{% if executor.status == 'CONNECTED' %}text-accent{% else %}text-gray-500{% endif %}">●</span>
+                            </div>
+                            <div class="text-gray-500">{{ executor.ip_address }}</div>
+                        </div>
+                        {% empty %}
+                        <div class="px-4 py-2 text-gray-500 text-xs">No executors.</div>
+                        {% endfor %}
+                        <a href="{% url 'executor_management' %}" class="block px-4 py-2 text-accent hover:bg-gray-700 text-xs font-bold border-t border-gray-700">MANAGE EXECUTORS &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Operations/History Dropdown -->
+                <div class="relative" x-data="{ open: false }">
+                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-1 text-gray-400 hover:text-white transition-colors">
+                        OPERATIONS
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </button>
+                    <div x-show="open" class="absolute top-full left-0 mt-2 w-64 bg-gray-800 border border-gray-700 rounded shadow-xl z-50" x-cloak>
+                        <div class="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-700">Recent Attacks</div>
+                        {% for attack in recent_attacks %}
+                        <a href="{% url 'dashboard_attack_detail' attack.pk %}" class="block px-4 py-2 border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-white text-xs font-bold truncate w-32">{{ attack.name }}</span>
+                                <span class="text-[10px] px-1.5 py-0.5 rounded {% if attack.autonomy_status == 'RUNNING' %}bg-accent/20 text-accent{% else %}bg-gray-600 text-gray-300{% endif %}">{{ attack.autonomy_status }}</span>
+                            </div>
+                            <div class="text-gray-500 text-[10px]">{{ attack.created_at|timesince }} ago</div>
+                        </a>
+                        {% empty %}
+                        <div class="px-4 py-2 text-gray-500 text-xs">No recent attacks.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="text-xs text-gray-500 font-mono tracking-widest">SYSTEM_ONLINE</div>
     </nav>

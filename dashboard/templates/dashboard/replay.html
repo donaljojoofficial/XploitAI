@@ -1,182 +1,183 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Attack Replay - {{ state.name }}</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 20px; background-color: #f8f9fa; color: #333; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #dee2e6; padding-bottom: 10px; }
-        .controls { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; position: sticky; top: 20px; z-index: 100; }
-        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 14px; }
-        .btn-primary { background-color: #0d6efd; color: white; }
-        .btn-secondary { background-color: #6c757d; color: white; text-decoration: none; display: inline-block; }
-        .btn-danger { background-color: #dc3545; color: white; }
-        .timeline-container { position: relative; padding-left: 20px; padding-bottom: 50px; }
-        .event-card { 
-            background: white; 
-            border: 1px solid #dee2e6; 
-            border-radius: 6px; 
-            margin-bottom: 15px; 
-            padding: 15px; 
-            display: none; 
-            opacity: 0;
-            transform: translateY(10px);
-            transition: opacity 0.3s ease, transform 0.3s ease;
-            border-left-width: 5px;
-            border-left-style: solid;
-        }
-        .event-card.visible { display: block; opacity: 1; transform: translateY(0); }
-        
-        .source-AI { border-left-color: #6610f2; }
-        .source-SYSTEM { border-left-color: #6c757d; }
-        .source-DEFENDER { border-left-color: #dc3545; }
-        .source-EXECUTOR { border-left-color: #198754; }
+{% extends 'dashboard/base.html' %}
 
-        .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75em; font-weight: bold; color: white; text-transform: uppercase; }
-        .bg-AI { background-color: #6610f2; }
-        .bg-SYSTEM { background-color: #6c757d; }
-        .bg-DEFENDER { background-color: #dc3545; }
-        .bg-EXECUTOR { background-color: #198754; }
+{% block title %}Replay - {{ state.name }}{% endblock %}
 
-        .timestamp { font-size: 0.85em; color: #6c757d; margin-left: auto; }
-        .event-title { font-weight: bold; font-size: 1.1em; margin-bottom: 8px; display: flex; align-items: center; }
-        .reasoning-box { background-color: #f0f0f5; border-left: 3px solid #6610f2; padding: 10px; margin-top: 10px; font-style: italic; font-size: 0.95em; }
-        .data-toggle { color: #0d6efd; cursor: pointer; font-size: 0.85em; margin-top: 8px; display: inline-block; text-decoration: underline; }
-        .raw-data { background-color: #212529; color: #00ff00; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 0.85em; margin-top: 5px; display: none; white-space: pre-wrap; overflow-x: auto; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div>
-                <h1 style="margin: 0;">Attack Replay</h1>
-                <p style="margin: 5px 0 0 0; color: #6c757d;">{{ state.name }} ({{ state.get_current_phase_display }})</p>
-            </div>
-            <div>
-                <a href="{% url 'dashboard_attack_detail' state.pk %}" class="btn btn-secondary">Exit Replay</a>
-            </div>
+{% block content %}
+<div x-data="replayPlayer()" x-init="initPlayer()">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-white mb-1">Operation Replay</h1>
+            <div class="text-gray-400 font-mono text-sm">{{ state.name }}</div>
         </div>
-
-        <div class="controls">
-            <button id="playBtn" class="btn btn-primary" onclick="togglePlay()">Play</button>
-            <button id="resetBtn" class="btn btn-secondary" onclick="resetReplay()">Reset</button>
-            <select id="speedControl" class="btn" style="background: #e9ecef; border: 1px solid #ced4da;">
-                <option value="2000">0.5x Speed</option>
-                <option value="1000" selected>1x Speed</option>
-                <option value="500">2x Speed</option>
-                <option value="100">Max Speed</option>
-            </select>
-            <div style="margin-left: auto; font-weight: bold; color: #495057;" id="progressDisplay">0 / {{ unified_events|length }}</div>
-        </div>
-
-        <div class="timeline-container" id="timeline">
-            {% for event in unified_events %}
-            <div class="event-card source-{{ event.source }}" id="event-{{ forloop.counter0 }}">
-                <div class="event-title">
-                    <span class="badge bg-{{ event.source }}">{{ event.source }}</span>
-                    <span style="margin-left: 10px;">{{ event.type }}</span>
-                    <span class="timestamp">{{ event.dt|date:"Y-m-d H:i:s" }}</span>
-                </div>
-                
-                <div class="event-desc">
-                    {{ event.desc }}
-                </div>
-
-                {% if event.data.reasoning %}
-                <div class="reasoning-box">
-                    <strong>Reasoning:</strong> {{ event.data.reasoning }}
-                </div>
-                {% endif %}
-
-                {% if event.data %}
-                <div>
-                    <span class="data-toggle" onclick="toggleData('{{ forloop.counter0 }}')">Show Raw Data</span>
-                    <div class="raw-data" id="data-{{ forloop.counter0 }}">{{ event.data|pprint }}</div>
-                </div>
-                {% endif %}
-            </div>
-            {% empty %}
-            <div class="event-card visible" style="border-left-color: #17a2b8;">
-                No events recorded for this attack state.
-            </div>
-            {% endfor %}
+        <div class="flex gap-2">
+            <a href="{% url 'dashboard_attack_detail' state.pk %}" class="px-3 py-1.5 text-sm border border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200 rounded transition-colors">Exit Replay</a>
         </div>
     </div>
 
-    <script>
-        const events = document.querySelectorAll('.event-card');
-        const totalEvents = events.length;
-        let currentIndex = 0;
-        let isPlaying = false;
-        let timer = null;
+    <!-- Player Controls & Progress -->
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg mb-6">
+        <!-- Progress Bar -->
+        <div class="w-full bg-gray-700 rounded-full h-2.5 mb-6">
+            <div class="bg-accent h-2.5 rounded-full transition-all duration-300 ease-out" :style="'width: ' + progress + '%'"></div>
+        </div>
 
-        function showEvent(index) {
-            if (index < totalEvents) {
-                const event = events[index];
-                event.classList.add('visible');
-                event.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                document.getElementById('progressDisplay').innerText = (index + 1) + " / " + totalEvents;
-            }
-        }
-
-        function togglePlay() {
-            const btn = document.getElementById('playBtn');
-            if (isPlaying) {
-                clearInterval(timer);
-                isPlaying = false;
-                btn.innerText = "Play";
-                btn.classList.remove('btn-danger');
-                btn.classList.add('btn-primary');
-            } else {
-                if (currentIndex >= totalEvents) {
-                    resetReplay();
-                }
-                isPlaying = true;
-                btn.innerText = "Pause";
-                btn.classList.remove('btn-primary');
-                btn.classList.add('btn-danger');
-                const speed = parseInt(document.getElementById('speedControl').value);
+        <!-- Controls -->
+        <div class="flex justify-between items-center">
+            <div class="flex items-center gap-4">
+                <button @click="togglePlay()" class="w-12 h-12 flex items-center justify-center rounded-full bg-accent text-gray-900 hover:bg-green-400 transition-colors shadow-lg shadow-green-900/20">
+                    <template x-if="!playing">
+                        <svg class="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </template>
+                    <template x-if="playing">
+                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    </template>
+                </button>
                 
-                // Play immediately
-                if (currentIndex < totalEvents) {
-                    showEvent(currentIndex);
-                    currentIndex++;
+                <div class="flex gap-2">
+                    <button @click="prev()" :disabled="currentIndex <= 0" class="p-2 text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                    </button>
+                    <button @click="next()" :disabled="currentIndex >= totalEvents - 1" class="p-2 text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    </button>
+                    <button @click="reset()" class="p-2 text-gray-400 hover:text-white ml-2" title="Reset">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="text-right">
+                <div class="text-2xl font-mono font-bold text-white">
+                    <span x-text="currentIndex + 1"></span> <span class="text-gray-600">/</span> <span x-text="totalEvents"></span>
+                </div>
+                <div class="text-xs text-gray-500 uppercase tracking-widest">Events Replayed</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Current Event Detail -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden flex flex-col h-[500px]">
+            <div class="bg-gray-700/50 px-4 py-3 border-b border-gray-700 flex justify-between items-center">
+                <h5 class="font-bold text-gray-200">Current Event</h5>
+                <span x-show="currentEvent" class="text-xs font-mono px-2 py-1 rounded bg-gray-900 text-accent" x-text="formatTime(currentEvent?.dt)"></span>
+            </div>
+            <div class="p-6 flex-1 overflow-y-auto">
+                <template x-if="currentEvent">
+                    <div class="space-y-6">
+                        <div>
+                            <div class="text-xs text-gray-500 uppercase tracking-widest mb-1">Event Type</div>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl font-bold text-white" x-text="currentEvent.type"></span>
+                                <span class="px-2 py-0.5 rounded text-xs font-bold bg-gray-700 text-gray-300" x-text="currentEvent.source"></span>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <div class="text-xs text-gray-500 uppercase tracking-widest mb-1">Description</div>
+                            <div class="text-gray-300 text-lg leading-relaxed" x-text="currentEvent.desc"></div>
+                        </div>
+
+                        <div x-show="currentEvent.data && Object.keys(currentEvent.data).length > 0">
+                            <div class="text-xs text-gray-500 uppercase tracking-widest mb-2">Event Data</div>
+                            <pre class="bg-gray-900 p-4 rounded border border-gray-700 text-sm text-green-400 font-mono overflow-x-auto" x-text="JSON.stringify(currentEvent.data, null, 2)"></pre>
+                        </div>
+                    </div>
+                </template>
+                <template x-if="!currentEvent">
+                    <div class="h-full flex flex-col items-center justify-center text-gray-500">
+                        <svg class="w-12 h-12 mb-2 opacity-20" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        <span class="italic">Press Play to start replay</span>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Event Log -->
+        <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden flex flex-col h-[500px]">
+            <div class="bg-gray-700/50 px-4 py-3 border-b border-gray-700">
+                <h5 class="font-bold text-gray-200">Event Log</h5>
+            </div>
+            <div class="flex-1 overflow-y-auto p-0" id="eventLog">
+                <template x-for="(event, index) in playedEvents" :key="index">
+                    <div class="p-3 border-b border-gray-700 last:border-0 hover:bg-gray-700/30 transition-colors border-l-4" 
+                         :class="index === currentIndex ? 'border-l-accent bg-gray-700/50' : 'border-l-transparent'">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 text-sm" x-text="event.type"></span>
+                            <span class="text-xs text-gray-500 font-mono" x-text="formatTime(event.dt)"></span>
+                        </div>
+                        <div class="text-xs text-gray-400 truncate" x-text="event.desc"></div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ events_json|json_script:"events-data" }}
+
+<script>
+    function replayPlayer() {
+        return {
+            events: [],
+            currentIndex: -1,
+            playing: false,
+            timer: null,
+            
+            get totalEvents() { return this.events.length; },
+            get currentEvent() { return this.currentIndex >= 0 ? this.events[this.currentIndex] : null; },
+            get playedEvents() { return this.events.slice(0, this.currentIndex + 1).reverse(); },
+            get progress() { return this.totalEvents > 0 ? ((this.currentIndex + 1) / this.totalEvents) * 100 : 0; },
+
+            initPlayer() {
+                const data = document.getElementById('events-data').textContent;
+                this.events = JSON.parse(data);
+            },
+            
+            formatTime(dtStr) {
+                if (!dtStr) return '';
+                const date = new Date(dtStr);
+                return date.toLocaleTimeString([], { hour12: false });
+            },
+
+            next() {
+                if (this.currentIndex < this.totalEvents - 1) {
+                    this.currentIndex++;
+                } else {
+                    this.playing = false;
+                    clearInterval(this.timer);
                 }
-
-                timer = setInterval(() => {
-                    if (currentIndex >= totalEvents) {
-                        togglePlay(); // Stop
-                        return;
+            },
+            
+            prev() {
+                if (this.currentIndex > 0) {
+                    this.currentIndex--;
+                } else if (this.currentIndex === 0) {
+                    this.currentIndex = -1;
+                }
+            },
+            
+            togglePlay() {
+                this.playing = !this.playing;
+                if (this.playing) {
+                    if (this.currentIndex >= this.totalEvents - 1) {
+                        this.currentIndex = -1;
                     }
-                    showEvent(currentIndex);
-                    currentIndex++;
-                }, speed);
+                    this.timer = setInterval(() => {
+                        this.next();
+                    }, 1000);
+                } else {
+                    clearInterval(this.timer);
+                }
+            },
+            
+            reset() {
+                this.playing = false;
+                clearInterval(this.timer);
+                this.currentIndex = -1;
             }
         }
-
-        function resetReplay() {
-            if (isPlaying) togglePlay();
-            currentIndex = 0;
-            events.forEach(e => {
-                e.classList.remove('visible');
-                e.style.display = 'none'; 
-                setTimeout(() => e.style.display = '', 10); 
-            });
-            document.getElementById('progressDisplay').innerText = "0 / " + totalEvents;
-            window.scrollTo(0, 0);
-        }
-
-        function toggleData(id) {
-            const el = document.getElementById('data-' + id);
-            if (el.style.display === 'block') {
-                el.style.display = 'none';
-            } else {
-                el.style.display = 'block';
-            }
-        }
-    </script>
-</body>
-</html>
+    }
+</script>
+{% endblock %}

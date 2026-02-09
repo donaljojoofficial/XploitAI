@@ -23,6 +23,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.http import require_POST
 from django.utils import timezone
+from django.core.serializers.json import DjangoJSONEncoder
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
 from ai.autonomy import AutonomousController
@@ -107,6 +108,7 @@ def _get_global_context() -> dict[str, Any]:
     executors = AttackerExecutor.objects.all().order_by('-last_heartbeat')
     targets = AttackTarget.objects.all().order_by('name')
     active_context = AttackContext.objects.filter(status__in=['READY', 'RUNNING']).first()
+    recent_attacks = AttackState.objects.order_by('-created_at')[:5]
 
     connected_executors = executors.filter(status=AttackerExecutor.Status.CONNECTED)
     active_targets = targets.filter(is_active=True)
@@ -114,6 +116,7 @@ def _get_global_context() -> dict[str, Any]:
     return {
         'executors': executors,
         'targets': targets,
+        'recent_attacks': recent_attacks,
         'connected_executors': connected_executors,
         'active_targets': active_targets,
         'has_connected_executor': connected_executors.exists(),
@@ -209,9 +212,11 @@ def attack_replay(request: HttpRequest, pk: int) -> HttpResponse:
     """Show a sequential replay of the attack lifecycle."""
     state = get_object_or_404(AttackState, pk=pk)
     unified_events = _get_unified_events(state)
+    events_json = json.dumps(unified_events, cls=DjangoJSONEncoder)
     context = {
         'state': state,
         'unified_events': unified_events,
+        'events_json': events_json,
     }
     return render(request, 'dashboard/replay.html', context)
 
