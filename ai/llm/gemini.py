@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import hashlib
 import time
 from types import SimpleNamespace
 from typing import Iterator, Optional
@@ -32,6 +33,15 @@ class GeminiAdapter(BaseLLMAdapter):
         self.fallback_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
         self.api_key = os.getenv("GEMINI_API_KEY")
         self._client = None
+        self._response_cache = {}
+
+        # System prompt for consistent, structured, and concise behavior
+        self.system_instruction = (
+            "You are an autonomous penetration testing AI. "
+            "Your goal is to audit a system for vulnerabilities safely and efficiently. "
+            "Output MUST be valid JSON. Do not use Markdown blocks. "
+            "Be concise. Prioritize high-level strategic decisions."
+        )
 
         if HAS_SDK and self.api_key:
             try:
@@ -49,14 +59,24 @@ class GeminiAdapter(BaseLLMAdapter):
         if not HAS_SDK or not self.api_key:
             return None
 
+        # 1. Check Cache
+        cache_key = hashlib.md5(prompt.encode("utf-8")).hexdigest()
+        if cache_key in self._response_cache:
+            logger.debug("GeminiAdapter: Cache hit for prompt.")
+            return self._response_cache[cache_key]
+
         models_to_try = [self.model_name] + self.fallback_models
         
         for i, model in enumerate(models_to_try):
             try:
                 logger.debug(f"GeminiAdapter: Attempting generation with model '{model}'")
                 # Create a client for the specific model
-                client = genai.GenerativeModel(model)
+                # Use system_instruction to reduce per-request token usage and enforce structure
+                client = genai.GenerativeModel(model, system_instruction=self.system_instruction)
                 response = client.generate_content(prompt)
+
+                # Cache successful response
+                self._response_cache[cache_key] = response
                 return response
             except Exception as e:
                 error_msg = str(e)
@@ -144,7 +164,7 @@ class GeminiAdapter(BaseLLMAdapter):
             yielded_any = False
             try:
                 logger.debug(f"GeminiAdapter: Attempting streaming with model '{model}'")
-                client = genai.GenerativeModel(model)
+                client = genai.GenerativeModel(model, system_instruction=self.system_instruction)
                 response = client.generate_content(prompt, stream=True)
 
                 for chunk in response:
@@ -176,19 +196,16 @@ class GeminiAdapter(BaseLLMAdapter):
     def _build_recommendation_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
-            "Task: Recommend the single best next penetration testing action.\n"
-            "Output: A single valid JSON object. NO markdown formatting.\n"
-            "Schema: { \"action_type\": \"<ActionName>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }\n"
-            "Ensure the action_type matches a known tool or tactic."
+            "Task: Recommend the single best next penetration testing action. "
+            "Focus on the current phase (Recon -> Scanning -> Exploitation).\n"
+            "Schema: { \"action_type\": \"<ActionName>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }"
         )
 
     def _build_plan_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
-            "Task: Create a multi-step attack plan.\n"
-            "Output: A single valid JSON object matching the Plan schema. NO markdown.\n"
-            "Schema: { \"steps\": [ { \"action_type\": \"...\", \"parameters\": {...}, \"rationale\": \"...\" } ] }\n"
-            "Keep steps logical and sequential."
+            "Task: Create a multi-step attack plan. Batch routine tasks where possible.\n"
+            "Schema: { \"steps\": [ { \"action_type\": \"...\", \"parameters\": {...}, \"rationale\": \"...\" } ] }"
         )
 
     def _build_narrative_prompt(self, decision_input: DecisionInput) -> str:
