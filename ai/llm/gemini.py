@@ -6,7 +6,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Optional
+import time
+from typing import Iterator, Optional
 
 from ai.llm.base import BaseLLMAdapter
 from ai.schemas import Decision, DecisionInput, Plan
@@ -25,9 +26,9 @@ except ImportError:
 class GeminiAdapter(BaseLLMAdapter):
     """Adapter for Google's Gemini models via google-generativeai SDK."""
 
-    def __init__(self, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, model_name: str = "gemini-2.0-flash"):
         self.model_name = model_name
-        self.fallback_models = ["gemini-1.5-pro", "gemini-1.0-pro"]
+        self.fallback_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
         self.api_key = os.getenv("GEMINI_API_KEY")
         self._client = None
 
@@ -49,16 +50,20 @@ class GeminiAdapter(BaseLLMAdapter):
 
         models_to_try = [self.model_name] + self.fallback_models
         
-        for model in models_to_try:
+        for i, model in enumerate(models_to_try):
             try:
+                logger.debug(f"GeminiAdapter: Attempting generation with model '{model}'")
                 # Create a client for the specific model
                 client = genai.GenerativeModel(model)
                 response = client.generate_content(prompt)
                 return response
             except Exception as e:
                 error_msg = str(e)
-                if "404" in error_msg or "503" in error_msg or "not found" in error_msg.lower():
-                    logger.warning(f"Gemini model '{model}' failed: {e}. Retrying with next model.")
+                if any(c in error_msg for c in ["404", "503", "429", "500"]) or "not found" in error_msg.lower() or "resourceexhausted" in error_msg.lower():
+                    # Exponential backoff: 2s, 4s, 8s... to handle rate limits
+                    wait_time = 2 ** (i + 1)
+                    logger.warning(f"Gemini model '{model}' failed with retryable error. Sleeping {wait_time}s before retry. Error: {e}")
+                    time.sleep(wait_time)
                     continue
                 logger.error(f"Gemini call failed for model '{model}': {e}")
                 return None
@@ -127,6 +132,46 @@ class GeminiAdapter(BaseLLMAdapter):
             logger.error(f"GeminiAdapter: generation failed. Error: {e}")
             return None
 
+    def generate_stream(self, prompt: str) -> Iterator[str]:
+        logger.info("GeminiAdapter: invoking Gemini for streaming generation")
+        if not HAS_SDK or not self.api_key:
+            return
+
+        models_to_try = [self.model_name] + self.fallback_models
+
+        for model in models_to_try:
+            yielded_any = False
+            try:
+                logger.debug(f"GeminiAdapter: Attempting streaming with model '{model}'")
+                client = genai.GenerativeModel(model)
+                response = client.generate_content(prompt, stream=True)
+
+                for chunk in response:
+                    try:
+                        text = chunk.text
+                        if text:
+                            yield text
+                            yielded_any = True
+                    except ValueError:
+                        # Handle safety blocks or empty content gracefully
+                        continue
+                return
+            except Exception as e:
+                if yielded_any:
+                    logger.error(f"Gemini stream failed mid-stream for model '{model}': {e}. Cannot retry.")
+                    return
+                error_msg = str(e)
+                if any(c in error_msg for c in ["404", "503", "429", "500"]) or "not found" in error_msg.lower() or "resourceexhausted" in error_msg.lower():
+                    logger.warning(f"Gemini model '{model}' stream init failed: {e}. Retrying with next model.")
+                    continue
+                logger.error(f"Gemini stream failed for model '{model}': {e}")
+                return
+
+    def get_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
+        logger.info("GeminiAdapter: generating attack narrative stream")
+        prompt = self._build_narrative_prompt(decision_input)
+        yield from self.generate_stream(prompt)
+
     def _build_recommendation_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
@@ -143,6 +188,15 @@ class GeminiAdapter(BaseLLMAdapter):
             "Output: A single valid JSON object matching the Plan schema. NO markdown.\n"
             "Schema: { \"steps\": [ { \"action_type\": \"...\", \"parameters\": {...}, \"rationale\": \"...\" } ] }\n"
             "Keep steps logical and sequential."
+        )
+
+    def _build_narrative_prompt(self, decision_input: DecisionInput) -> str:
+        return (
+            f"Context: {decision_input}\n"
+            "Task: Generate a detailed, real-time tactical narrative of the ongoing penetration test operation based on the provided context. "
+            "Describe the current phase, the status of compromised assets, and the strategic outlook.\n"
+            "Tone: Professional, objective, and technical.\n"
+            "Format: Plain text, suitable for streaming to a dashboard."
         )
 
     def _parse_decision(self, text: str) -> Optional[Decision]:

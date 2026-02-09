@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Optional, List
+from typing import Iterator, List, Optional
 from core.models import AttackState, Action, AttackTarget, ActionResult
 from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary
 from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary, Plan, PlanStep
@@ -29,6 +29,21 @@ class DecisionEngine:
             except Exception as e:
                 logger.error(f"Failed to initialize GeminiAdapter: {e}")
 
+    def generate_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
+        """
+        Generates a streaming narrative of the current attack state.
+        
+        Args:
+            decision_input: The current state of the attack.
+            
+        Returns:
+            An iterator yielding chunks of the narrative text.
+        """
+        if not self.llm_adapter:
+            # Fallback or empty iterator if LLM is disabled
+            return iter([])
+            
+        return self.llm_adapter.get_attack_narrative(decision_input)
     def _build_decision_input(self, state: AttackState) -> DecisionInput:
         """Helper to build DecisionInput from AttackState."""
         known_services = []
@@ -99,7 +114,11 @@ class DecisionEngine:
                         logger.info("Last action failed. Triggering re-planning.")
 
                 if should_plan:
-                    self.generate_plan(attack_state)
+                    plan = self.generate_plan(attack_state)
+                    # Enforce strict planning: If planning fails and we have no plan, do not proceed.
+                    if not plan and not attack_state.current_plan:
+                        logger.warning("Plan generation failed. Aborting AI proposal to enforce planning first.")
+                        return []
 
                 ai_action = self._get_ai_proposal(attack_state)
                 if ai_action:
@@ -196,7 +215,11 @@ class DecisionEngine:
         """
         decision_input = self._build_decision_input(state)
 
-        context = state.state_data.get('planner_context', {})
+        context = state.state_data.get('planner_context', {}).copy()
+        
+        # Inject the current plan into the context so the AI follows it
+        if state.current_plan:
+            context['active_plan'] = state.current_plan
 
         request = DecisionRequest(
             decision_input=decision_input,

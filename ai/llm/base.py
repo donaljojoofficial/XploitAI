@@ -15,7 +15,7 @@ Design Principles:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Iterator, Optional
 
 from ai.schemas import Decision, DecisionInput, Plan
 
@@ -94,5 +94,31 @@ class BaseLLMAdapter(ABC):
 
         Returns:
             A string response or None if generation fails.
+        """
+        ...
+
+    @abstractmethod
+    def generate_stream(self, prompt: str) -> Iterator[str]:
+        """
+        Generate a streaming text response for a given prompt.
+
+        Args:
+            prompt: The input prompt string.
+
+        Yields:
+            String chunks of the generated response.
+        """
+        ...
+
+    @abstractmethod
+    def get_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
+        """
+        Generate a streaming narrative of the attack based on the current input.
+
+        Args:
+            decision_input: Structured observation of the current attack state.
+
+        Yields:
+            String chunks of the narrative.
         """
         ...

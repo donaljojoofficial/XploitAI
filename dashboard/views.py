@@ -138,11 +138,16 @@ def index(request: HttpRequest) -> HttpResponse:
         tasks = []
         alerts = []
 
+    plan_completed = False
+    if attack_state and attack_state.autonomy_status == "STOPPED" and "plan completed" in attack_state.stop_reason.lower():
+        plan_completed = True
+
     context = {
         'attack_state': attack_state,
         'actions': actions,
         'tasks': tasks,
         'alerts': alerts,
+        'plan_completed': plan_completed,
         **_get_global_context(),
     }
     return render(request, 'dashboard/index.html', context)
@@ -172,6 +177,10 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
     unified_events = _get_unified_events(state)
 
+    plan_completed = False
+    if state.autonomy_status == "STOPPED" and "plan completed" in state.stop_reason.lower():
+        plan_completed = True
+
     context = {
         'attack_state': state,
         'actions': actions,
@@ -180,6 +189,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'unified_events': unified_events,
         'consecutive_failures': consecutive_failures,
         'interaction_events': interaction_events,
+        'plan_completed': plan_completed,
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_detail.html', context)

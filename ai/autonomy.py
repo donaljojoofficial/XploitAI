@@ -533,6 +533,12 @@ class AutonomousController:
                 logger.warning("STOP CONDITION: %s", msg)
                 return msg
 
+        # 4. Plan Completion
+        if self._is_plan_completed(state):
+            msg = "Current plan completed."
+            logger.info("STOP CONDITION: %s", msg)
+            return msg
+
         return None
 
     def _log_audit(self, cycle_id: str, event: str, details: dict) -> None:
@@ -614,3 +620,44 @@ class AutonomousController:
                 "action_id": action.id,
                 "action_name": proposal.name
             })
+
+    def _is_plan_completed(self, state: AttackState) -> bool:
+        """
+        Check if all steps in the current plan have been successfully executed.
+        """
+        current_plan = state.current_plan
+        if not current_plan or not isinstance(current_plan, dict):
+            return False
+            
+        steps = current_plan.get('steps', [])
+        if not steps:
+            return False
+            
+        # Fetch completed actions
+        completed_actions = list(Action.objects.filter(
+            attack_state=state,
+            status='COMPLETED'
+        ).values('name', 'parameters'))
+        
+        # Try to match every step to a completed action
+        for step in steps:
+            step_name = step.get('action')
+            step_params = step.get('parameters')
+            if not isinstance(step_params, dict):
+                step_params = {}
+            
+            matched_index = -1
+            for i, action in enumerate(completed_actions):
+                if action['name'] == step_name:
+                    # Check parameters: step_params must be a subset of action['parameters']
+                    action_params = action['parameters'] or {}
+                    if all(action_params.get(k) == v for k, v in step_params.items()):
+                        matched_index = i
+                        break
+            
+            if matched_index != -1:
+                completed_actions.pop(matched_index)
+            else:
+                return False
+                
+        return True
