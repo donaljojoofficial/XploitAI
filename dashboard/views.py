@@ -350,8 +350,8 @@ def configuration(request: HttpRequest) -> HttpResponse:
         return redirect('configuration')
         
     context = _get_global_context()
-    context['gemini_key'] = get_config('GOOGLE_API_KEY', '')
-    context['claude_key'] = get_config('ANTHROPIC_API_KEY', '')
+    context['has_gemini_key'] = bool(get_config('GOOGLE_API_KEY', ''))
+    context['has_claude_key'] = bool(get_config('ANTHROPIC_API_KEY', ''))
     context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'gemini')
     context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-sonnet-4-5-20250929')
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')

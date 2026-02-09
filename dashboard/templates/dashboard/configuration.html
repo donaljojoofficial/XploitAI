@@ -25,7 +25,7 @@
                             <label for="geminiKey" class="form-label">Google Gemini API Key</label>
                             <div class="flex">
                                 <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-google"></i></span>
-                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="geminiKey" name="gemini_key" value="{{ gemini_key }}" placeholder="AIzaSy..." autocomplete="off">
+                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="geminiKey" name="gemini_key" placeholder="{% if has_gemini_key %}Current key set (leave blank to keep){% else %}Enter Gemini API Key{% endif %}" autocomplete="off">
                             </div>
                             <div class="form-text">Required for Gemini Adapter.</div>
                         </div>
@@ -44,7 +44,7 @@
                             <label for="claudeKey" class="form-label">Anthropic Claude API Key</label>
                             <div class="flex">
                                 <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-robot"></i></span>
-                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="claudeKey" name="claude_key" value="{{ claude_key }}" placeholder="sk-ant-..." autocomplete="off">
+                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="claudeKey" name="claude_key" placeholder="{% if has_claude_key %}Current key set (leave blank to keep){% else %}Enter Claude API Key{% endif %}" autocomplete="off">
                             </div>
                             <div class="form-text">Required for Anthropic Adapter.</div>
                         </div>
