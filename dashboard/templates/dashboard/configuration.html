@@ -23,16 +23,16 @@
                         
                         <div class="mb-3">
                             <label for="geminiKey" class="form-label">Google Gemini API Key</label>
-                            <div class="input-group">
-                                <span class="input-group-text"><i class="bi bi-google"></i></span>
-                                <input type="password" class="form-control" id="geminiKey" name="gemini_key" value="{{ gemini_key }}" placeholder="AIzaSy..." autocomplete="off">
+                            <div class="flex">
+                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-google"></i></span>
+                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="geminiKey" name="gemini_key" value="{{ gemini_key }}" placeholder="AIzaSy..." autocomplete="off">
                             </div>
                             <div class="form-text">Required for Gemini Adapter.</div>
                         </div>
 
                         <div class="mb-3">
                             <label for="geminiModel" class="form-label">Gemini Model Version</label>
-                            <select class="form-select" id="geminiModel" name="gemini_model">
+                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="geminiModel" name="gemini_model">
                                 <option value="gemini-2.0-flash" {% if gemini_model == 'gemini-2.0-flash' %}selected{% endif %}>Gemini 2.0 Flash (Default)</option>
                                 <option value="gemini-1.5-flash" {% if gemini_model == 'gemini-1.5-flash' %}selected{% endif %}>Gemini 1.5 Flash</option>
                                 <option value="gemini-1.5-pro" {% if gemini_model == 'gemini-1.5-pro' %}selected{% endif %}>Gemini 1.5 Pro</option>
@@ -42,16 +42,16 @@
 
                         <div class="mb-3">
                             <label for="claudeKey" class="form-label">Anthropic Claude API Key</label>
-                            <div class="input-group">
-                                <span class="input-group-text"><i class="bi bi-robot"></i></span>
-                                <input type="password" class="form-control" id="claudeKey" name="claude_key" value="{{ claude_key }}" placeholder="sk-ant-..." autocomplete="off">
+                            <div class="flex">
+                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-robot"></i></span>
+                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="claudeKey" name="claude_key" value="{{ claude_key }}" placeholder="sk-ant-..." autocomplete="off">
                             </div>
                             <div class="form-text">Required for Anthropic Adapter.</div>
                         </div>
 
                         <div class="mb-3">
                             <label for="claudeModel" class="form-label">Claude Model Version</label>
-                            <select class="form-select" id="claudeModel" name="claude_model">
+                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="claudeModel" name="claude_model">
                                 <option value="claude-sonnet-4-5-20250929" {% if claude_model == 'claude-sonnet-4-5-20250929' %}selected{% endif %}>Claude Sonnet 4.5 (Default)</option>
                                 <option value="claude-opus-4-6-20260204" {% if claude_model == 'claude-opus-4-6-20260204' %}selected{% endif %}>Claude Opus 4.6</option>
                                 <option value="claude-haiku-4-5-20251001" {% if claude_model == 'claude-haiku-4-5-20251001' %}selected{% endif %}>Claude Haiku 4.5</option>
@@ -61,7 +61,7 @@
 
                         <div class="mb-3">
                             <label for="defaultProvider" class="form-label">Default AI Brain</label>
-                            <select class="form-select" id="defaultProvider" name="default_provider">
+                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="defaultProvider" name="default_provider">
                                 <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
                                 <option value="gemini" {% if default_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
                                 <option value="claude" {% if default_provider == 'claude' %}selected{% endif %}>Anthropic Claude</option>
