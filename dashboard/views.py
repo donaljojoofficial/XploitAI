@@ -333,6 +333,8 @@ def configuration(request: HttpRequest) -> HttpResponse:
         gemini_key = request.POST.get('gemini_key', '').strip()
         claude_key = request.POST.get('claude_key', '').strip()
         default_provider = request.POST.get('default_provider', '').strip()
+        claude_model = request.POST.get('claude_model', '').strip()
+        gemini_model = request.POST.get('gemini_model', '').strip()
         
         if gemini_key:
             set_config('GOOGLE_API_KEY', gemini_key)
@@ -340,6 +342,10 @@ def configuration(request: HttpRequest) -> HttpResponse:
             set_config('ANTHROPIC_API_KEY', claude_key)
         if default_provider:
             set_config('DEFAULT_LLM_PROVIDER', default_provider)
+        if claude_model:
+            set_config('ANTHROPIC_MODEL', claude_model)
+        if gemini_model:
+            set_config('GEMINI_MODEL', gemini_model)
             
         return redirect('configuration')
         
@@ -347,5 +353,7 @@ def configuration(request: HttpRequest) -> HttpResponse:
     context['gemini_key'] = get_config('GOOGLE_API_KEY', '')
     context['claude_key'] = get_config('ANTHROPIC_API_KEY', '')
     context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'gemini')
+    context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-sonnet-4-5-20250929')
+    context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
     
     return render(request, 'dashboard/configuration.html', context)

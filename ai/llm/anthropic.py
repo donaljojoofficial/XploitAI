@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import urllib.request
+import urllib.error
 from types import SimpleNamespace
 from typing import Iterator, Optional
 
@@ -25,10 +27,20 @@ except ImportError:
 class AnthropicAdapter(BaseLLMAdapter):
     """Adapter for Anthropic's Claude models."""
 
-    def __init__(self, model_name: str = "claude-3-5-sonnet-20240620"):
-        self.model_name = model_name
+    def __init__(self, model_name: str = "claude-sonnet-4-5-20250929"):
+        config_model = get_config("ANTHROPIC_MODEL")
+        self.model_name = config_model if config_model else model_name
+        
+        known_models = [
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-6-20260204",
+            "claude-haiku-4-5-20251001"
+        ]
+        self.fallback_models = [m for m in known_models if m != self.model_name]
+        
         self.api_key = get_config("ANTHROPIC_API_KEY")
         self._client = None
+        self._use_raw_http = False
 
         # System prompt for consistent, structured, and concise behavior
         self.system_instruction = (
@@ -43,30 +55,66 @@ class AnthropicAdapter(BaseLLMAdapter):
                 self._client = anthropic.Anthropic(api_key=self.api_key)
             except Exception as e:
                 logger.error(f"Failed to initialize Anthropic client: {e}")
-        elif not HAS_SDK:
-            logger.warning("anthropic SDK not found. AnthropicAdapter disabled.")
-        elif not self.api_key:
+        elif self.api_key:
+            self._use_raw_http = True
+            logger.info("Anthropic SDK not found. Using raw HTTP fallback.")
+        else:
             logger.warning("ANTHROPIC_API_KEY not set. AnthropicAdapter disabled.")
 
     def _generate_content(self, prompt: str) -> Optional[str]:
-        if not self._client:
-            return None
+        models = [self.model_name] + self.fallback_models
+        for model in models:
+            if not self._client and not self._use_raw_http:
+                return None
+                
+            if self._use_raw_http:
+                result = self._generate_content_raw(prompt, model)
+                if result:
+                    return result
+                continue
+            
+            try:
+                message = self._client.messages.create(
+                    model=model,
+                    max_tokens=4096,
+                    system=self.system_instruction,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                if message.content and len(message.content) > 0:
+                    return message.content[0].text
+            except Exception as e:
+                logger.warning(f"Anthropic generation failed for {model}: {e}")
+                continue
+        
+        return None
+
+    def _generate_content_raw(self, prompt: str, model: str = None) -> Optional[str]:
+        target_model = model or self.model_name
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+        data = {
+            "model": target_model,
+            "max_tokens": 4096,
+            "system": self.system_instruction,
+            "messages": [{"role": "user", "content": prompt}]
+        }
         
         try:
-            message = self._client.messages.create(
-                model=self.model_name,
-                max_tokens=4096,
-                system=self.system_instruction,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            if message.content and len(message.content) > 0:
-                return message.content[0].text
-            return None
+            req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers)
+            with urllib.request.urlopen(req) as response:
+                if response.status == 200:
+                    resp_data = json.loads(response.read().decode('utf-8'))
+                    if "content" in resp_data and len(resp_data["content"]) > 0:
+                        return resp_data["content"][0]["text"]
         except Exception as e:
-            logger.error(f"Anthropic generation failed: {e}")
-            return None
+            logger.error(f"Anthropic raw HTTP request failed: {e}")
+        return None
 
     def get_recommendation(self, decision_input: DecisionInput) -> Optional[Decision]:
         logger.info("AnthropicAdapter: invoking Claude for recommendation")
@@ -97,20 +145,32 @@ class AnthropicAdapter(BaseLLMAdapter):
         return self._generate_content(prompt)
 
     def generate_stream(self, prompt: str) -> Iterator[str]:
-        if not self._client:
-            return
-        
-        try:
-            with self._client.messages.stream(
-                max_tokens=4096,
-                system=self.system_instruction,
-                messages=[{"role": "user", "content": prompt}],
-                model=self.model_name,
-            ) as stream:
-                for text in stream.text_stream:
+        models = [self.model_name] + self.fallback_models
+        for model in models:
+            if not self._client and not self._use_raw_http:
+                return
+                
+            if self._use_raw_http:
+                # Raw HTTP fallback does not support streaming yet, yield full text
+                text = self._generate_content_raw(prompt, model)
+                if text:
                     yield text
-        except Exception as e:
-            logger.error(f"Anthropic stream failed: {e}")
+                    return
+                continue
+            
+            try:
+                with self._client.messages.stream(
+                    max_tokens=4096,
+                    system=self.system_instruction,
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model,
+                ) as stream:
+                    for text in stream.text_stream:
+                        yield text
+                return
+            except Exception as e:
+                logger.warning(f"Anthropic stream failed for {model}: {e}")
+                continue
 
     def get_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
         prompt = self._build_narrative_prompt(decision_input)

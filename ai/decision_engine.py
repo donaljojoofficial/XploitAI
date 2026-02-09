@@ -47,7 +47,7 @@ class DecisionEngine:
             if ANTHROPIC_AVAILABLE:
                 try:
                     anthropic = AnthropicAdapter()
-                    if anthropic._client:
+                    if anthropic._client or anthropic._use_raw_http:
                         return anthropic
                 except Exception as e:
                     logger.error(f"Failed to initialize AnthropicAdapter: {e}")

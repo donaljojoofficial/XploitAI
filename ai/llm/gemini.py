@@ -11,6 +11,7 @@ import time
 from types import SimpleNamespace
 from typing import Iterator, Optional
 
+from core.config import get_config
 from ai.llm.base import BaseLLMAdapter
 from ai.schemas import Decision, DecisionInput, Plan
 
@@ -29,9 +30,16 @@ class GeminiAdapter(BaseLLMAdapter):
     """Adapter for Google's Gemini models via google-generativeai SDK."""
 
     def __init__(self, model_name: str = "gemini-2.0-flash"):
-        self.model_name = model_name
-        self.fallback_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
-        self.api_key = os.getenv("GEMINI_API_KEY")
+        config_model = get_config("GEMINI_MODEL")
+        self.model_name = config_model if config_model else model_name
+        
+        known_models = [
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro"
+        ]
+        self.fallback_models = [m for m in known_models if m != self.model_name]
+        self.api_key = get_config("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         self._client = None
         self._response_cache = {}
 
