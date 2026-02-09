@@ -27,6 +27,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
 from ai.autonomy import AutonomousController
+from core.config import get_config, set_config
 
 logger = logging.getLogger(__name__)
 
@@ -322,3 +323,24 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
     controller = AutonomousController(attack_state_id=state.id, llm_provider=llm_provider)
     controller.start()
     return redirect('dashboard_attack_detail', pk=pk)
+
+def configuration(request: HttpRequest) -> HttpResponse:
+    """
+    View to manage system configuration and API keys.
+    """
+    if request.method == 'POST':
+        gemini_key = request.POST.get('gemini_key', '').strip()
+        claude_key = request.POST.get('claude_key', '').strip()
+        
+        if gemini_key:
+            set_config('GOOGLE_API_KEY', gemini_key)
+        if claude_key:
+            set_config('ANTHROPIC_API_KEY', claude_key)
+            
+        return redirect('configuration')
+        
+    context = _get_global_context()
+    context['gemini_key'] = get_config('GOOGLE_API_KEY', '')
+    context['claude_key'] = get_config('ANTHROPIC_API_KEY', '')
+    
+    return render(request, 'dashboard/configuration.html', context)
