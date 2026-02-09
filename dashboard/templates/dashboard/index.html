@@ -1,24 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mission Control - XploitAI</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="bg-light">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-        <div class="container">
-            <a class="navbar-brand" href="{% url 'dashboard_index' %}">XploitAI Dashboard</a>
-            <div class="navbar-nav">
-                <a class="nav-link active" href="{% url 'dashboard_index' %}">Home</a>
-                <a class="nav-link" href="{% url 'target_management' %}">Targets</a>
-                <a class="nav-link" href="{% url 'executor_management' %}">Executors</a>
-            </div>
-        </div>
-    </nav>
+{% extends 'dashboard/base.html' %}
 
-    <div class="container">
+{% block title %}Mission Control - XploitAI{% endblock %}
+
+{% block content %}
         <!-- Status Overview -->
         <div class="row mb-4">
             <div class="col-md-12">
@@ -28,6 +12,13 @@
                             <h4 class="mb-0">System Status: 
                                 {% if attack_state.autonomy_status == 'RUNNING' %}
                                     <span class="text-success">RUNNING</span>
+                                {% elif attack_state.autonomy_status == 'PLANNING' %}
+                                    <span class="text-info">
+                                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                        <span class="ms-1">PLANNING...</span>
+                                    </span>
+                                {% elif waiting_for_approval %}
+                                    <span class="text-warning">WAITING FOR APPROVAL</span>
                                 {% else %}
                                     <span class="text-secondary">{{ attack_state.autonomy_status|default:"IDLE" }}</span>
                                 {% endif %}
@@ -46,6 +37,12 @@
                                     <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="btn btn-sm btn-outline-primary">View Operation</a>
                                     <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="btn btn-sm btn-outline-secondary">View Plan</a>
                                     <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn btn-sm btn-outline-secondary">Replay</a>
+                                    {% if waiting_for_approval %}
+                                    <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="d-inline">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-success">Approve & Resume</button>
+                                    </form>
+                                    {% endif %}
                                 </div>
                             {% endif %}
                         </div>
@@ -67,7 +64,6 @@
             </div>
         </div>
 
-        {% block content %}
         <div class="row">
             <!-- Recent Activity -->
             <div class="col-md-8">
@@ -125,8 +121,6 @@
                 </div>
             </div>
         </div>
-        {% endblock %}
-    </div>
 
     <!-- Start Attack Modal -->
     <div class="modal fade" id="startAttackModal" tabindex="-1" aria-labelledby="startAttackModalLabel" aria-hidden="true">
@@ -167,9 +161,17 @@
             </div>
         </div>
     </div>
+{% endblock %}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% block extra_js %}
     <script>
+        // Auto-refresh if planning
+        {% if attack_state.autonomy_status == 'PLANNING' %}
+        setTimeout(function() {
+            window.location.reload();
+        }, 5000); // 5 seconds
+        {% endif %}
+
         let activityOffset = 50;
         function loadMoreActivity() {
             const btn = document.getElementById('load-more-btn');
@@ -195,5 +197,4 @@
                 });
         }
     </script>
-</body>
-</html>
+{% endblock %}

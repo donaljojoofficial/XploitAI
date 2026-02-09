@@ -1,32 +1,80 @@
-{% extends "dashboard/index.html" %}
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Attack Detail - {{ attack_state.name }}{% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <div class="row mb-4">
-        <div class="col-12">
-            <h2 class="h3 mb-2">Attack Operation: {{ attack_state.name }}</h2>
-            <div class="d-flex gap-2">
-                <span class="badge bg-primary">Phase: {{ attack_state.get_current_phase_display }}</span>
-                <span class="badge bg-info">Target: {{ attack_state.state_data.planner_context.targets.0.ip|default:"Unknown" }}</span>
-                <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="btn btn-sm btn-outline-primary ms-auto">View Full Plan</a>
-                <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn btn-sm btn-outline-secondary">Replay Attack</a>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h1 class="h3 mb-0">{{ attack_state.name }}</h1>
+                <small class="text-muted">Phase: {{ attack_state.current_phase }}</small>
             </div>
+            <span class="badge bg-{% if attack_state.autonomy_status == 'RUNNING' %}success{% elif attack_state.autonomy_status == 'STOPPED' %}danger{% elif attack_state.autonomy_status == 'PLANNING' %}info{% else %}secondary{% endif %} fs-6">
+                {% if attack_state.autonomy_status == 'PLANNING' %}
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    <span class="ms-1">{{ attack_state.autonomy_status }}</span>
+                {% else %}
+                    {{ attack_state.autonomy_status }}
+                {% endif %}
+            </span>
         </div>
-    </div>
 
-    <div class="row">
-        <div class="col-lg-4 mb-4">
-            {% include "dashboard/partials/autonomy_status.html" %}
-            <div class="mt-4">
-                {% include "dashboard/partials/defender_alerts.html" %}
+        {% if attack_state.stop_reason %}
+        <div class="alert alert-warning">
+            <strong>Stop Reason:</strong> {{ attack_state.stop_reason }}
+        </div>
+        {% endif %}
+
+        {% if waiting_for_approval %}
+        <div class="card border-info mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Approval Required</h5>
+            </div>
+            <div class="card-body">
+                <p class="card-text">The AI has generated a plan and is waiting for your approval to proceed.</p>
+                <div class="d-flex gap-2">
+                    <form action="{% url 'approve_plan' attack_state.id %}" method="post">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-success">Approve & Resume</button>
+                    </form>
+                    <form action="{% url 'resume_attack' attack_state.id %}" method="post">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-secondary">Resume (Force)</button>
+                    </form>
+                </div>
             </div>
         </div>
-        <div class="col-lg-8">
-            {% include "dashboard/partials/plan_steps.html" %}
-            <div class="mt-4">
-                {% include "dashboard/partials/execution_tasks.html" %}
+        {% endif %}
+
+        {% if plan_completed %}
+        <div class="alert alert-success">
+            <h4 class="alert-heading">Plan Completed</h4>
+            <p>All steps in the current plan have been executed.</p>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-header">Timeline</div>
+            <div class="list-group list-group-flush">
+                {% for event in unified_events %}
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1">{{ event.type }} <span class="badge bg-secondary">{{ event.source }}</span></h6>
+                        <small>{{ event.dt|date:"H:i:s" }}</small>
+                    </div>
+                    <p class="mb-1">{{ event.desc }}</p>
+                </div>
+                {% empty %}
+                <div class="list-group-item">No events recorded.</div>
+                {% endfor %}
             </div>
         </div>
-    </div>
-</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    {% if attack_state.autonomy_status == 'PLANNING' %}
+    setTimeout(function() { window.location.reload(); }, 5000);
+    {% endif %}
+</script>
+{% endblock %}
 {% endblock %}

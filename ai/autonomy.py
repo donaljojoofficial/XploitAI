@@ -92,6 +92,46 @@ class AutonomousController:
         # Trigger the planner loop in a background thread
         threading.Thread(target=self._autonomy_loop, daemon=True).start()
 
+    def request_initial_plan(self) -> None:
+        """
+        Starts a background thread to generate the initial plan without starting the full loop.
+        Transitions state to PLANNING -> STOPPED (Waiting for approval).
+        """
+        def _plan_task():
+            try:
+                state = AttackState.objects.get(id=self.attack_state_id)
+                
+                # Update status to indicate work in progress
+                state.autonomy_status = "PLANNING"
+                state.stop_reason = "Generating strategic plan..."
+                state.save(update_fields=['autonomy_status', 'stop_reason'])
+                
+                # Sync context required for planning
+                self._sync_planner_context(state)
+                self._sync_defender_context(state)
+                
+                # Generate the plan
+                plan = self.decision_engine.generate_plan(state)
+                
+                if plan:
+                    if not state.state_data:
+                        state.state_data = {}
+                    state.state_data['plan_approved'] = False
+                    state.stop_reason = "Plan generated. Waiting for approval."
+                    state.autonomy_status = "STOPPED"
+                else:
+                    state.stop_reason = "Plan generation failed."
+                    state.autonomy_status = "STOPPED"
+                
+                state.save()
+            except Exception as e:
+                logger.error(f"Initial planning failed: {e}")
+                AttackState.objects.filter(id=self.attack_state_id).update(
+                    autonomy_status="STOPPED", stop_reason=f"Planning error: {e}"
+                )
+
+        threading.Thread(target=_plan_task, daemon=True).start()
+
     def stop(self, reason: str = "Manual Stop") -> None:
         """Stop the autonomous control loop."""
         self.running = False
@@ -197,6 +237,14 @@ class AutonomousController:
         # We request 1 proposal for the autonomous loop
         proposals = self.decision_engine.generate_actions(state)
         if not proposals:
+            # Check if waiting for approval
+            if state.current_plan and not (state.state_data or {}).get('plan_approved', False):
+                reason = "Plan generated. Waiting for approval."
+                self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": reason})
+                logger.info("Stopping autonomy: %s", reason)
+                self.stop(reason=reason)
+                return False
+
             reason = "No proposals returned (Goal reached or stuck)"
             self._log_audit(cycle_id, "CYCLE_STOPPED", {"reason": reason})
             logger.info("Decision Engine returned no proposals. Goal reached or stuck. Stopping.")

@@ -142,12 +142,17 @@ def index(request: HttpRequest) -> HttpResponse:
     if attack_state and attack_state.autonomy_status == "STOPPED" and "plan completed" in attack_state.stop_reason.lower():
         plan_completed = True
 
+    waiting_for_approval = False
+    if attack_state and attack_state.autonomy_status == "STOPPED" and "waiting for approval" in attack_state.stop_reason.lower():
+        waiting_for_approval = True
+
     context = {
         'attack_state': attack_state,
         'actions': actions,
         'tasks': tasks,
         'alerts': alerts,
         'plan_completed': plan_completed,
+        'waiting_for_approval': waiting_for_approval,
         **_get_global_context(),
     }
     return render(request, 'dashboard/index.html', context)
@@ -181,6 +186,10 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     if state.autonomy_status == "STOPPED" and "plan completed" in state.stop_reason.lower():
         plan_completed = True
 
+    waiting_for_approval = False
+    if state.autonomy_status == "STOPPED" and "waiting for approval" in state.stop_reason.lower():
+        waiting_for_approval = True
+
     context = {
         'attack_state': state,
         'actions': actions,
@@ -190,6 +199,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'consecutive_failures': consecutive_failures,
         'interaction_events': interaction_events,
         'plan_completed': plan_completed,
+        'waiting_for_approval': waiting_for_approval,
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_detail.html', context)
@@ -258,8 +268,43 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         status='READY'
     )
 
-    # 3. Initialize and Start Controller
+    # 3. Initialize Controller and Request Plan (Do not start loop yet)
+    controller = AutonomousController(attack_state_id=state.id)
+    controller.request_initial_plan()
+
+    return redirect('dashboard_index')
+
+@require_POST
+def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approves the current plan for the given attack state."""
+    state = get_object_or_404(AttackState, pk=pk)
+    if not state.state_data:
+        state.state_data = {}
+    state.state_data['plan_approved'] = True
+    state.save(update_fields=['state_data'])
+
+    # Auto-resume the attack
+    last_context = AttackContext.objects.order_by('-created_at').first()
+    if last_context and last_context.status == 'STOPPED':
+        last_context.status = 'READY'
+        last_context.save()
+
     controller = AutonomousController(attack_state_id=state.id)
     controller.start()
 
-    return redirect('dashboard_index')
+    return redirect('attack_detail', pk=pk)
+
+@require_POST
+def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
+    """Resumes an existing attack state."""
+    state = get_object_or_404(AttackState, pk=pk)
+    
+    # Attempt to reactivate the last context if it was stopped
+    last_context = AttackContext.objects.order_by('-created_at').first()
+    if last_context and last_context.status == 'STOPPED':
+        last_context.status = 'READY'
+        last_context.save()
+
+    controller = AutonomousController(attack_state_id=state.id)
+    controller.start()
+    return redirect('attack_detail', pk=pk)
