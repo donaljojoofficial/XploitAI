@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+from types import SimpleNamespace
 from typing import Iterator, Optional
 
 from ai.llm.base import BaseLLMAdapter
@@ -211,6 +212,17 @@ class GeminiAdapter(BaseLLMAdapter):
         try:
             clean_text = text.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_text)
+
+            # Fix: Convert steps to objects to avoid 'dict object has no attribute' errors
+            if "steps" in data and isinstance(data["steps"], list):
+                steps = []
+                for i, step_data in enumerate(data["steps"]):
+                    if isinstance(step_data, dict):
+                        if "step_number" not in step_data:
+                            step_data["step_number"] = i + 1
+                        steps.append(SimpleNamespace(**step_data))
+                data["steps"] = steps
+
             return Plan(**data)
         except Exception:
             return None

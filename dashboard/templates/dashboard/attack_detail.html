@@ -72,9 +72,9 @@
 
 {% block extra_js %}
 <script>
-    {% if attack_state.autonomy_status == 'PLANNING' %}
-    setTimeout(function() { window.location.reload(); }, 5000);
-    {% endif %}
+    const autonomyStatus = "{{ attack_state.autonomy_status|escapejs }}";
+    if (autonomyStatus === 'PLANNING') {
+        setTimeout(function() { window.location.reload(); }, 5000);
+    }
 </script>
-{% endblock %}
 {% endblock %}

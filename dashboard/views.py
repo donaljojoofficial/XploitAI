@@ -292,7 +292,7 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     controller = AutonomousController(attack_state_id=state.id)
     controller.start()
 
-    return redirect('attack_detail', pk=pk)
+    return redirect('dashboard_attack_detail', pk=pk)
 
 @require_POST
 def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
@@ -307,4 +307,4 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
 
     controller = AutonomousController(attack_state_id=state.id)
     controller.start()
-    return redirect('attack_detail', pk=pk)
+    return redirect('dashboard_attack_detail', pk=pk)

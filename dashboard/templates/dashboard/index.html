@@ -166,11 +166,12 @@
 {% block extra_js %}
     <script>
         // Auto-refresh if planning
-        {% if attack_state.autonomy_status == 'PLANNING' %}
-        setTimeout(function() {
-            window.location.reload();
-        }, 5000); // 5 seconds
-        {% endif %}
+        const autonomyStatus = "{{ attack_state.autonomy_status|escapejs }}";
+        if (autonomyStatus === 'PLANNING') {
+            setTimeout(function() {
+                window.location.reload();
+            }, 5000); // 5 seconds
+        }
 
         let activityOffset = 50;
         function loadMoreActivity() {
