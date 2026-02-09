@@ -1,70 +1,17 @@
-{% extends "dashboard/index.html" %}
+{% extends 'dashboard/base.html' %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2 class="h3 mb-1">Attack Plan: {{ attack_state.name }}</h2>
-            <p class="text-muted mb-0">Full sequence of AI-generated actions and their execution status.</p>
-        </div>
-        <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="btn btn-outline-secondary">Back to Operation</a>
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800">Attack Plan: {{ attack_state.name }}</h1>
+        <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="d-none d-sm-inline-block btn btn-sm btn-secondary shadow-sm">
+            <i class="fas fa-arrow-left fa-sm text-white-50"></i> Back to Detail
+        </a>
     </div>
 
-    <div class="card shadow-sm">
-        <div class="card-header bg-white py-3">
-            <h5 class="card-title mb-0">Execution Roadmap</h5>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 50px;" class="text-center">#</th>
-                            <th>Action Step</th>
-                            <th>Reasoning & Parameters</th>
-                            <th style="width: 150px;">Status</th>
-                            <th style="width: 180px;">Timestamp</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for action in actions %}
-                        <tr class="{% if action.status == 'RUNNING' %}table-primary border-primary{% elif action.status == 'COMPLETED' %}table-success{% elif action.status == 'FAILED' %}table-danger{% endif %}">
-                            <td class="fw-bold text-center">{{ forloop.counter }}</td>
-                            <td>
-                                <div class="fw-bold">{{ action.name }}</div>
-                                <div class="small text-muted">{{ action.description|truncatechars:80 }}</div>
-                            </td>
-                            <td>
-                                {% if action.reasoning %}
-                                <div class="mb-1 small fst-italic text-dark">"{{ action.reasoning }}"</div>
-                                {% endif %}
-                                <div class="small font-monospace text-muted">
-                                    {% for k, v in action.parameters.items %}
-                                        <span class="me-2">{{ k }}={{ v }}</span>
-                                    {% endfor %}
-                                </div>
-                            </td>
-                            <td>
-                                {% if action.status == 'COMPLETED' %}
-                                    <span class="badge bg-success w-100">COMPLETED</span>
-                                {% elif action.status == 'RUNNING' %}
-                                    <span class="badge bg-primary w-100">IN PROGRESS</span>
-                                {% elif action.status == 'FAILED' %}
-                                    <span class="badge bg-danger w-100">FAILED</span>
-                                {% else %}
-                                    <span class="badge bg-secondary w-100">{{ action.status }}</span>
-                                {% endif %}
-                            </td>
-                            <td class="small text-muted">{{ action.created_at|date:"Y-m-d H:i:s" }}</td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="5" class="text-center py-5 text-muted">No actions generated for this plan yet.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+    <div class="row">
+        <div class="col-12">
+            {% include 'dashboard/partials/plan_steps.html' %}
         </div>
     </div>
 </div>

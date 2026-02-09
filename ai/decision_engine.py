@@ -29,6 +29,55 @@ class DecisionEngine:
             except Exception as e:
                 logger.error(f"Failed to initialize GeminiAdapter: {e}")
 
+    def _build_decision_input(self, state: AttackState) -> DecisionInput:
+        """Helper to build DecisionInput from AttackState."""
+        known_services = []
+        if state.state_data and 'enumeration' in state.state_data:
+            services = state.state_data['enumeration'].get('services', {})
+            for host, svc_list in services.items():
+                for svc in svc_list:
+                    known_services.append(KnownService(
+                        name=svc.get('service', 'unknown'),
+                        endpoint=f"{host}:{svc.get('port')}",
+                        protocol=svc.get('service')
+                    ))
+
+        past_actions = []
+        # Use the last 5 actions for context
+        recent_actions = state.actions.order_by('-created_at')[:5]
+        for a in recent_actions:
+            past_actions.append(PastActionSummary(
+                action_type=a.name,
+                parameters=a.parameters,
+                phase=state.current_phase,
+                timestamp=str(a.created_at)
+            ))
+
+        # Retrieve the result of the last finished action to provide feedback
+        last_result_summary = None
+        last_finished_action = state.actions.exclude(status='PENDING').order_by('-created_at').first()
+        
+        if last_finished_action:
+            result = ActionResult.objects.filter(action=last_finished_action).first()
+            if result:
+                # Truncate output to avoid context window overflow
+                output_text = str(result.output) if result.output else "No output."
+                if len(output_text) > 2000:
+                    output_text = output_text[:2000] + "... (truncated)"
+                
+                last_result_summary = ActionResultSummary(
+                    success=result.success,
+                    output_summary=output_text,
+                    error=result.log_message if not result.success else None
+                )
+
+        return DecisionInput(
+            phase=state.current_phase,
+            known_services=known_services,
+            past_actions=past_actions,
+            last_result=last_result_summary 
+        )
+
     def generate_actions(self, attack_state: AttackState) -> list[Action]:
         """
         Generates a list of actions based on the current attack state.
@@ -39,6 +88,19 @@ class DecisionEngine:
         # 1. AI Planning Logic
         if self.llm_adapter:
             try:
+                # Check if we need to generate or update the plan
+                # Condition: No plan exists OR last action failed (re-plan)
+                should_plan = not attack_state.current_plan
+                
+                if not should_plan:
+                    last_action = attack_state.actions.exclude(status='PENDING').order_by('-created_at').first()
+                    if last_action and last_action.status == 'FAILED':
+                        should_plan = True
+                        logger.info("Last action failed. Triggering re-planning.")
+
+                if should_plan:
+                    self.generate_plan(attack_state)
+
                 ai_action = self._get_ai_proposal(attack_state)
                 if ai_action:
                     logger.info(f"AI proposed action: {ai_action.name}")
@@ -100,58 +162,29 @@ class DecisionEngine:
         if not self.llm_adapter:
             logger.warning("LLM adapter not available for planning.")
             return None
-
-        # 1. Construct Prompt
-        context = attack_state.state_data.get('planner_context', {})
-        goal = context.get('goal', 'Security Assessment')
-        targets = context.get('targets', [])
-        allowed_actions = context.get('allowed_actions', [])
         
-        prompt = (
-            f"You are a strategic cyber security planner.\n"
-            f"Goal: {goal}\n"
-            f"Targets: {json.dumps(targets, indent=2)}\n"
-            f"Allowed Actions: {json.dumps(allowed_actions)}\n\n"
-            f"Task: Create a detailed, ordered execution plan to achieve the goal.\n"
-            f"Output Format: JSON only. Structure:\n"
-            f"{{\n"
-            f"  \"goal\": \"<goal_string>\",\n"
-            f"  \"plan\": [\n"
-            f"    {{\n"
-            f"      \"step\": <int>,\n"
-            f"      \"action\": \"<ActionName>\",\n"
-            f"      \"parameters\": {{ <args> }},\n"
-            f"      \"rationale\": \"<reasoning>\"\n"
-            f"    }}\n"
-            f"  ]\n"
-            f"}}\n"
-        )
-
-        # 2. Call LLM
         try:
-            response_text = self.llm_adapter.generate(prompt)
-            if not response_text:
-                return None
-                
-            # 3. Parse Response
-            match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
-            clean_json = match.group(1).strip() if match else response_text.strip()
-            data = json.loads(clean_json)
+            decision_input = self._build_decision_input(attack_state)
+            plan = self.llm_adapter.get_plan(decision_input)
             
-            # 4. Convert to Schema
-            steps = []
-            for s in data.get('plan', []):
-                steps.append(PlanStep(
-                    step=s.get('step', 0),
-                    action=s.get('action', 'Unknown'),
-                    parameters=s.get('parameters', {}),
-                    rationale=s.get('rationale', '')
-                ))
+            if plan:
+                # Save plan to AttackState
+                attack_state.current_plan = {
+                    "rationale": plan.rationale,
+                    "steps": [
+                        {
+                            "step": s.step_number,
+                            "action": s.action_type,
+                            "parameters": s.parameters,
+                            "rationale": s.rationale
+                        }
+                        for s in plan.steps
+                    ]
+                }
+                attack_state.save(update_fields=['current_plan'])
+                logger.info("Generated and saved new attack plan.")
                 
-            return Plan(
-                plan=steps,
-                goal=data.get('goal')
-            )
+            return plan
             
         except Exception as e:
             logger.error(f"Error generating plan: {e}")
@@ -161,53 +194,7 @@ class DecisionEngine:
         """
         Helper to get a proposal from the LLM adapter.
         """
-        # Build DecisionInput from AttackState
-        known_services = []
-        if state.state_data and 'enumeration' in state.state_data:
-            services = state.state_data['enumeration'].get('services', {})
-            for host, svc_list in services.items():
-                for svc in svc_list:
-                    known_services.append(KnownService(
-                        name=svc.get('service', 'unknown'),
-                        endpoint=f"{host}:{svc.get('port')}",
-                        protocol=svc.get('service')
-                    ))
-
-        past_actions = []
-        # Use the last 5 actions for context
-        recent_actions = state.actions.order_by('-created_at')[:5]
-        for a in recent_actions:
-            past_actions.append(PastActionSummary(
-                action_type=a.name,
-                parameters=a.parameters,
-                phase=state.current_phase,
-                timestamp=str(a.created_at)
-            ))
-
-        # Retrieve the result of the last finished action to provide feedback
-        last_result_summary = None
-        last_finished_action = state.actions.exclude(status='PENDING').order_by('-created_at').first()
-        
-        if last_finished_action:
-            result = ActionResult.objects.filter(action=last_finished_action).first()
-            if result:
-                # Truncate output to avoid context window overflow
-                output_text = str(result.output) if result.output else "No output."
-                if len(output_text) > 2000:
-                    output_text = output_text[:2000] + "... (truncated)"
-                
-                last_result_summary = ActionResultSummary(
-                    success=result.success,
-                    output_summary=output_text,
-                    error=result.log_message if not result.success else None
-                )
-
-        decision_input = DecisionInput(
-            phase=state.current_phase,
-            known_services=known_services,
-            past_actions=past_actions,
-            last_result=last_result_summary 
-        )
+        decision_input = self._build_decision_input(state)
 
         context = state.state_data.get('planner_context', {})
 

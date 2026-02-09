@@ -85,7 +85,7 @@ class AutonomousController:
         
         # Sync state to DB
         AttackState.objects.filter(id=self.attack_state_id).update(
-            autonomy_status="RUNNING", stop_reason=""
+            autonomy_status="RUNNING", stop_reason="", current_plan={}
         )
         logger.info("AutonomousController started for AttackState ID %s", self.attack_state_id)
 
@@ -422,7 +422,7 @@ class AutonomousController:
                 "os": getattr(target, "operating_system", "Linux")
             }],
             "allowed_actions": ["PassiveRecon", "ServiceEnumeration", "ExploitAttempt", "PrivilegeEscalation", "ProofOfCompromise", "HTTPHeaderFetch", "TechnologyFingerprint", "EndpointDiscovery"],
-            "instructions": ["Return at least ONE action if possible.", "Output must be valid JSON."]
+            "instructions": ["Return at least ONE action if possible.", "Output must be valid JSON.", "Include a high-level plan with reasoning."]
         }
         
         if not isinstance(state.state_data, dict):

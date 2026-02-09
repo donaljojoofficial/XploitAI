@@ -83,3 +83,16 @@ class BaseLLMAdapter(ABC):
             A string explanation or None if generation fails.
         """
         ...
+
+    @abstractmethod
+    def generate(self, prompt: str) -> Optional[str]:
+        """
+        Generate raw text response for a given prompt.
+
+        Args:
+            prompt: The input prompt string.
+
+        Returns:
+            A string response or None if generation fails.
+        """
+        ...

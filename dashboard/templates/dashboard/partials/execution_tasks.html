@@ -17,7 +17,7 @@
                     <span class="badge bg-secondary">{{ task.status }}</span>
                 {% endif %}
             </div>
-            <div class="bg-light p-2 rounded font-monospace small mb-2" style="white-space: pre-wrap;">$ {{ task.command }}</div>
+            <div class="bg-light p-2 rounded font-monospace small mb-2" style="white-space: pre-wrap;">$ {{ task.parameters.command|default:"(no command)" }}</div>
             
             {% if task.output %}
             <details>
@@ -26,6 +26,10 @@
                     {{ task.output|pprint }}
                 </div>
             </details>
+            {% elif task.error_message %}
+            <div class="mt-2 bg-light text-danger p-2 rounded small">
+                <strong>Error:</strong> {{ task.error_message }}
+            </div>
             {% endif %}
             
             <small class="text-muted mt-1 d-block">Created: {{ task.created_at|date:"H:i:s" }}</small>

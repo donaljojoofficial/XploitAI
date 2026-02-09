@@ -25,8 +25,9 @@ except ImportError:
 class GeminiAdapter(BaseLLMAdapter):
     """Adapter for Google's Gemini models via google-generativeai SDK."""
 
-    def __init__(self, model_name: str = "models/gemini-1.5-flash"):
+    def __init__(self, model_name: str = "gemini-1.5-flash"):
         self.model_name = model_name
+        self.fallback_models = ["gemini-1.5-pro", "gemini-1.0-pro"]
         self.api_key = os.getenv("GEMINI_API_KEY")
         self._client = None
 
@@ -41,18 +42,40 @@ class GeminiAdapter(BaseLLMAdapter):
         elif not self.api_key:
             logger.warning("GEMINI_API_KEY not set. GeminiAdapter disabled.")
 
-    def get_recommendation(self, decision_input: DecisionInput) -> Optional[Decision]:
-        if not self._client:
-            logger.warning("GeminiAdapter: client not initialized")
+    def _generate_content_with_retry(self, prompt: str):
+        """Helper to generate content with fallback models on 404/503 errors."""
+        if not HAS_SDK or not self.api_key:
             return None
 
+        models_to_try = [self.model_name] + self.fallback_models
+        
+        for model in models_to_try:
+            try:
+                # Create a client for the specific model
+                client = genai.GenerativeModel(model)
+                response = client.generate_content(prompt)
+                return response
+            except Exception as e:
+                error_msg = str(e)
+                if "404" in error_msg or "503" in error_msg or "not found" in error_msg.lower():
+                    logger.warning(f"Gemini model '{model}' failed: {e}. Retrying with next model.")
+                    continue
+                logger.error(f"Gemini call failed for model '{model}': {e}")
+                return None
+        
+        logger.error("All Gemini models failed.")
+        return None
+
+    def get_recommendation(self, decision_input: DecisionInput) -> Optional[Decision]:
         logger.info("GeminiAdapter: invoking Gemini Flash model for recommendation")
         try:
             # Construct prompt
             prompt = self._build_recommendation_prompt(decision_input)
 
             # Call API
-            response = self._client.generate_content(prompt)
+            response = self._generate_content_with_retry(prompt)
+            if not response:
+                return None
             logger.info("GeminiAdapter: received response from Gemini")
 
             # Parse response
@@ -62,14 +85,12 @@ class GeminiAdapter(BaseLLMAdapter):
             return None
 
     def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
-        if not self._client:
-            logger.warning("GeminiAdapter: client not initialized")
-            return None
-
         logger.info("GeminiAdapter: invoking Gemini Flash model for plan")
         try:
             prompt = self._build_plan_prompt(decision_input)
-            response = self._client.generate_content(prompt)
+            response = self._generate_content_with_retry(prompt)
+            if not response:
+                return None
             logger.info("GeminiAdapter: received plan response from Gemini")
             return self._parse_plan(response.text)
         except Exception as e:
@@ -79,9 +100,6 @@ class GeminiAdapter(BaseLLMAdapter):
     def explain_decision(
         self, decision: Decision, decision_input: DecisionInput
     ) -> Optional[str]:
-        if not self._client:
-            return None
-
         logger.info("GeminiAdapter: invoking Gemini Flash model for explanation")
         try:
             prompt = (
@@ -89,11 +107,24 @@ class GeminiAdapter(BaseLLMAdapter):
                 f"Decision: {decision}\n"
                 "Explain why this decision is appropriate in 2-3 sentences."
             )
-            response = self._client.generate_content(prompt)
+            response = self._generate_content_with_retry(prompt)
+            if not response:
+                return None
             logger.info("GeminiAdapter: received explanation from Gemini")
             return response.text
         except Exception as e:
             logger.error(f"GeminiAdapter: Gemini explanation failed. Error: {e}")
+            return None
+
+    def generate(self, prompt: str) -> Optional[str]:
+        logger.info("GeminiAdapter: invoking Gemini for raw generation")
+        try:
+            response = self._generate_content_with_retry(prompt)
+            if not response:
+                return None
+            return response.text
+        except Exception as e:
+            logger.error(f"GeminiAdapter: generation failed. Error: {e}")
             return None
 
     def _build_recommendation_prompt(self, decision_input: DecisionInput) -> str:
