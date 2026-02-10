@@ -330,12 +330,10 @@ class DecisionEngine:
         if state.current_plan:
             context['active_plan'] = state.current_plan
 
-        request = DecisionRequest(
-            decision_input=decision_input,
-            context=context
-        )
-
-        decision = self.llm_adapter.get_recommendation(request)
+        # The adapter interface expects a DecisionInput object. The extra `context`
+        # (like active_plan) is not part of the formal schema passed to adapters,
+        # which is a current limitation. We adhere to the interface.
+        decision = self.llm_adapter.get_recommendation(decision_input)
         
         if decision:
             return Action(
