@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shlex
 from dataclasses import dataclass
@@ -61,6 +62,13 @@ class CommandGenerator:
         self.llm_client = None
 
         if self.use_llm:
+            # Ensure API keys are set for Gemini
+            google_key = os.getenv("GOOGLE_API_KEY")
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if not google_key and gemini_key:
+                os.environ["GOOGLE_API_KEY"] = gemini_key
+                google_key = gemini_key
+
             try:
                 if llm_provider == "gemini" and GEMINI_AVAILABLE:
                     self.llm_client = GeminiAdapter()
@@ -68,7 +76,8 @@ class CommandGenerator:
                     self.llm_client = AnthropicAdapter()
                 else:
                     if GEMINI_AVAILABLE:
-                        self.llm_client = GeminiAdapter()
+                        if google_key:
+                            self.llm_client = GeminiAdapter()
                     elif ANTHROPIC_AVAILABLE:
                         self.llm_client = AnthropicAdapter()
 

@@ -1,9 +1,9 @@
 import json
 import logging
+import os
 import re
 from typing import Iterator, List, Optional
 from core.models import AttackState, Action, AttackTarget, ActionResult
-from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary
 from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary, Plan, PlanStep
 
 # Attempt to import Adapters
@@ -35,6 +35,24 @@ class DecisionEngine:
         
         def _init_gemini():
             if GEMINI_AVAILABLE:
+                # Check for API keys to avoid potential crashes in adapter initialization
+                google_key = os.getenv("GOOGLE_API_KEY")
+                gemini_key = os.getenv("GEMINI_API_KEY")
+
+                if not google_key and not gemini_key:
+                    logger.warning("Skipping GeminiAdapter: Missing GOOGLE_API_KEY or GEMINI_API_KEY.")
+                    return None
+
+                if not google_key and gemini_key:
+                    os.environ["GOOGLE_API_KEY"] = gemini_key
+
+                # Explicitly configure genai to ensure it picks up the key
+                try:
+                    import google.generativeai as genai
+                    genai.configure(api_key=google_key or gemini_key)
+                except ImportError:
+                    pass
+
                 try:
                     gemini = GeminiAdapter()
                     if gemini._client:
