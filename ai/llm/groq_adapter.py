@@ -11,6 +11,7 @@ import time
 from types import SimpleNamespace
 from typing import Iterator, Optional
 
+from core.config import get_config
 from ai.llm.base import BaseLLMAdapter
 from ai.schemas import Decision, DecisionInput, Plan, PlanStep
 
@@ -29,10 +30,11 @@ class GroqAdapter(BaseLLMAdapter):
     This adapter includes caching and retry logic to handle rate limits.
     """
 
-    def __init__(self, model: str = None):
-        self.api_key = os.getenv("GROQ_API_KEY")
+    def __init__(self, model: str = None, api_key: str = None):
+        self.api_key = api_key or get_config("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+        config_model = get_config("GROQ_MODEL")
         default_model = "llama3-70b-8192"
-        self.model = model or default_model
+        self.model = model or config_model or default_model
         
         known_models = [
             "llama3-70b-8192",

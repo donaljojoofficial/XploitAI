@@ -332,29 +332,37 @@ def configuration(request: HttpRequest) -> HttpResponse:
     if request.method == 'POST':
         gemini_key = request.POST.get('gemini_key', '').strip()
         claude_key = request.POST.get('claude_key', '').strip()
+        groq_key = request.POST.get('groq_key', '').strip()
         default_provider = request.POST.get('default_provider', '').strip()
         claude_model = request.POST.get('claude_model', '').strip()
         gemini_model = request.POST.get('gemini_model', '').strip()
+        groq_model = request.POST.get('groq_model', '').strip()
         
         if gemini_key:
             set_config('GOOGLE_API_KEY', gemini_key)
         if claude_key:
             set_config('ANTHROPIC_API_KEY', claude_key)
+        if groq_key:
+            set_config('GROQ_API_KEY', groq_key)
         if default_provider:
             set_config('DEFAULT_LLM_PROVIDER', default_provider)
         if claude_model:
             set_config('ANTHROPIC_MODEL', claude_model)
         if gemini_model:
             set_config('GEMINI_MODEL', gemini_model)
+        if groq_model:
+            set_config('GROQ_MODEL', groq_model)
             
         return redirect('configuration')
         
     context = _get_global_context()
     context['has_gemini_key'] = bool(get_config('GOOGLE_API_KEY', ''))
     context['has_claude_key'] = bool(get_config('ANTHROPIC_API_KEY', ''))
+    context['has_groq_key'] = bool(get_config('GROQ_API_KEY', ''))
     context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'gemini')
     context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
+    context['groq_model'] = get_config('GROQ_MODEL', 'llama3-70b-8192')
     
     return render(request, 'dashboard/configuration.html', context)
 
@@ -389,6 +397,15 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
                 adapter = AnthropicAdapter(model_name=model, api_key=api_key)
             except Exception as e:
                 return JsonResponse({'success': False, 'message': f'Claude init failed: {str(e)}'})
+
+        elif provider == 'groq':
+            try:
+                from ai.llm.groq_adapter import GroqAdapter
+                adapter = GroqAdapter(model=model, api_key=api_key)
+            except ImportError:
+                return JsonResponse({'success': False, 'message': 'Groq SDK not installed.'})
+            except Exception as e:
+                return JsonResponse({'success': False, 'message': f'Groq init failed: {str(e)}'})
 
         else:
             return JsonResponse({'success': False, 'message': f'Unknown provider: {provider}'})
