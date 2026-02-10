@@ -162,6 +162,7 @@
                                 <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
                                 <option value="gemini" {% if default_llm_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
                                 <option value="claude" {% if default_llm_provider == 'claude' %}selected{% endif %}>Anthropic Claude</option>
+                                <option value="groq" {% if default_llm_provider == 'groq' %}selected{% endif %}>Groq</option>
                             </select>
                         </div>
                         <div class="p-3 bg-warning/10 border border-warning/20 rounded text-warning text-sm">

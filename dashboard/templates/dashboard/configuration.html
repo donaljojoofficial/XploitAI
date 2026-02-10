@@ -74,11 +74,35 @@
                         </div>
 
                         <div class="mb-3">
+                            <label for="groqKey" class="form-label">Groq API Key</label>
+                            <div class="flex">
+                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-lightning-charge"></i></span>
+                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="groqKey" name="groq_key" placeholder="{% if has_groq_key %}Current key set (leave blank to keep){% else %}Enter Groq API Key{% endif %}" autocomplete="off">
+                            </div>
+                            <div class="form-text">Required for Groq Adapter.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="groqModel" class="form-label">Groq Model Version</label>
+                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="groqModel" name="groq_model">
+                                {% for model in groq_known_models %}
+                                    <option value="{{ model }}" {% if groq_model == model %}selected{% endif %}>{{ model }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">Select the specific model version to use.</div>
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('groq')">Test Groq Connection</button>
+                                <span id="groq-status" class="ms-2 small"></span>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
                             <label for="defaultProvider" class="form-label">Default AI Brain</label>
                             <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="defaultProvider" name="default_provider">
                                 <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
                                 <option value="gemini" {% if default_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
                                 <option value="claude" {% if default_provider == 'claude' %}selected{% endif %}>Anthropic Claude</option>
+                                <option value="groq" {% if default_provider == 'groq' %}selected{% endif %}>Groq</option>
                             </select>
                             <div class="form-text">Preferred provider for new attacks.</div>
                         </div>
@@ -106,6 +130,9 @@ function checkStatus(provider) {
     } else if (provider === 'claude') {
         apiKey = document.getElementById('claudeKey').value;
         model = document.getElementById('claudeModel').value;
+    } else if (provider === 'groq') {
+        apiKey = document.getElementById('groqKey').value;
+        model = document.getElementById('groqModel').value;
     }
 
     fetch("{% url 'check_llm_status' %}", {

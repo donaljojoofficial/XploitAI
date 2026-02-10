@@ -30,19 +30,22 @@ class GroqAdapter(BaseLLMAdapter):
     This adapter includes caching and retry logic to handle rate limits.
     """
 
+    KNOWN_MODELS = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+        "gemma-7b-it",
+        "qwen-2.5-32b",
+    ]
+
     def __init__(self, model: str = None, api_key: str = None):
         self.api_key = api_key or get_config("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
         config_model = get_config("GROQ_MODEL")
-        default_model = "llama3-70b-8192"
+        default_model = "llama-3.3-70b-versatile"
         self.model = model or config_model or default_model
         
-        known_models = [
-            "llama3-70b-8192",
-            "llama3-8b-8192",
-            "mixtral-8x7b-32768",
-            "gemma-7b-it",
-        ]
-        self.fallback_models = [m for m in known_models if m != self.model]
+        self.fallback_models = [m for m in self.KNOWN_MODELS if m != self.model]
 
         self._client = None
         self._response_cache = {}

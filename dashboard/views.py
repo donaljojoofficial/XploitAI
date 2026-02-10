@@ -28,6 +28,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
 from ai.autonomy import AutonomousController
 from core.config import get_config, set_config
+from ai.llm.groq_adapter import GroqAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -363,6 +364,7 @@ def configuration(request: HttpRequest) -> HttpResponse:
     context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
     context['groq_model'] = get_config('GROQ_MODEL', 'llama3-70b-8192')
+    context['groq_known_models'] = GroqAdapter.KNOWN_MODELS
     
     return render(request, 'dashboard/configuration.html', context)
 
