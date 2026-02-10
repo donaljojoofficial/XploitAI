@@ -32,7 +32,13 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
-LLM_AVAILABLE = GEMINI_AVAILABLE or ANTHROPIC_AVAILABLE
+try:
+    from ai.llm.groq_adapter import GroqAdapter
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
+
+LLM_AVAILABLE = GEMINI_AVAILABLE or ANTHROPIC_AVAILABLE or GROQ_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +80,16 @@ class CommandGenerator:
                     self.llm_client = GeminiAdapter()
                 elif llm_provider == "claude" and ANTHROPIC_AVAILABLE:
                     self.llm_client = AnthropicAdapter()
+                elif llm_provider == "groq" and GROQ_AVAILABLE:
+                    self.llm_client = GroqAdapter()
                 else:
                     if GEMINI_AVAILABLE:
                         if google_key:
                             self.llm_client = GeminiAdapter()
                     elif ANTHROPIC_AVAILABLE:
                         self.llm_client = AnthropicAdapter()
+                    elif GROQ_AVAILABLE:
+                        self.llm_client = GroqAdapter()
 
                 if self.llm_client:
                     logger.info(f"CommandGenerator initialized with LLM support ({self.llm_client.__class__.__name__}).")

@@ -19,6 +19,12 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
+try:
+    from ai.llm.groq_adapter import GroqAdapter
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
+
 from ai.llm.fallback import FallbackAdapter
 
 logger = logging.getLogger(__name__)
@@ -71,6 +77,16 @@ class DecisionEngine:
                     logger.error(f"Failed to initialize AnthropicAdapter: {e}")
             return None
 
+        def _init_groq():
+            if GROQ_AVAILABLE:
+                try:
+                    groq = GroqAdapter()
+                    if groq._client:
+                        return groq
+                except Exception as e:
+                    logger.error(f"Failed to initialize GroqAdapter: {e}")
+            return None
+
         if provider == "gemini":
             adapter = _init_gemini()
             if adapter:
@@ -79,12 +95,18 @@ class DecisionEngine:
             adapter = _init_anthropic()
             if adapter:
                 adapters.append(adapter)
+        elif provider == "groq":
+            adapter = _init_groq()
+            if adapter:
+                adapters.append(adapter)
         else:
             # Auto / Fallback mode
             g = _init_gemini()
             if g: adapters.append(g)
             a = _init_anthropic()
             if a: adapters.append(a)
+            gr = _init_groq()
+            if gr: adapters.append(gr)
 
         if adapters:
             if len(adapters) > 1:
