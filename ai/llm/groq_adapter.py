@@ -39,6 +39,8 @@ class GroqAdapter(BaseLLMAdapter):
         "qwen-2.5-32b",
     ]
 
+    _last_request_time = 0
+
     def __init__(self, model: str = None, api_key: str = None):
         self.api_key = api_key or get_config("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
         config_model = get_config("GROQ_MODEL")
@@ -97,6 +99,14 @@ class GroqAdapter(BaseLLMAdapter):
         # This call doesn't need to be JSON, so we call a raw generator
         return self._generate_raw_text(prompt)
 
+    def _enforce_rate_limit(self):
+        """Enforce a minimum interval between requests."""
+        current_time = time.time()
+        elapsed = current_time - GroqAdapter._last_request_time
+        if elapsed < 2.0:
+            time.sleep(2.0 - elapsed)
+        GroqAdapter._last_request_time = time.time()
+
     def generate(self, prompt: str) -> Optional[str]:
         """
         Generates a JSON response with caching, retry, and fallback logic.
@@ -113,6 +123,7 @@ class GroqAdapter(BaseLLMAdapter):
         
         for i, model_name in enumerate(models_to_try):
             try:
+                self._enforce_rate_limit()
                 chat_completion = self._client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": self.system_instruction},
@@ -129,7 +140,7 @@ class GroqAdapter(BaseLLMAdapter):
                 error_str = str(e).lower()
                 # Handle retryable errors (rate limits, server errors)
                 if any(code in error_str for code in ["429", "500", "503"]) or "rate limit" in error_str:
-                    wait_time = 2 ** (i + 1)
+                    wait_time = 4 * (2 ** i)
                     logger.warning(
                         f"Groq model '{model_name}' failed with retryable error. "
                         f"Sleeping {wait_time}s before trying next model. Error: {e}"
@@ -148,6 +159,7 @@ class GroqAdapter(BaseLLMAdapter):
         if not self._client:
             return None
         try:
+            self._enforce_rate_limit()
             # Use a different model or settings for chatty responses if needed
             chat_completion = self._client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -164,8 +176,9 @@ class GroqAdapter(BaseLLMAdapter):
             return
 
         models_to_try = [self.model] + self.fallback_models
-        for model in models_to_try:
+        for i, model in enumerate(models_to_try):
             try:
+                self._enforce_rate_limit()
                 stream = self._client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
                     model=model,

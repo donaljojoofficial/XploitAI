@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import urllib.request
+import time
 import urllib.error
 from types import SimpleNamespace
 from typing import Iterator, Optional
@@ -26,6 +27,8 @@ except ImportError:
 
 class AnthropicAdapter(BaseLLMAdapter):
     """Adapter for Anthropic's Claude models."""
+
+    _last_request_time = 0
 
     def __init__(self, model_name: str = None, api_key: str = None):
         config_model = get_config("ANTHROPIC_MODEL")
@@ -66,9 +69,17 @@ class AnthropicAdapter(BaseLLMAdapter):
         else:
             logger.warning("ANTHROPIC_API_KEY not set. AnthropicAdapter disabled.")
 
+    def _enforce_rate_limit(self):
+        """Enforce a minimum interval between requests."""
+        current_time = time.time()
+        elapsed = current_time - AnthropicAdapter._last_request_time
+        if elapsed < 2.0:
+            time.sleep(2.0 - elapsed)
+        AnthropicAdapter._last_request_time = time.time()
+
     def _generate_content(self, prompt: str) -> Optional[str]:
         models = [self.model_name] + self.fallback_models
-        for model in models:
+        for i, model in enumerate(models):
             if not self._client and not self._use_raw_http:
                 return None
                 
@@ -79,6 +90,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                 continue
             
             try:
+                self._enforce_rate_limit()
                 message = self._client.messages.create(
                     model=model,
                     max_tokens=4096,
@@ -90,7 +102,13 @@ class AnthropicAdapter(BaseLLMAdapter):
                 if message.content and len(message.content) > 0:
                     return message.content[0].text
             except Exception as e:
-                logger.warning(f"Anthropic generation failed for {model}: {e}")
+                error_msg = str(e).lower()
+                if "rate limit" in error_msg or "429" in error_msg:
+                    wait_time = 4 * (2 ** i)
+                    logger.warning(f"Anthropic rate limit for {model}. Sleeping {wait_time}s.")
+                    time.sleep(wait_time)
+                else:
+                    logger.warning(f"Anthropic generation failed for {model}: {e}")
                 continue
         
         return None
@@ -111,6 +129,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         }
         
         try:
+            self._enforce_rate_limit()
             req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers)
             with urllib.request.urlopen(req) as response:
                 if response.status == 200:
@@ -154,7 +173,7 @@ class AnthropicAdapter(BaseLLMAdapter):
 
     def generate_stream(self, prompt: str) -> Iterator[str]:
         models = [self.model_name] + self.fallback_models
-        for model in models:
+        for i, model in enumerate(models):
             if not self._client and not self._use_raw_http:
                 return
                 
@@ -167,6 +186,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                 continue
             
             try:
+                self._enforce_rate_limit()
                 with self._client.messages.stream(
                     max_tokens=4096,
                     system=self.system_instruction,

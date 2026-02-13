@@ -30,16 +30,18 @@ except ImportError:
 class GeminiAdapter(BaseLLMAdapter):
     """Adapter for Google's Gemini models via google-genai SDK."""
 
+    _last_request_time = 0
+
     def __init__(self, model_name: str = None, api_key: str = None):
         config_model = get_config("GEMINI_MODEL")
-        default_model = "gemini-2.5-flash"
+        default_model = "gemini-2.0-flash"
         self.model_name = model_name or config_model or default_model
         
         known_models = [
-            "gemini-2.5-flash",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash-lite",
             "gemini-2.0-flash",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-pro",
             "gemini-2.0-flash-lite",
             "gemini-2.0-pro-exp",
             "gemini-1.5-flash",
@@ -70,6 +72,14 @@ class GeminiAdapter(BaseLLMAdapter):
         elif not self.api_key:
             logger.warning("GEMINI_API_KEY not set. GeminiAdapter disabled.")
 
+    def _enforce_rate_limit(self):
+        """Enforce a minimum interval between requests."""
+        current_time = time.time()
+        elapsed = current_time - GeminiAdapter._last_request_time
+        if elapsed < 2.0:  # 2 seconds minimum interval
+            time.sleep(2.0 - elapsed)
+        GeminiAdapter._last_request_time = time.time()
+
     def _generate_content_with_retry(self, prompt: str):
         """Helper to generate content with fallback models on 404/503 errors."""
         if not HAS_SDK or not self.api_key:
@@ -85,6 +95,7 @@ class GeminiAdapter(BaseLLMAdapter):
         
         for i, model in enumerate(models_to_try):
             try:
+                self._enforce_rate_limit()
                 logger.debug(f"GeminiAdapter: Attempting generation with model '{model}'")
                 
                 response = self._client.models.generate_content(
@@ -99,10 +110,10 @@ class GeminiAdapter(BaseLLMAdapter):
                 self._response_cache[cache_key] = response
                 return response
             except Exception as e:
-                error_msg = str(e)
-                if any(c in error_msg for c in ["404", "503", "429", "500"]) or "not found" in error_msg.lower() or "resourceexhausted" in error_msg.lower():
+                error_msg = str(e).lower()
+                if any(c in error_msg for c in ["404", "503", "429", "500", "rate limit", "quota", "resource exhausted"]) or "not found" in error_msg:
                     # Exponential backoff: 2s, 4s, 8s... to handle rate limits
-                    wait_time = 2 ** (i + 1)
+                    wait_time = 4 * (2 ** i)  # Stricter backoff: 4s, 8s, 16s...
                     logger.warning(f"Gemini model '{model}' failed with retryable error. Sleeping {wait_time}s before retry. Error: {e}")
                     time.sleep(wait_time)
                     continue
@@ -183,6 +194,7 @@ class GeminiAdapter(BaseLLMAdapter):
         for model in models_to_try:
             yielded_any = False
             try:
+                self._enforce_rate_limit()
                 logger.debug(f"GeminiAdapter: Attempting streaming with model '{model}'")
                 
                 response = self._client.models.generate_content_stream(
@@ -207,8 +219,8 @@ class GeminiAdapter(BaseLLMAdapter):
                 if yielded_any:
                     logger.error(f"Gemini stream failed mid-stream for model '{model}': {e}. Cannot retry.")
                     return
-                error_msg = str(e)
-                if any(c in error_msg for c in ["404", "503", "429", "500"]) or "not found" in error_msg.lower() or "resourceexhausted" in error_msg.lower():
+                error_msg = str(e).lower()
+                if any(c in error_msg for c in ["404", "503", "429", "500", "rate limit", "quota", "resource exhausted"]) or "not found" in error_msg:
                     logger.warning(f"Gemini model '{model}' stream init failed: {e}. Retrying with next model.")
                     continue
                 logger.error(f"Gemini stream failed for model '{model}': {e}")
