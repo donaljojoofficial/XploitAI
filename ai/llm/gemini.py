@@ -8,6 +8,7 @@ import logging
 import os
 import hashlib
 import time
+import re
 from types import SimpleNamespace
 from typing import Iterator, Optional
 
@@ -114,7 +115,14 @@ class GeminiAdapter(BaseLLMAdapter):
                 if any(c in error_msg for c in ["404", "503", "429", "500", "rate limit", "quota", "resource exhausted"]) or "not found" in error_msg:
                     # Exponential backoff: 2s, 4s, 8s... to handle rate limits
                     wait_time = 4 * (2 ** i)  # Stricter backoff: 4s, 8s, 16s...
-                    logger.warning(f"Gemini model '{model}' failed with retryable error. Sleeping {wait_time}s before retry. Error: {e}")
+                    
+                    # Check for explicit retry delay in error message
+                    delay_match = re.search(r'retry in (\d+(\.\d+)?)s', error_msg)
+                    if delay_match:
+                        explicit_delay = float(delay_match.group(1))
+                        wait_time = max(wait_time, explicit_delay + 1.0)
+
+                    logger.warning(f"Gemini model '{model}' failed with retryable error. Sleeping {wait_time:.2f}s before retry. Error: {e}")
                     time.sleep(wait_time)
                     continue
                 logger.error(f"Gemini call failed for model '{model}': {e}")
