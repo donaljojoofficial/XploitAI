@@ -328,6 +328,8 @@ BUG FIXES:
 - BUG-EXEC-2: Register executor API URLs - DONE
 - BUG-EXEC-3: Include executor API routes at project level - DONE
 - BUG-EXEC-4: Verify executor endpoints return JSON - DONE
+- BUG-AI-1: AI ignores active plan during execution - activation failure - PENDING
+- BUG-AI-4: _parse_plan returns SimpleNamespace instead of PlanStep - PENDING
 
 
 

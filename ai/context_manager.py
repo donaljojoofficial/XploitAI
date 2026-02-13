@@ -50,12 +50,20 @@ class OperationalContextManager:
             return False, f"Executor '{executor.name}' is disconnected."
 
         # 3. Heartbeat Freshness Check
-        if not executor.last_heartbeat:
-            return False, f"Executor '{executor.name}' has no heartbeat."
+        # FIX BUG-AI-2: Skip heartbeat check for local/simulation executors
+        is_sim = (
+            executor.ip_address == "127.0.0.1" or 
+            "sim" in executor.name.lower() or 
+            "local" in executor.name.lower()
+        )
         
-        delta = timezone.now() - executor.last_heartbeat
-        if delta.total_seconds() > HEARTBEAT_THRESHOLD:
-            return False, f"Executor '{executor.name}' heartbeat stale ({int(delta.total_seconds())}s)."
+        if not is_sim:
+            if not executor.last_heartbeat:
+                return False, f"Executor '{executor.name}' has no heartbeat."
+            
+            delta = timezone.now() - executor.last_heartbeat
+            if delta.total_seconds() > HEARTBEAT_THRESHOLD:
+                return False, f"Executor '{executor.name}' heartbeat stale ({int(delta.total_seconds())}s)."
 
         return True, "Context is ready."
 

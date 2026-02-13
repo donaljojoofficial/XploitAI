@@ -317,16 +317,32 @@ class DecisionEngine:
         """
         decision_input = self._build_decision_input(state)
 
-        context = state.state_data.get('planner_context', {}).copy()
-        
-        # Inject the current plan into the context so the AI follows it
-        if state.current_plan:
-            context['active_plan'] = state.current_plan
+        # FIX BUG-AI-1: Identify next plan step to guide the AI
+        next_step_hint = None
+        if state.current_plan and 'steps' in state.current_plan:
+            # Get completed actions to match against plan
+            completed_actions = list(state.actions.filter(status='COMPLETED').values('name', 'parameters'))
+            
+            for step in state.current_plan['steps']:
+                step_action = step.get('action')
+                step_params = step.get('parameters', {}) or {}
+                
+                # Check if step is completed
+                matched = False
+                for i, ca in enumerate(completed_actions):
+                    if ca['name'] == step_action:
+                        ca_params = ca['parameters'] or {}
+                        if all(ca_params.get(k) == v for k, v in step_params.items()):
+                            matched = True
+                            completed_actions.pop(i) # Consume action so it doesn't match twice
+                            break
+                
+                if not matched:
+                    next_step_hint = step
+                    break
 
-        # The adapter interface expects a DecisionInput object. The extra `context`
-        # (like active_plan) is not part of the formal schema passed to adapters,
-        # which is a current limitation. We adhere to the interface.
-        decision = self.llm_adapter.get_recommendation(decision_input)
+        # Pass next_step_hint to the adapter (Adapters must be updated to accept this argument)
+        decision = self.llm_adapter.get_recommendation(decision_input, next_step_hint=next_step_hint)
         
         if decision:
             return Action(
