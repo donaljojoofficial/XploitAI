@@ -94,39 +94,42 @@ class GeminiAdapter(BaseLLMAdapter):
 
         models_to_try = [self.model_name] + self.fallback_models
         
-        for i, model in enumerate(models_to_try):
-            try:
-                self._enforce_rate_limit()
-                logger.debug(f"GeminiAdapter: Attempting generation with model '{model}'")
-                
-                response = self._client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=self.system_instruction
-                    )
-                )
-
-                # Cache successful response
-                self._response_cache[cache_key] = response
-                return response
-            except Exception as e:
-                error_msg = str(e).lower()
-                if any(c in error_msg for c in ["404", "503", "429", "500", "rate limit", "quota", "resource exhausted"]) or "not found" in error_msg:
-                    # Exponential backoff: 2s, 4s, 8s... to handle rate limits
-                    wait_time = 4 * (2 ** i)  # Stricter backoff: 4s, 8s, 16s...
+        for model in models_to_try:
+            # Retry same model up to 3 times if rate limited
+            for attempt in range(3):
+                try:
+                    self._enforce_rate_limit()
+                    logger.debug(f"GeminiAdapter: Attempting generation with model '{model}' (attempt {attempt+1})")
                     
-                    # Check for explicit retry delay in error message
-                    delay_match = re.search(r'retry in (\d+(\.\d+)?)s', error_msg)
-                    if delay_match:
-                        explicit_delay = float(delay_match.group(1))
-                        wait_time = max(wait_time, explicit_delay + 1.0)
+                    response = self._client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=self.system_instruction
+                        )
+                    )
 
-                    logger.warning(f"Gemini model '{model}' failed with retryable error. Sleeping {wait_time:.2f}s before retry. Error: {e}")
-                    time.sleep(wait_time)
-                    continue
-                logger.error(f"Gemini call failed for model '{model}': {e}")
-                return None
+                    # Cache successful response
+                    self._response_cache[cache_key] = response
+                    return response
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if any(c in error_msg for c in ["404", "503", "429", "500", "rate limit", "quota", "resource exhausted"]) or "not found" in error_msg:
+                        # Exponential backoff based on attempt
+                        wait_time = 2 * (2 ** attempt)
+                        
+                        # Check for explicit retry delay in error message
+                        delay_match = re.search(r'retry in (\d+(\.\d+)?)s', error_msg)
+                        if delay_match:
+                            explicit_delay = float(delay_match.group(1))
+                            wait_time = max(wait_time, explicit_delay + 1.0)
+
+                        logger.warning(f"Gemini model '{model}' failed with retryable error. Sleeping {wait_time:.2f}s before retry. Error: {e}")
+                        time.sleep(wait_time)
+                        continue # Retry same model
+                    
+                    logger.error(f"Gemini call failed for model '{model}': {e}")
+                    break # Try next model
         
         logger.error("All Gemini models failed.")
         return None

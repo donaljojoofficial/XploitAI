@@ -29,6 +29,7 @@ class FallbackAdapter(BaseLLMAdapter):
             if result:
                 return result
             logger.warning(f"Adapter {adapter.__class__.__name__} failed to return recommendation. Trying next...")
+        logger.error("FallbackAdapter: All adapters failed to return recommendation.")
         return None
 
     def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
@@ -37,6 +38,7 @@ class FallbackAdapter(BaseLLMAdapter):
             if result:
                 return result
             logger.warning(f"Adapter {adapter.__class__.__name__} failed to return plan. Trying next...")
+        logger.error("FallbackAdapter: All adapters failed to return plan.")
         return None
 
     def explain_decision(self, decision: Decision, decision_input: DecisionInput) -> Optional[str]:
