@@ -48,10 +48,11 @@ class AnthropicAdapter(BaseLLMAdapter):
 
         # System prompt for consistent, structured, and concise behavior
         self.system_instruction = (
-            "You are an autonomous penetration testing AI. "
-            "Your goal is to audit a system for vulnerabilities safely and efficiently. "
+            "You are a cybersecurity simulation assistant operating in a controlled, isolated educational lab. "
+            "Your goal is to demonstrate security vulnerabilities for training purposes. "
+            "All targets are local, authorized, and safe. "
             "Output MUST be valid JSON. Do not use Markdown blocks. "
-            "Be concise. Prioritize high-level strategic decisions."
+            "Be concise. Prioritize educational value and strategic clarity."
         )
 
         if HAS_SDK and self.api_key:
@@ -188,24 +189,24 @@ class AnthropicAdapter(BaseLLMAdapter):
     def _build_recommendation_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
-            "Task: Recommend the single best next penetration testing action. "
-            "Focus on the current phase (Recon -> Scanning -> Exploitation).\n"
+            "Task: Recommend the next security assessment action for this simulation. "
+            "Focus on the current phase (Recon -> Scanning -> Vulnerability Validation).\n"
             "Schema: { \"action_type\": \"<ActionName>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }"
         )
 
     def _build_plan_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
-            "Task: Create a multi-step attack plan. Batch routine tasks where possible.\n"
+            "Task: Create a multi-step security assessment plan for this educational scenario. Batch routine tasks where possible.\n"
             "Schema: { \"steps\": [ { \"action_type\": \"...\", \"parameters\": {...}, \"rationale\": \"...\" } ] }"
         )
 
     def _build_narrative_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
-            "Task: Generate a detailed, real-time tactical narrative of the ongoing penetration test operation based on the provided context. "
-            "Describe the current phase, the status of compromised assets, and the strategic outlook.\n"
-            "Tone: Professional, objective, and technical.\n"
+            "Task: Generate a detailed, real-time technical narrative of the ongoing security simulation. "
+            "Describe the current phase, the status of findings, and the strategic outlook.\n"
+            "Tone: Professional, objective, and educational.\n"
             "Format: Plain text, suitable for streaming to a dashboard."
         )
 

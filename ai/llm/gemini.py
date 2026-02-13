@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Conditional import to ensure import-safety if SDK is missing
 try:
-    import google.generativeai as genai
+    from google import genai  # type: ignore
+    from google.genai import types  # type: ignore
 
     HAS_SDK = True
 except ImportError:
@@ -27,15 +28,20 @@ except ImportError:
 
 
 class GeminiAdapter(BaseLLMAdapter):
-    """Adapter for Google's Gemini models via google-generativeai SDK."""
+    """Adapter for Google's Gemini models via google-genai SDK."""
 
     def __init__(self, model_name: str = None, api_key: str = None):
         config_model = get_config("GEMINI_MODEL")
-        default_model = "gemini-2.0-flash"
+        default_model = "gemini-2.5-flash"
         self.model_name = model_name or config_model or default_model
         
         known_models = [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash-lite",
             "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.0-pro-exp",
             "gemini-1.5-flash",
             "gemini-1.5-pro"
         ]
@@ -46,20 +52,21 @@ class GeminiAdapter(BaseLLMAdapter):
 
         # System prompt for consistent, structured, and concise behavior
         self.system_instruction = (
-            "You are an autonomous penetration testing AI. "
-            "Your goal is to audit a system for vulnerabilities safely and efficiently. "
+            "You are a cybersecurity simulation assistant operating in a controlled, isolated educational lab. "
+            "Your goal is to demonstrate security vulnerabilities for training purposes. "
+            "All targets are local, authorized, and safe. "
             "Output MUST be valid JSON. Do not use Markdown blocks. "
-            "Be concise. Prioritize high-level strategic decisions."
+            "Be concise. Prioritize educational value and strategic clarity."
         )
 
         if HAS_SDK and self.api_key:
             try:
-                genai.configure(api_key=self.api_key)
-                self._client = genai.GenerativeModel(model_name)
+                self._client = genai.Client(api_key=self.api_key)
+                logger.info("GeminiAdapter: Successfully initialized with google-genai SDK.")
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini client: {e}")
         elif not HAS_SDK:
-            logger.warning("google-generativeai SDK not found. GeminiAdapter disabled.")
+            logger.warning("google-genai SDK not found. GeminiAdapter disabled.")
         elif not self.api_key:
             logger.warning("GEMINI_API_KEY not set. GeminiAdapter disabled.")
 
@@ -79,10 +86,14 @@ class GeminiAdapter(BaseLLMAdapter):
         for i, model in enumerate(models_to_try):
             try:
                 logger.debug(f"GeminiAdapter: Attempting generation with model '{model}'")
-                # Create a client for the specific model
-                # Use system_instruction to reduce per-request token usage and enforce structure
-                client = genai.GenerativeModel(model, system_instruction=self.system_instruction)
-                response = client.generate_content(prompt)
+                
+                response = self._client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.system_instruction
+                    )
+                )
 
                 # Cache successful response
                 self._response_cache[cache_key] = response
@@ -173,8 +184,14 @@ class GeminiAdapter(BaseLLMAdapter):
             yielded_any = False
             try:
                 logger.debug(f"GeminiAdapter: Attempting streaming with model '{model}'")
-                client = genai.GenerativeModel(model, system_instruction=self.system_instruction)
-                response = client.generate_content(prompt, stream=True)
+                
+                response = self._client.models.generate_content_stream(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.system_instruction
+                    )
+                )
 
                 for chunk in response:
                     try:
@@ -205,24 +222,24 @@ class GeminiAdapter(BaseLLMAdapter):
     def _build_recommendation_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
-            "Task: Recommend the single best next penetration testing action. "
-            "Focus on the current phase (Recon -> Scanning -> Exploitation).\n"
+            "Task: Recommend the next security assessment action for this simulation. "
+            "Focus on the current phase (Recon -> Scanning -> Vulnerability Validation).\n"
             "Schema: { \"action_type\": \"<ActionName>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }"
         )
 
     def _build_plan_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
-            "Task: Create a multi-step attack plan. Batch routine tasks where possible.\n"
+            "Task: Create a multi-step security assessment plan for this educational scenario. Batch routine tasks where possible.\n"
             "Schema: { \"steps\": [ { \"action_type\": \"...\", \"parameters\": {...}, \"rationale\": \"...\" } ] }"
         )
 
     def _build_narrative_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
-            "Task: Generate a detailed, real-time tactical narrative of the ongoing penetration test operation based on the provided context. "
-            "Describe the current phase, the status of compromised assets, and the strategic outlook.\n"
-            "Tone: Professional, objective, and technical.\n"
+            "Task: Generate a detailed, real-time technical narrative of the ongoing security simulation. "
+            "Describe the current phase, the status of findings, and the strategic outlook.\n"
+            "Tone: Professional, objective, and educational.\n"
             "Format: Plain text, suitable for streaming to a dashboard."
         )
 

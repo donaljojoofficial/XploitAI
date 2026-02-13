@@ -52,13 +52,6 @@ class DecisionEngine:
                 if not google_key and gemini_key:
                     os.environ["GOOGLE_API_KEY"] = gemini_key
 
-                # Explicitly configure genai to ensure it picks up the key
-                try:
-                    import google.generativeai as genai
-                    genai.configure(api_key=google_key or gemini_key)
-                except ImportError:
-                    pass
-
                 try:
                     gemini = GeminiAdapter()
                     if gemini._client:

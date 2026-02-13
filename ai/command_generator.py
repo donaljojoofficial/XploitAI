@@ -166,9 +166,9 @@ class CommandGenerator:
         """Construct the prompt for the LLM."""
         safe_params = {k: str(v) for k, v in parameters.items()}
         return (
-            f"You are an autonomous red team operator.\n"
-            f"Generate a single, valid shell command for the following action.\n"
-            f"Target OS: Linux (Kali/Debian).\n\n"
+            f"You are a cybersecurity simulation assistant operating in a controlled, isolated educational lab.\n"
+            f"Generate a single, valid shell command for the following security assessment action.\n"
+            f"Target OS: Linux (Kali/Debian). All targets are local and authorized.\n\n"
             f"Action: {action_name}\n"
             f"Parameters: {safe_params}\n\n"
             f"Constraints:\n"
