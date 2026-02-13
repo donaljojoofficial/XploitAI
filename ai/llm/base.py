@@ -2,7 +2,7 @@
 Base interface for LLM adapters in XploitAI.
 
 Responsibility:
-- Defines the contract for external LLM providers (Gemini, OpenAI, Claude).
+ - Defines the contract for external LLM providers (Gemini, Claude, Groq).
 - Ensures all LLM interactions conform to internal data schemas.
 - Enforces the "Advisory Only" nature of LLMs in this system.
 
@@ -25,7 +25,7 @@ class BaseLLMAdapter(ABC):
     Abstract interface for Large Language Model (LLM) providers.
 
     This adapter layer isolates the core XploitAI system from specific LLM APIs
-    (Gemini, OpenAI, Claude). It enforces a strict schema-in/schema-out contract,
+    (Gemini, Claude, Groq). It enforces a strict schema-in/schema-out contract,
     ensuring that LLM outputs are validated and structured before being used.
 
     Role in Architecture:

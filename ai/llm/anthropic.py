@@ -14,7 +14,7 @@ from typing import Iterator, Optional
 
 from core.config import get_config
 from ai.llm.base import BaseLLMAdapter
-from ai.schemas import Decision, DecisionInput, Plan
+from ai.schemas import Decision, DecisionInput, Plan, PlanStep
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +250,8 @@ class AnthropicAdapter(BaseLLMAdapter):
                     if isinstance(step_data, dict):
                         if "step_number" not in step_data:
                             step_data["step_number"] = i + 1
-                        steps.append(SimpleNamespace(**step_data))
+                        # FIX BUG-AI-4: Use PlanStep dataclass instead of SimpleNamespace
+                        steps.append(PlanStep(**step_data))
                 data["steps"] = steps
             return Plan(**data)
         except Exception:

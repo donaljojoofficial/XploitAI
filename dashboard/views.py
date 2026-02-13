@@ -293,6 +293,10 @@ def start_attack(request: HttpRequest) -> HttpResponse:
 def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     """Approves the current plan for the given attack state."""
     state = get_object_or_404(AttackState, pk=pk)
+    
+    # FIX BUG-AI-3: Read provider before mutating state_data to avoid race/overwrite issues
+    llm_provider = (state.state_data or {}).get('llm_provider', 'auto')
+
     if not state.state_data:
         state.state_data = {}
     state.state_data['plan_approved'] = True
@@ -304,7 +308,6 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    llm_provider = (state.state_data or {}).get('llm_provider', 'auto')
     controller = AutonomousController(attack_state_id=state.id, llm_provider=llm_provider)
     controller.start()
 

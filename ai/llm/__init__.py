@@ -7,5 +7,7 @@ These adapters serve as optional advisors to the decision engine.
 from .base import BaseLLMAdapter
 from .gemini import GeminiAdapter
 from .groq_adapter import GroqAdapter
+from .anthropic import AnthropicAdapter
 
 __all__ = ["BaseLLMAdapter", "GeminiAdapter", "GroqAdapter"]
+__all__ = ["BaseLLMAdapter", "GeminiAdapter", "GroqAdapter", "AnthropicAdapter"]
