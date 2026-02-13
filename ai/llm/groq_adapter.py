@@ -70,11 +70,11 @@ class GroqAdapter(BaseLLMAdapter):
         else:
             logger.warning("GROQ_API_KEY not set. GroqAdapter disabled.")
 
-    def get_recommendation(self, decision_input: DecisionInput) -> Optional[Decision]:
+    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
         if not self._client:
             return None
         
-        prompt = self._build_recommendation_prompt(decision_input)
+        prompt = self._build_recommendation_prompt(decision_input, next_step_hint)
         response = self.generate(prompt)
         if response:
             return self._parse_decision(response)
@@ -199,14 +199,25 @@ class GroqAdapter(BaseLLMAdapter):
 
     # --- Helpers ---
 
-    def _build_recommendation_prompt(self, decision_input: DecisionInput) -> str:
-        return (
+    def _build_recommendation_prompt(self, decision_input: DecisionInput, next_step_hint: dict = None) -> str:
+        prompt = (
             f"Context: {decision_input}\n"
             "Task: Recommend the next security assessment action for this simulation. "
             "Focus on the current phase (Recon -> Scanning -> Vulnerability Validation).\n"
+        )
+        
+        if next_step_hint:
+            prompt += (
+                f"\nIMPORTANT: You are following a strict plan. "
+                f"The next required step is: {next_step_hint}. "
+                f"You MUST output this action with the specified parameters.\n"
+            )
+
+        prompt += (
             "Allowed Actions: PassiveRecon, HTTPHeaderFetch, EndpointDiscovery, TechnologyFingerprint, ServiceEnumeration, ExploitAttempt, PrivilegeEscalation, ProofOfCompromise.\n"
             "Schema: { \"action_type\": \"<AllowedAction>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }"
         )
+        return prompt
 
     def _build_plan_prompt(self, decision_input: DecisionInput) -> str:
         return (
