@@ -15,4 +15,5 @@ urlpatterns = [
     path("activity/load/", views_main.load_more_activity, name="dashboard_load_activity"),
     path("attack/<int:pk>/approve/", views.approve_plan, name="approve_plan"),
     path("attack/<int:pk>/resume/", views.resume_attack, name="resume_attack"),
+    path("attack/<int:pk>/stop/", views.stop_attack, name="stop_attack"),
 ]

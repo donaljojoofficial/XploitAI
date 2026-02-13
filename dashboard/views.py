@@ -329,6 +329,25 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
     controller.start()
     return redirect('dashboard_attack_detail', pk=pk)
 
+@require_POST
+def stop_attack(request: HttpRequest, pk: int) -> HttpResponse:
+    """Manually stops the autonomous attack."""
+    state = get_object_or_404(AttackState, pk=pk)
+    
+    state.autonomy_status = "STOPPED"
+    state.stop_reason = "Manual Stop via Dashboard"
+    state.save(update_fields=['autonomy_status', 'stop_reason'])
+
+    # Close active context
+    context = AttackContext.objects.filter(status__in=['READY', 'RUNNING']).first()
+    if context:
+        context.status = 'STOPPED'
+        context.stop_reason = "Manual Stop via Dashboard"
+        context.stopped_at = timezone.now()
+        context.save(update_fields=['status', 'stop_reason', 'stopped_at'])
+
+    return redirect('dashboard_attack_detail', pk=pk)
+
 def configuration(request: HttpRequest) -> HttpResponse:
     """
     View to manage system configuration and API keys.
