@@ -236,14 +236,16 @@ class GeminiAdapter(BaseLLMAdapter):
             f"Context: {decision_input}\n"
             "Task: Recommend the next security assessment action for this simulation. "
             "Focus on the current phase (Recon -> Scanning -> Vulnerability Validation).\n"
-            "Schema: { \"action_type\": \"<ActionName>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }"
+            "Allowed Actions: PassiveRecon, HTTPHeaderFetch, EndpointDiscovery, TechnologyFingerprint, ServiceEnumeration, ExploitAttempt, PrivilegeEscalation, ProofOfCompromise.\n"
+            "Schema: { \"action_type\": \"<AllowedAction>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }"
         )
 
     def _build_plan_prompt(self, decision_input: DecisionInput) -> str:
         return (
             f"Context: {decision_input}\n"
             "Task: Create a multi-step security assessment plan for this educational scenario. Batch routine tasks where possible.\n"
-            "Schema: { \"steps\": [ { \"action_type\": \"...\", \"parameters\": {...}, \"rationale\": \"...\" } ] }"
+            "Allowed Actions: PassiveRecon, HTTPHeaderFetch, EndpointDiscovery, TechnologyFingerprint, ServiceEnumeration, ExploitAttempt, PrivilegeEscalation, ProofOfCompromise.\n"
+            "Schema: { \"steps\": [ { \"action_type\": \"<AllowedAction>\", \"parameters\": {...}, \"rationale\": \"...\" } ] }"
         )
 
     def _build_narrative_prompt(self, decision_input: DecisionInput) -> str:
