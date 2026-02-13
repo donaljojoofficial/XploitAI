@@ -35,7 +35,7 @@ class BaseLLMAdapter(ABC):
     """
 
     @abstractmethod
-    def get_recommendation(self, decision_input: DecisionInput) -> Optional[Decision]:
+    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
         """
         Request a single atomic action recommendation from the LLM.
 
@@ -47,6 +47,7 @@ class BaseLLMAdapter(ABC):
 
         Args:
             decision_input: Structured observation of the current attack state.
+            next_step_hint: Optional dictionary containing the next required plan step to guide the AI.
 
         Returns:
             A valid Decision object or None.
