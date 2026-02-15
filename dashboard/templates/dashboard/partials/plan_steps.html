@@ -1,73 +1,77 @@
-{% if attack_state.current_plan %}
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-        <h6 class="m-0 font-weight-bold text-primary">
-            <i class="fas fa-chess-knight me-2"></i>AI Strategic Plan
-        </h6>
-        <span class="badge bg-primary">Active Plan</span>
+<div class="card border-0 shadow-sm h-100">
+    <div class="card-header bg-transparent border-0 pt-4 pb-2 px-4">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="card-title text-dark fw-bold mb-0">
+                <i class="bi bi-diagram-3-fill text-primary me-2"></i>Strategic Plan
+            </h5>
+            {% if attack_state.current_plan and attack_state.current_plan.steps %}
+            <span class="badge bg-primary-subtle text-primary rounded-pill px-3">
+                {{ attack_state.current_plan.steps|length }} Steps
+            </span>
+            {% endif %}
+        </div>
     </div>
-    <div class="card-body">
+    <div class="card-body px-0 pt-0">
         {% if attack_state.current_plan.rationale %}
-        <div class="alert alert-secondary mb-4 border-left-primary">
-            <h6 class="alert-heading fw-bold"><i class="fas fa-brain me-2"></i>Strategic Reasoning</h6>
-            <p class="mb-0">{{ attack_state.current_plan.rationale }}</p>
+        <div class="px-4 pb-4">
+            <div class="p-3 bg-light rounded-3 border-start border-4 border-info">
+                <h6 class="fw-bold text-uppercase text-muted small mb-2" style="letter-spacing: 0.5px;">
+                    <i class="bi bi-lightbulb me-2"></i>Strategy
+                </h6>
+                <p class="mb-0 text-secondary small">{{ attack_state.current_plan.rationale }}</p>
+            </div>
         </div>
         {% endif %}
 
-        {% if attack_state.current_plan.steps %}
-        <div class="table-responsive">
-            <table class="table table-bordered table-hover" width="100%" cellspacing="0">
-                <thead class="table-light">
-                    <tr>
-                        <th style="width: 5%">Step</th>
-                        <th style="width: 20%">Action</th>
-                        <th style="width: 45%">Rationale</th>
-                        <th style="width: 30%">Parameters</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for step in attack_state.current_plan.steps %}
-                    <tr>
-                        <td class="text-center align-middle">
-                            <span class="badge rounded-pill bg-secondary">{{ step.step }}</span>
-                        </td>
-                        <td class="align-middle fw-bold text-dark">{{ step.action }}</td>
-                        <td class="align-middle text-muted small">{{ step.rationale }}</td>
-                        <td class="align-middle">
-                            <code class="text-xs text-wrap">{{ step.parameters }}</code>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        {% if attack_state and attack_state.current_plan and attack_state.current_plan.steps %}
+        <div class="px-4">
+            {% for step in attack_state.current_plan.steps %}
+            <div class="d-flex">
+                <div class="d-flex flex-column align-items-center" style="min-width: 40px;">
+                    <div class="rounded-circle d-flex align-items-center justify-content-center border border-2 {% if step.status == 'completed' %}border-success bg-success text-white{% elif step.status == 'running' %}border-primary bg-white text-primary{% elif step.status == 'failed' %}border-danger bg-danger text-white{% else %}border-secondary-subtle bg-light text-secondary{% endif %}" 
+                         style="width: 32px; height: 32px; z-index: 1;">
+                        {% if step.status == 'completed' %}
+                            <i class="bi bi-check"></i>
+                        {% elif step.status == 'running' %}
+                            <span class="spinner-border spinner-border-sm" style="width: 0.8rem; height: 0.8rem;"></span>
+                        {% elif step.status == 'failed' %}
+                            <i class="bi bi-x"></i>
+                        {% else %}
+                            <span class="small fw-bold" style="font-size: 0.75rem;">{{ step.step_number|default:forloop.counter }}</span>
+                        {% endif %}
+                    </div>
+                    {% if not forloop.last %}
+                    <div class="flex-grow-1 border-start border-2 border-secondary-subtle my-1"></div>
+                    {% endif %}
+                </div>
+                <div class="flex-grow-1 ms-3 pb-4">
+                    <div class="card border-0 shadow-sm {% if step.status == 'running' %}bg-primary-subtle{% else %}bg-light{% endif %}">
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold mb-0 text-dark">{{ step.action_type|default:step.action }}</h6>
+                                <span class="badge rounded-pill {% if step.status == 'completed' %}bg-success{% elif step.status == 'running' %}bg-primary{% elif step.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                    {{ step.status|default:"PENDING"|upper }}
+                                </span>
+                            </div>
+                            {% if step.rationale %}
+                            <p class="small text-muted mb-0 fst-italic">
+                                <i class="bi bi-info-circle me-1"></i> {{ step.rationale }}
+                            </p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
         </div>
         {% else %}
-        <p class="text-muted text-center my-3">Plan structure exists but contains no steps.</p>
+        <div class="text-center p-5">
+            <div class="mb-3 text-muted opacity-25">
+                <i class="bi bi-diagram-2 display-4"></i>
+            </div>
+            <h6 class="text-muted fw-bold">No Active Plan</h6>
+            <p class="small text-muted mb-0">Start the autonomy engine to generate a strategic plan.</p>
+        </div>
         {% endif %}
     </div>
-    <div class="card-footer small text-muted">
-        Last updated: {{ attack_state.updated_at|date:"Y-m-d H:i:s" }}
-    </div>
 </div>
-{% else %}
-<div class="card mb-4 shadow-sm border-left-warning">
-    <div class="card-body">
-        <div class="row align-items-center">
-            <div class="col mr-2">
-                <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
-                    Plan Status
-                </div>
-                <div class="h5 mb-0 font-weight-bold text-gray-800">
-                    No Active Plan
-                </div>
-                <p class="mb-0 mt-2 text-muted small">
-                    The AI has not generated a strategic plan yet, or is operating in reactive mode.
-                </p>
-            </div>
-            <div class="col-auto">
-                <i class="fas fa-clipboard-list fa-2x text-gray-300"></i>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
