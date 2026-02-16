@@ -443,6 +443,8 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
             try:
                 from ai.llm.ollama_adapter import OllamaAdapter
                 adapter = OllamaAdapter(model=model)
+                if not adapter._client:
+                    return JsonResponse({'success': False, 'message': 'Ollama server unreachable. Is it running?'})
             except ImportError:
                 return JsonResponse({'success': False, 'message': 'Ollama SDK not installed.'})
             except Exception as e:

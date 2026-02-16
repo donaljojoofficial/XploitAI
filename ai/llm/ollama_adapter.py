@@ -49,7 +49,14 @@ class OllamaAdapter(BaseLLMAdapter):
         if HAS_SDK:
             try:
                 self._client = ollama.Client(host=self.base_url)
-                logger.info(f"OllamaAdapter initialized with model '{self.model}' at {self.base_url}")
+                # Verify connectivity to fail fast if server is down
+                try:
+                    self._client.list()
+                    logger.info(f"OllamaAdapter initialized with model '{self.model}' at {self.base_url}")
+                    self._ensure_model_exists()
+                except Exception as e:
+                    logger.warning(f"Ollama server unreachable at {self.base_url}. Adapter disabled. Error: {e}")
+                    self._client = None
             except Exception as e:
                 logger.error(f"Failed to initialize Ollama client: {e}")
         else:
@@ -201,3 +208,27 @@ class OllamaAdapter(BaseLLMAdapter):
         except (json.JSONDecodeError, TypeError) as e:
             logger.error(f"Failed to parse Ollama plan JSON: {e}\nResponse: {text}")
             return None
+
+    def _ensure_model_exists(self):
+        """Checks if the model exists on the server, and pulls it if missing."""
+        if not self._client:
+            return
+
+        try:
+            list_response = self._client.list()
+            existing_models = []
+            
+            # Handle both dict (older SDK) and object (newer SDK) responses
+            if hasattr(list_response, 'models'):
+                existing_models = [m.model for m in list_response.models]
+            else:
+                existing_models = [m.get('name') or m.get('model') for m in list_response.get('models', [])]
+
+            if self.model not in existing_models and f"{self.model}:latest" not in existing_models:
+                logger.info(f"Model '{self.model}' not found on Ollama server. Pulling automatically...")
+                # Pull the model (streaming to avoid timeouts)
+                for _ in self._client.pull(self.model, stream=True):
+                    pass
+                logger.info(f"Successfully pulled model '{self.model}'.")
+        except Exception as e:
+            logger.error(f"Failed to auto-pull model '{self.model}': {e}")
