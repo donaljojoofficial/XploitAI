@@ -161,8 +161,16 @@ class OllamaAdapter(BaseLLMAdapter):
             )
 
         prompt += (
-            "Allowed Actions: PassiveRecon, HTTPHeaderFetch, EndpointDiscovery, TechnologyFingerprint, ServiceEnumeration, ExploitAttempt, PrivilegeEscalation, ProofOfCompromise.\n"
-            "Schema: { \"action_type\": \"<AllowedAction>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }"
+            "Allowed Actions & Parameters:\n"
+            "- PassiveRecon (target_domain)\n"
+            "- HTTPHeaderFetch (target_url)\n"
+            "- EndpointDiscovery (target_url)\n"
+            "- TechnologyFingerprint (target_url)\n"
+            "- ServiceEnumeration (target_host)\n"
+            "- ExploitAttempt (target_host, vulnerability_id)\n"
+            "- PrivilegeEscalation (target_host)\n"
+            "- ProofOfCompromise (evidence_tag)\n"
+            "Schema: { \"action_type\": \"<AllowedAction>\", \"parameters\": { \"<param>\": \"<value>\" }, \"rationale\": \"<short explanation>\" }"
         )
         return prompt
 
@@ -170,8 +178,17 @@ class OllamaAdapter(BaseLLMAdapter):
         return (
             f"Context: {decision_input}\n"
             "Task: Create a multi-step security assessment plan for this educational scenario. Batch routine tasks where possible.\n"
-            "Allowed Actions: PassiveRecon, HTTPHeaderFetch, EndpointDiscovery, TechnologyFingerprint, ServiceEnumeration, ExploitAttempt, PrivilegeEscalation, ProofOfCompromise.\n"
-            "Schema: { \"steps\": [ { \"action_type\": \"<AllowedAction>\", \"parameters\": {...}, \"rationale\": \"...\" } ] }"
+            "You MUST include specific parameters (target_url, target_host, etc.) extracted from the Context.\n"
+            "Allowed Actions & Parameters:\n"
+            "- PassiveRecon (target_domain)\n"
+            "- HTTPHeaderFetch (target_url)\n"
+            "- EndpointDiscovery (target_url)\n"
+            "- TechnologyFingerprint (target_url)\n"
+            "- ServiceEnumeration (target_host)\n"
+            "- ExploitAttempt (target_host, vulnerability_id)\n"
+            "- PrivilegeEscalation (target_host)\n"
+            "- ProofOfCompromise (evidence_tag)\n"
+            "Schema: { \"steps\": [ { \"action_type\": \"<AllowedAction>\", \"parameters\": { \"<param>\": \"<value>\" }, \"rationale\": \"...\" } ] }"
         )
 
     def _build_narrative_prompt(self, decision_input: DecisionInput) -> str:
@@ -187,7 +204,12 @@ class OllamaAdapter(BaseLLMAdapter):
         try:
             clean_text = text.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_text)
-            return Decision(**data)
+            
+            # Filter out unexpected keys (like 'result') that Ollama might hallucinate
+            valid_keys = {"action_type", "parameters", "rationale"}
+            filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+            
+            return Decision(**filtered_data)
         except (json.JSONDecodeError, TypeError) as e:
             logger.error(f"Failed to parse Ollama decision JSON: {e}\nResponse: {text}")
             return None
@@ -202,7 +224,11 @@ class OllamaAdapter(BaseLLMAdapter):
                     if isinstance(step_data, dict):
                         if "step_number" not in step_data:
                             step_data["step_number"] = i + 1
-                        new_steps.append(PlanStep(**step_data))
+                        
+                        # Filter out unexpected keys (like 'result') that Ollama might hallucinate
+                        valid_keys = {"step_number", "action_type", "parameters", "rationale"}
+                        filtered_data = {k: v for k, v in step_data.items() if k in valid_keys}
+                        new_steps.append(PlanStep(**filtered_data))
                 data["steps"] = new_steps
             return Plan(**data)
         except (json.JSONDecodeError, TypeError) as e:

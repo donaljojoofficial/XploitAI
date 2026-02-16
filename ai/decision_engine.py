@@ -151,6 +151,19 @@ class DecisionEngine:
     def _build_decision_input(self, state: AttackState) -> DecisionInput:
         """Helper to build DecisionInput from AttackState."""
         known_services = []
+        
+        # Seed with active target if no services known yet (ensures LLM has target context)
+        if not known_services:
+            active_target = AttackTarget.objects.filter(is_active=True).first()
+            if active_target:
+                target_ep = active_target.base_url or active_target.ip_address
+                if target_ep:
+                    known_services.append(KnownService(
+                        name=active_target.name,
+                        endpoint=target_ep,
+                        protocol="http" if "http" in target_ep else "tcp"
+                    ))
+
         if state.state_data and 'enumeration' in state.state_data:
             services = state.state_data['enumeration'].get('services', {})
             for host, svc_list in services.items():
