@@ -38,7 +38,13 @@ try:
 except ImportError:
     GROQ_AVAILABLE = False
 
-LLM_AVAILABLE = GEMINI_AVAILABLE or ANTHROPIC_AVAILABLE or GROQ_AVAILABLE
+try:
+    from ai.llm.ollama_adapter import OllamaAdapter
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+
+LLM_AVAILABLE = GEMINI_AVAILABLE or ANTHROPIC_AVAILABLE or GROQ_AVAILABLE or OLLAMA_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +88,8 @@ class CommandGenerator:
                     self.llm_client = AnthropicAdapter()
                 elif llm_provider == "groq" and GROQ_AVAILABLE:
                     self.llm_client = GroqAdapter()
+                elif llm_provider == "ollama" and OLLAMA_AVAILABLE:
+                    self.llm_client = OllamaAdapter()
                 else:
                     if GEMINI_AVAILABLE:
                         if google_key:
@@ -90,6 +98,8 @@ class CommandGenerator:
                         self.llm_client = AnthropicAdapter()
                     elif GROQ_AVAILABLE:
                         self.llm_client = GroqAdapter()
+                    elif OLLAMA_AVAILABLE:
+                        self.llm_client = OllamaAdapter()
 
                 if self.llm_client:
                     logger.info(f"CommandGenerator initialized with LLM support ({self.llm_client.__class__.__name__}).")

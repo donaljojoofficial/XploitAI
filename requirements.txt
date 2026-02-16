@@ -8,3 +8,4 @@ rich
 pytest
 requests
 groq
+ollama

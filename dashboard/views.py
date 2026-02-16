@@ -360,6 +360,8 @@ def configuration(request: HttpRequest) -> HttpResponse:
         claude_model = request.POST.get('claude_model', '').strip()
         gemini_model = request.POST.get('gemini_model', '').strip()
         groq_model = request.POST.get('groq_model', '').strip()
+        ollama_model = request.POST.get('ollama_model', '').strip()
+        ollama_host = request.POST.get('ollama_host', '').strip()
         
         if gemini_key:
             set_config('GOOGLE_API_KEY', gemini_key)
@@ -375,6 +377,10 @@ def configuration(request: HttpRequest) -> HttpResponse:
             set_config('GEMINI_MODEL', gemini_model)
         if groq_model:
             set_config('GROQ_MODEL', groq_model)
+        if ollama_model:
+            set_config('OLLAMA_MODEL', ollama_model)
+        if ollama_host:
+            set_config('OLLAMA_HOST', ollama_host)
             
         return redirect('configuration')
         
@@ -386,6 +392,8 @@ def configuration(request: HttpRequest) -> HttpResponse:
     context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
     context['groq_model'] = get_config('GROQ_MODEL', 'llama3-70b-8192')
+    context['ollama_model'] = get_config('OLLAMA_MODEL', 'llama3.2:1b-instruct')
+    context['ollama_host'] = get_config('OLLAMA_HOST', 'http://localhost:11434')
     context['groq_known_models'] = GroqAdapter.KNOWN_MODELS
     
     return render(request, 'dashboard/configuration.html', context)
@@ -430,6 +438,15 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
                 return JsonResponse({'success': False, 'message': 'Groq SDK not installed.'})
             except Exception as e:
                 return JsonResponse({'success': False, 'message': f'Groq init failed: {str(e)}'})
+
+        elif provider == 'ollama':
+            try:
+                from ai.llm.ollama_adapter import OllamaAdapter
+                adapter = OllamaAdapter(model=model)
+            except ImportError:
+                return JsonResponse({'success': False, 'message': 'Ollama SDK not installed.'})
+            except Exception as e:
+                return JsonResponse({'success': False, 'message': f'Ollama init failed: {str(e)}'})
 
         else:
             return JsonResponse({'success': False, 'message': f'Unknown provider: {provider}'})

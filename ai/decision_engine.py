@@ -25,6 +25,12 @@ try:
 except ImportError:
     GROQ_AVAILABLE = False
 
+try:
+    from ai.llm.ollama_adapter import OllamaAdapter
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+
 from ai.llm.fallback import FallbackAdapter
 
 logger = logging.getLogger(__name__)
@@ -80,6 +86,16 @@ class DecisionEngine:
                     logger.error(f"Failed to initialize GroqAdapter: {e}")
             return None
 
+        def _init_ollama():
+            if OLLAMA_AVAILABLE:
+                try:
+                    ollama_inst = OllamaAdapter()
+                    if ollama_inst._client:
+                        return ollama_inst
+                except Exception as e:
+                    logger.error(f"Failed to initialize OllamaAdapter: {e}")
+            return None
+
         if provider == "gemini":
             adapter = _init_gemini()
             if adapter:
@@ -92,6 +108,10 @@ class DecisionEngine:
             adapter = _init_groq()
             if adapter:
                 adapters.append(adapter)
+        elif provider == "ollama":
+            adapter = _init_ollama()
+            if adapter:
+                adapters.append(adapter)
         else:
             # Auto / Fallback mode
             g = _init_gemini()
@@ -100,6 +120,8 @@ class DecisionEngine:
             if a: adapters.append(a)
             gr = _init_groq()
             if gr: adapters.append(gr)
+            ol = _init_ollama()
+            if ol: adapters.append(ol)
 
         if adapters:
             if len(adapters) > 1:
