@@ -30,7 +30,7 @@ class OllamaAdapter(BaseLLMAdapter):
     def __init__(self, model: str = None, base_url: str = None):
         config_model = get_config("OLLAMA_MODEL")
         # Default to the 1B model as requested for 2-Core/8GB environments
-        default_model = "llama3.2:1b-instruct"
+        default_model = "llama3.2:1b"
         self.model = model or config_model or default_model
         
         # Default to localhost:11434 if not configured

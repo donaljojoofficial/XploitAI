@@ -392,7 +392,7 @@ def configuration(request: HttpRequest) -> HttpResponse:
     context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
     context['groq_model'] = get_config('GROQ_MODEL', 'llama3-70b-8192')
-    context['ollama_model'] = get_config('OLLAMA_MODEL', 'llama3.2:1b-instruct')
+    context['ollama_model'] = get_config('OLLAMA_MODEL', 'llama3.2:1b')
     context['ollama_host'] = get_config('OLLAMA_HOST', 'http://localhost:11434')
     context['groq_known_models'] = GroqAdapter.KNOWN_MODELS
     

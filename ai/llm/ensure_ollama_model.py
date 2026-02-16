@@ -6,6 +6,7 @@ Usage: python scripts/ensure_ollama_model.py
 import os
 import sys
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -25,12 +26,20 @@ except ImportError:
 
 def ensure_model():
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    model = os.getenv("OLLAMA_MODEL", "llama3.2:1b-instruct")
+    model = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
     
     client = ollama.Client(host=host)
     
+    # Retry connection logic (wait for server to start)
+    logger.info(f"Connecting to Ollama at {host}...")
+    for i in range(10):
+        try:
+            client.list()
+            break
+        except Exception:
+            time.sleep(1)
+
     try:
-        logger.info(f"Connecting to Ollama at {host}...")
         list_response = client.list()
         
         existing_models = []
