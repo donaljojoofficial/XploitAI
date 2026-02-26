@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import os
 from typing import Iterator, Optional
 
@@ -200,24 +201,46 @@ class OllamaAdapter(BaseLLMAdapter):
             "Format: Plain text, suitable for streaming to a dashboard."
         )
 
+    def _find_json_blob(self, text: str) -> Optional[str]:
+        """
+        Finds the first and largest JSON blob in a string that might be
+        wrapped in markdown or have leading/trailing text.
+        """
+        # Pattern to find JSON within markdown ```json ... ```
+        match = re.search(r"```json\s*(\{.*\}|\[.*\])\s*```", text, re.DOTALL)
+        if match:
+            return match.group(1)
+
+        # Fallback to a more greedy search for a JSON object
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            return text[start:end+1]
+
+        return None
+
     def _parse_decision(self, text: str) -> Optional[Decision]:
+        json_str = self._find_json_blob(text)
+        if not json_str:
+            logger.error(f"Could not extract JSON from Ollama decision response: {text}")
+            return None
         try:
-            clean_text = text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(clean_text)
-            
+            data = json.loads(json_str)
             # Filter out unexpected keys (like 'result') that Ollama might hallucinate
             valid_keys = {"action_type", "parameters", "rationale"}
             filtered_data = {k: v for k, v in data.items() if k in valid_keys}
-            
             return Decision(**filtered_data)
         except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Failed to parse Ollama decision JSON: {e}\nResponse: {text}")
+            logger.error(f"Failed to parse Ollama decision JSON: {e}\nExtracted: {json_str}\nOriginal: {text}")
             return None
 
     def _parse_plan(self, text: str) -> Optional[Plan]:
+        json_str = self._find_json_blob(text)
+        if not json_str:
+            logger.error(f"Could not extract JSON from Ollama plan response: {text}")
+            return None
         try:
-            clean_text = text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(clean_text)
+            data = json.loads(json_str)
             if "steps" in data and isinstance(data["steps"], list):
                 new_steps = []
                 for i, step_data in enumerate(data["steps"]):
@@ -232,7 +255,7 @@ class OllamaAdapter(BaseLLMAdapter):
                 data["steps"] = new_steps
             return Plan(**data)
         except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Failed to parse Ollama plan JSON: {e}\nResponse: {text}")
+            logger.error(f"Failed to parse Ollama plan JSON: {e}\nExtracted: {json_str}\nOriginal: {text}")
             return None
 
     def _ensure_model_exists(self):
