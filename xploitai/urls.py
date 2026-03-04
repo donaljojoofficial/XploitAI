@@ -16,12 +16,18 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import include, path
-from dashboard import views as dashboard_views
+from django.views.generic import RedirectView
 
 urlpatterns = [
+    # Admin
     path('admin/', admin.site.urls),
+    
+    # API endpoints
     path('api/executor/', include('executor.urls')),
-    path('settings/', dashboard_views.configuration, name='configuration'),
-    path('settings/check_status/', dashboard_views.check_llm_status, name='check_llm_status'),
+    
+    # Dashboard app (all auth, dashboard views, and settings)
     path('', include('dashboard.urls')),
+    
+    # Settings root redirect to configuration
+    path('settings/', RedirectView.as_view(url='/configuration/', permanent=False), name='settings_redirect'),
 ]

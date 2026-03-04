@@ -202,11 +202,13 @@ Simulation is **mandatory** before real execution is added.
 
 ### Phase 1
 
-* **Backend:** Django
+* **Backend:** Django (with user authentication/authorization, email verification, password reset)
 * **Language:** Python 3.12
 * **Database:** SQLite
 * **Frontend:** Django Templates (HTML + minimal JS)
 * **AI:** External LLM API (decision-making only)
+
+* **Roles:** Users are assigned to groups; admin functions (configuration) restricted to `Admin` group or superuser.
 
 ### Phase 2 (Adds)
 

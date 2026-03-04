@@ -1,5 +1,6 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django import forms
 from core.models import AttackTarget
 
@@ -16,6 +17,7 @@ class WebTargetForm(forms.ModelForm):
             'is_active': forms.CheckboxInput(attrs={'class': 'w-4 h-4 bg-gray-900 border-gray-700 rounded text-accent focus:ring-accent'}),
         }
 
+@login_required(login_url='login')
 def target_management(request):
     """
     View to list existing targets and provide a form to add new ones.

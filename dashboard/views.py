@@ -20,8 +20,10 @@ import logging
 from typing import Any
 
 from django.shortcuts import render, get_object_or_404, redirect
+from . import auth
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
 
@@ -127,6 +129,7 @@ def _get_global_context() -> dict[str, Any]:
     }
 
 
+@login_required(login_url='login')
 def index(request: HttpRequest) -> HttpResponse:
     """
     Displays the main dashboard using a Django template.
@@ -164,6 +167,7 @@ def index(request: HttpRequest) -> HttpResponse:
     return render(request, 'dashboard/index.html', context)
 
 
+@login_required(login_url='login')
 def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """Show details for a specific AttackState, including actions and timeline."""
     state = get_object_or_404(AttackState, pk=pk)
@@ -211,6 +215,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, 'dashboard/attack_detail.html', context)
 
 
+@login_required(login_url='login')
 def attack_replay(request: HttpRequest, pk: int) -> HttpResponse:
     """Show a sequential replay of the attack lifecycle."""
     state = get_object_or_404(AttackState, pk=pk)
@@ -224,6 +229,7 @@ def attack_replay(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, 'dashboard/replay.html', context)
 
 
+@login_required(login_url='login')
 def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
     """
     Dedicated view to show the full AI generated plan (Actions) for an attack.
@@ -240,6 +246,7 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, 'dashboard/attack_plan.html', context)
 
 
+@login_required(login_url='login')
 @require_POST
 def start_attack(request: HttpRequest) -> HttpResponse:
     """
@@ -289,6 +296,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
 
     return redirect('dashboard_index')
 
+@login_required(login_url='login')
 @require_POST
 def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     """Approves the current plan for the given attack state."""
@@ -313,6 +321,7 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
 
     return redirect('dashboard_attack_detail', pk=pk)
 
+@login_required(login_url='login')
 @require_POST
 def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
     """Resumes an existing attack state."""
@@ -329,6 +338,7 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
     controller.start()
     return redirect('dashboard_attack_detail', pk=pk)
 
+@login_required(login_url='login')
 @require_POST
 def stop_attack(request: HttpRequest, pk: int) -> HttpResponse:
     """Manually stops the autonomous attack."""
@@ -348,6 +358,8 @@ def stop_attack(request: HttpRequest, pk: int) -> HttpResponse:
 
     return redirect('dashboard_attack_detail', pk=pk)
 
+@auth.admin_required
+@login_required(login_url='login')
 def configuration(request: HttpRequest) -> HttpResponse:
     """
     View to manage system configuration and API keys.
@@ -399,6 +411,7 @@ def configuration(request: HttpRequest) -> HttpResponse:
     return render(request, 'dashboard/configuration.html', context)
 
 @require_POST
+@login_required(login_url='login')
 def check_llm_status(request: HttpRequest) -> JsonResponse:
     """
     Verifies the LLM provider configuration by attempting a simple generation.

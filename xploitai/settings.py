@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-@d(8(9#@k@#&^z$o_!y(n_#&n=u$b@$h^u%p#z@a#o(q^m)'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver', '*.app.github.dev']  # add testserver for unit tests and GitHub Codespaces
 
 
 # Application definition
@@ -123,3 +123,30 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Email configuration (console backend for development)
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'webmaster@localhost'
+
+# Authentication Settings
+# https://docs.djangoproject.com/en/5.0/topics/auth/
+
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard_index'
+LOGOUT_REDIRECT_URL = 'login'
+
+# Session Settings
+SESSION_COOKIE_AGE = 86400  # 24 hours
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = 'Strict'
+
+# Password Hashing
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
+]

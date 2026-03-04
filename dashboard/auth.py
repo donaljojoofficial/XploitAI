@@ -1,0 +1,295 @@
+"""
+Authentication views for XploitAI.
+Handles user registration, login, logout, and password management.
+"""
+
+from django import forms
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User, Group
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import HttpResponse, HttpRequest
+from django.views.decorators.http import require_POST
+from django.contrib import messages
+from django.urls import reverse
+import threading
+
+
+class RegistrationForm(forms.ModelForm):
+    """User registration form with password confirmation."""
+    
+    password = forms.CharField(
+        widget=forms.PasswordInput(attrs={
+            'class': 'w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent',
+            'placeholder': 'Password'
+        }),
+        min_length=8,
+        help_text="Password must be at least 8 characters long."
+    )
+    password_confirm = forms.CharField(
+        widget=forms.PasswordInput(attrs={
+            'class': 'w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent',
+            'placeholder': 'Confirm Password'
+        }),
+        label="Confirm Password"
+    )
+    
+    class Meta:
+        model = User
+        fields = ('username', 'email', 'first_name', 'last_name')
+        widgets = {
+            'username': forms.TextInput(attrs={
+                'class': 'w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent',
+                'placeholder': 'Username',
+                'required': True
+            }),
+            'email': forms.EmailInput(attrs={
+                'class': 'w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent',
+                'placeholder': 'Email Address',
+                'required': True
+            }),
+            'first_name': forms.TextInput(attrs={
+                'class': 'w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent',
+                'placeholder': 'First Name (Optional)'
+            }),
+            'last_name': forms.TextInput(attrs={
+                'class': 'w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent',
+                'placeholder': 'Last Name (Optional)'
+            }),
+        }
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        password = cleaned_data.get('password')
+        password_confirm = cleaned_data.get('password_confirm')
+        
+        if password and password_confirm:
+            if password != password_confirm:
+                raise forms.ValidationError("Passwords do not match.")
+        
+        # Check if username already exists
+        if User.objects.filter(username=cleaned_data.get('username')).exists():
+            raise forms.ValidationError("Username already taken.")
+        
+        # Check if email already exists
+        if User.objects.filter(email=cleaned_data.get('email')).exists():
+            raise forms.ValidationError("Email already registered.")
+        
+        return cleaned_data
+    
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.set_password(self.cleaned_data['password'])
+        if commit:
+            # newly created users start inactive until email confirmed
+            user.is_active = False
+            user.save()
+        return user
+
+
+class LoginForm(forms.Form):
+    """User login form."""
+    
+    username = forms.CharField(
+        widget=forms.TextInput(attrs={
+            'class': 'w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent',
+            'placeholder': 'Username',
+            'autocomplete': 'username'
+        })
+    )
+    password = forms.CharField(
+        widget=forms.PasswordInput(attrs={
+            'class': 'w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent',
+            'placeholder': 'Password',
+            'autocomplete': 'current-password'
+        })
+    )
+    remember_me = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={
+            'class': 'rounded'
+        }),
+        label="Remember me"
+    )
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        username = cleaned_data.get('username')
+        password = cleaned_data.get('password')
+        
+        if username and password:
+            self.user = authenticate(username=username, password=password)
+            if self.user is None:
+                raise forms.ValidationError("Invalid username or password.")
+        
+        return cleaned_data
+
+
+def _add_to_default_group(user: User) -> None:
+    """Assign a newly registered user to the default 'User' group."""
+    group, _ = Group.objects.get_or_create(name='User')
+    user.groups.add(group)
+
+
+def send_activation_email(user: User, request: HttpRequest) -> None:
+    """Send account activation email asynchronously."""
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    activation_link = request.build_absolute_uri(
+        reverse('activate', kwargs={'uidb64': uid, 'token': token})
+    )
+    subject = 'Activate your XploitAI account'
+    message = render_to_string('dashboard/auth/activation_email.txt', {
+        'user': user,
+        'activation_link': activation_link,
+    })
+    # send in background thread to avoid delaying response
+    threading.Thread(target=send_mail, args=(subject, message, None, [user.email])).start()
+
+
+def register(request: HttpRequest) -> HttpResponse:
+    """Handle user registration and send confirmation email."""
+    
+    if request.user.is_authenticated:
+        return redirect('dashboard_index')
+    
+    if request.method == 'POST':
+        form = RegistrationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            _add_to_default_group(user)
+            send_activation_email(user, request)
+            messages.success(request, "Account created! Check your email to activate your account.")
+            return redirect('login')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f"{field}: {error}")
+    else:
+        form = RegistrationForm()
+    
+    return render(request, 'dashboard/auth/register.html', {'form': form})
+
+
+def login_view(request: HttpRequest) -> HttpResponse:
+    """Handle user login (only active users permitted)."""
+    
+    if request.user.is_authenticated:
+        return redirect('dashboard_index')
+    
+    if request.method == 'POST':
+        form = LoginForm(request.POST)
+        if form.is_valid():
+            user = form.user
+            if not user.is_active:
+                messages.error(request, "Account inactive. Please check your email for activation link.")
+                return render(request, 'dashboard/auth/login.html', {'form': form})
+            login(request, user)
+            
+            # Set session timeout if "remember me" is checked
+            if form.cleaned_data.get('remember_me'):
+                request.session.set_expiry(86400 * 30)  # 30 days
+            
+            messages.success(request, f"Welcome back, {user.username}!")
+            next_url = request.GET.get('next', 'dashboard_index')
+            return redirect(next_url)
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, str(error))
+    else:
+        form = LoginForm()
+    
+    return render(request, 'dashboard/auth/login.html', {'form': form})
+
+
+@login_required(login_url='login')
+def logout_view(request: HttpRequest) -> HttpResponse:
+    """Handle user logout."""
+    
+    if request.method == 'POST':
+        username = request.user.username
+        logout(request)
+        messages.success(request, f"Goodbye, {username}! You have been logged out.")
+        return redirect('login')
+    
+    return redirect('login')
+
+
+def activate(request: HttpRequest, uidb64: str, token: str) -> HttpResponse:
+    """Handle account activation via emailed link."""
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+
+    if user is not None and default_token_generator.check_token(user, token):
+        user.is_active = True
+        user.save(update_fields=['is_active'])
+        messages.success(request, "Your account has been activated. You may now log in.")
+        return redirect('login')
+    else:
+        messages.error(request, "Activation link is invalid or expired.")
+        return redirect('register')
+
+
+# Role-based decorators
+
+def group_required(group_name: str):
+    def in_group(u):
+        return u.is_authenticated and u.groups.filter(name=group_name).exists()
+    return user_passes_test(in_group, login_url='login')
+
+def admin_required(view_func):
+    return user_passes_test(lambda u: u.is_superuser or u.groups.filter(name='Admin').exists(), login_url='login')(view_func)
+
+
+@login_required(login_url='login')
+def profile(request: HttpRequest) -> HttpResponse:
+    """Display user profile."""
+    
+    return render(request, 'dashboard/auth/profile.html', {
+        'user': request.user
+    })
+
+
+@login_required(login_url='login')
+@require_POST
+def change_password(request: HttpRequest) -> HttpResponse:
+    """Handle password change."""
+    
+    from django.contrib.auth.models import User
+    from django.contrib.auth.hashers import check_password
+    
+    user = request.user
+    old_password = request.POST.get('old_password')
+    new_password = request.POST.get('new_password')
+    confirm_password = request.POST.get('confirm_password')
+    
+    # Validate old password
+    if not check_password(old_password, user.password):
+        messages.error(request, "Current password is incorrect.")
+        return redirect('profile')
+    
+    # Validate new passwords match
+    if new_password != confirm_password:
+        messages.error(request, "New passwords do not match.")
+        return redirect('profile')
+    
+    # Validate new password length
+    if len(new_password) < 8:
+        messages.error(request, "New password must be at least 8 characters long.")
+        return redirect('profile')
+    
+    # Update password
+    user.set_password(new_password)
+    user.save()
+    
+    messages.success(request, "Password changed successfully.")
+    return redirect('profile')

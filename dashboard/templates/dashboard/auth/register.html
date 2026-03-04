@@ -1,0 +1,124 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Register - XploitAI{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+    <div class="w-full max-w-md bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="flex items-center justify-center gap-2 mb-4">
+                <div class="w-3 h-3 rounded-full bg-accent animate-pulse"></div>
+                <h1 class="text-2xl font-bold tracking-tight text-white">
+                    XPLOIT<span class="text-accent">AI</span>
+                </h1>
+            </div>
+            <p class="text-gray-400 text-sm">Create your account</p>
+            <p class="text-gray-500 text-xs">(You will receive an email to activate your account.)</p>
+        </div>
+
+        <!-- Messages -->
+        {% if messages %}
+        <div class="mb-6 space-y-2">
+            {% for message in messages %}
+            <div class="p-3 rounded border {% if message.tags == 'error' %}border-red-500 bg-red-900 bg-opacity-20 text-red-200{% else %}border-green-500 bg-green-900 bg-opacity-20 text-green-200{% endif %} text-sm">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Registration Form -->
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+
+            <!-- Username -->
+            <div>
+                <label for="id_username" class="block text-sm font-medium text-gray-300 mb-2">Username</label>
+                {% if form.username.errors %}
+                    {{ form.username }}
+                    <p class="text-red-400 text-xs mt-1">{{ form.username.errors.0 }}</p>
+                {% else %}
+                    {{ form.username }}
+                {% endif %}
+            </div>
+
+            <!-- Email -->
+            <div>
+                <label for="id_email" class="block text-sm font-medium text-gray-300 mb-2">Email Address</label>
+                {% if form.email.errors %}
+                    {{ form.email }}
+                    <p class="text-red-400 text-xs mt-1">{{ form.email.errors.0 }}</p>
+                {% else %}
+                    {{ form.email }}
+                {% endif %}
+            </div>
+
+            <!-- First Name -->
+            <div>
+                <label for="id_first_name" class="block text-sm font-medium text-gray-300 mb-2">First Name</label>
+                {% if form.first_name.errors %}
+                    {{ form.first_name }}
+                    <p class="text-red-400 text-xs mt-1">{{ form.first_name.errors.0 }}</p>
+                {% else %}
+                    {{ form.first_name }}
+                {% endif %}
+            </div>
+
+            <!-- Last Name -->
+            <div>
+                <label for="id_last_name" class="block text-sm font-medium text-gray-300 mb-2">Last Name</label>
+                {% if form.last_name.errors %}
+                    {{ form.last_name }}
+                    <p class="text-red-400 text-xs mt-1">{{ form.last_name.errors.0 }}</p>
+                {% else %}
+                    {{ form.last_name }}
+                {% endif %}
+            </div>
+
+            <!-- Password -->
+            <div>
+                <label for="id_password" class="block text-sm font-medium text-gray-300 mb-2">Password</label>
+                {% if form.password.errors %}
+                    {{ form.password }}
+                    <p class="text-red-400 text-xs mt-1">{{ form.password.errors.0 }}</p>
+                {% else %}
+                    {{ form.password }}
+                    <p class="text-gray-500 text-xs mt-1">{{ form.password.help_text }}</p>
+                {% endif %}
+            </div>
+
+            <!-- Password Confirm -->
+            <div>
+                <label for="id_password_confirm" class="block text-sm font-medium text-gray-300 mb-2">Confirm Password</label>
+                {% if form.password_confirm.errors %}
+                    {{ form.password_confirm }}
+                    <p class="text-red-400 text-xs mt-1">{{ form.password_confirm.errors.0 }}</p>
+                {% else %}
+                    {{ form.password_confirm }}
+                {% endif %}
+            </div>
+
+            {% if form.non_field_errors %}
+            <div class="p-3 rounded border border-red-500 bg-red-900 bg-opacity-20 text-red-200 text-sm">
+                {{ form.non_field_errors.0 }}
+            </div>
+            {% endif %}
+
+            <!-- Submit Button -->
+            <button type="submit" class="w-full py-2 px-4 bg-accent hover:bg-accent-hover text-black font-bold rounded transition-colors">
+                CREATE ACCOUNT
+            </button>
+        </form>
+
+        <!-- Login Link -->
+        <div class="mt-6 text-center text-sm">
+            <p class="text-gray-400">Already have an account? 
+                <a href="{% url 'login' %}" class="text-accent hover:text-accent-hover transition-colors font-bold">
+                    Sign in
+                </a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

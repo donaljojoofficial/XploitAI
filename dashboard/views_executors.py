@@ -1,7 +1,9 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from core.models import AttackerExecutor
 
+@login_required(login_url='login')
 def executor_management(request):
     """
     View to list registered attacker executors and manage their status.

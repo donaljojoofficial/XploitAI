@@ -1,0 +1,11 @@
+Hello {{ user.username }},
+
+Thank you for registering at XploitAI.
+To activate your account, please click the link below:
+
+{{ activation_link }}
+
+If you did not sign up, you can ignore this message.
+
+Regards,
+XploitAI team

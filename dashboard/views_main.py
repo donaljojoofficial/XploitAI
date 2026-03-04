@@ -1,6 +1,8 @@
 from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
 from core.models import AttackState, Action, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
 
+@login_required(login_url='login')
 def index(request):
     """
     Dashboard Home / Mission Control.
@@ -47,6 +49,7 @@ def index(request):
     }
     return render(request, 'dashboard/index.html', context)
 
+@login_required(login_url='login')
 def load_more_activity(request):
     """
     AJAX view to load older activity logs.
