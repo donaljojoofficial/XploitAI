@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import os
+import time
 from typing import Iterator, Optional
 
 from core.config import get_config
@@ -27,6 +28,8 @@ class OllamaAdapter(BaseLLMAdapter):
     Adapter for local Ollama instance.
     Optimized for lightweight models like llama3.2:1b-instruct on constrained hardware.
     """
+
+    _last_request_time = 0
 
     def __init__(self, model: str = None, base_url: str = None):
         config_model = get_config("OLLAMA_MODEL")
@@ -98,10 +101,19 @@ class OllamaAdapter(BaseLLMAdapter):
         """Generates a response, defaulting to JSON mode for consistency with other adapters."""
         return self._generate_content(prompt, json_mode=True)
 
+    def _enforce_rate_limit(self):
+        """Enforce a minimum interval between requests to prevent resource exhaustion."""
+        current_time = time.time()
+        elapsed = current_time - OllamaAdapter._last_request_time
+        if elapsed < 2.0:  # 2 seconds for local inference safety
+            time.sleep(2.0 - elapsed)
+        OllamaAdapter._last_request_time = time.time()
+
     def _generate_content(self, prompt: str, json_mode: bool = False) -> Optional[str]:
         if not self._client:
             return None
         try:
+            self._enforce_rate_limit()
             options = {"temperature": 0.1}
             fmt = "json" if json_mode else None
             
@@ -124,6 +136,7 @@ class OllamaAdapter(BaseLLMAdapter):
             return
 
         try:
+            self._enforce_rate_limit()
             stream = self._client.chat(
                 model=self.model,
                 messages=[
@@ -158,7 +171,7 @@ class OllamaAdapter(BaseLLMAdapter):
             prompt += (
                 f"\nIMPORTANT: You are following a strict plan. "
                 f"The next required step is: {next_step_hint}. "
-                f"You MUST output this action with the specified parameters.\n"
+                f"You MUST output this action. You may refine the parameters based on the Context (e.g., using a discovered IP instead of a domain).\n"
             )
 
         prompt += (

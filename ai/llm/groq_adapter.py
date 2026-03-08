@@ -103,8 +103,8 @@ class GroqAdapter(BaseLLMAdapter):
         """Enforce a minimum interval between requests."""
         current_time = time.time()
         elapsed = current_time - GroqAdapter._last_request_time
-        if elapsed < 2.0:
-            time.sleep(2.0 - elapsed)
+        if elapsed < 4.0:  # 4 seconds strict interval to prevent exhaustion
+            time.sleep(4.0 - elapsed)
         GroqAdapter._last_request_time = time.time()
 
     def generate(self, prompt: str) -> Optional[str]:
@@ -210,7 +210,7 @@ class GroqAdapter(BaseLLMAdapter):
             prompt += (
                 f"\nIMPORTANT: You are following a strict plan. "
                 f"The next required step is: {next_step_hint}. "
-                f"You MUST output this action with the specified parameters.\n"
+                f"You MUST output this action. You may refine the parameters based on the Context (e.g., using a discovered IP instead of a domain).\n"
             )
 
         prompt += (

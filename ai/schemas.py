@@ -99,6 +99,7 @@ class DecisionInput:
     known_services: List[KnownService]
     past_actions: List[PastActionSummary]
     last_result: Optional[ActionResultSummary] = None
+    findings: Optional[Mapping[str, Any]] = None
 
 
 @dataclass(frozen=True)

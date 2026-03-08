@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import re
 import uuid
 import threading
 import time
@@ -373,6 +374,7 @@ class AutonomousController:
                 )
 
                 if task.status == 'COMPLETED':
+                    self._update_knowledge_base(state, action, task)
                     self._check_phase_progression(state, action)
 
     def _check_phase_progression(self, state: AttackState, action: Action) -> None:
@@ -419,6 +421,77 @@ class AutonomousController:
                 )
         except ValueError:
             logger.warning("Phase mismatch in progression check: %s or %s not in definitions.", state.current_phase, next_phase)
+
+    def _update_knowledge_base(self, state: AttackState, action: Action, task: ExecutionTask) -> None:
+        """
+        Parses execution results and updates the persistent state_data.
+        This enables the AI to 'remember' findings across steps.
+        """
+        if not state.state_data:
+            state.state_data = {}
+            
+        # Ensure findings dict exists
+        if 'findings' not in state.state_data:
+            state.state_data['findings'] = {}
+            
+        # Extract text output safely
+        text_output = ""
+        if task.output:
+            if isinstance(task.output, dict):
+                # Prefer stdout if available, else dump whole dict
+                text_output = task.output.get('stdout') or str(task.output)
+            else:
+                text_output = str(task.output)
+
+        # 1. Parse Nmap / Service Enumeration
+        if action.name == "ServiceEnumeration":
+            # Simple regex to find open ports: "80/tcp open http"
+            open_ports = re.findall(r'(\d+)/(tcp|udp)\s+open\s+([\w-]+)', text_output)
+            
+            if open_ports:
+                target = action.parameters.get('target_host', 'unknown')
+                services = []
+                for port, proto, service in open_ports:
+                    services.append({
+                        "port": int(port),
+                        "protocol": proto,
+                        "service": service
+                    })
+                
+                # Update enumeration section (used by DecisionEngine for known_services)
+                if 'enumeration' not in state.state_data:
+                    state.state_data['enumeration'] = {'services': {}}
+                
+                if 'services' not in state.state_data['enumeration']:
+                    state.state_data['enumeration']['services'] = {}
+                    
+                state.state_data['enumeration']['services'][target] = services
+                
+                # Also add to findings for general context
+                state.state_data['findings'][f"services_{target}"] = services
+                logger.info("Parsed %d services for %s", len(services), target)
+
+        # 2. Parse PassiveRecon (IP Resolution)
+        elif action.name == "PassiveRecon":
+            # Extract IPs from output (simple regex for IPv4)
+            ips = re.findall(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', text_output)
+            if ips:
+                target = action.parameters.get('target_domain', 'unknown')
+                unique_ips = list(set(ips))
+                # Store resolved IPs specifically
+                state.state_data['findings'][f"resolved_ips_{target}"] = unique_ips
+                logger.info("Parsed IPs for %s: %s", target, unique_ips)
+
+        # 3. Generic Output Storage (Catch-all)
+        # Store the output of ANY successful action so the AI can reference it in the next step.
+        # We use a key based on action name and target to make it retrievable.
+        target = action.parameters.get('target_url') or action.parameters.get('target_host') or action.parameters.get('target_domain') or 'unknown'
+        finding_key = f"{action.name}_{target}"
+        
+        # Store truncated output (limit to 1000 chars to save context window)
+        state.state_data['findings'][finding_key] = text_output[:1000]
+
+        state.save(update_fields=['state_data'])
 
     def _sync_defender_context(self, state: AttackState) -> None:
         """

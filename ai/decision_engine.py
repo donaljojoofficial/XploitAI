@@ -203,11 +203,14 @@ class DecisionEngine:
                     error=result.log_message if not result.success else None
                 )
 
+        findings = state.state_data.get('findings', {}) if state.state_data else {}
+
         return DecisionInput(
             phase=state.current_phase,
             known_services=known_services,
             past_actions=past_actions,
-            last_result=last_result_summary 
+            last_result=last_result_summary,
+            findings=findings
         )
 
     def generate_actions(self, attack_state: AttackState) -> list[Action]:
@@ -366,11 +369,13 @@ class DecisionEngine:
                 matched = False
                 for i, ca in enumerate(completed_actions):
                     if ca['name'] == step_action:
-                        ca_params = ca['parameters'] or {}
-                        if all(ca_params.get(k) == v for k, v in step_params.items()):
-                            matched = True
-                            completed_actions.pop(i) # Consume action so it doesn't match twice
-                            break
+                        # Relaxed Matching:
+                        # We match by Action Name primarily. We do NOT enforce strict parameter matching
+                        # because the AI might have refined the parameters (e.g. domain -> IP) based on findings.
+                        # Since we process steps in order, consuming the first matching completed action is safe.
+                        matched = True
+                        completed_actions.pop(i) # Consume action so it doesn't match twice
+                        break
                 
                 if not matched:
                     next_step_hint = step

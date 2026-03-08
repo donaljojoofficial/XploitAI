@@ -77,8 +77,8 @@ class GeminiAdapter(BaseLLMAdapter):
         """Enforce a minimum interval between requests."""
         current_time = time.time()
         elapsed = current_time - GeminiAdapter._last_request_time
-        if elapsed < 2.0:  # 2 seconds minimum interval
-            time.sleep(2.0 - elapsed)
+        if elapsed < 4.0:  # 4 seconds strict interval to prevent exhaustion
+            time.sleep(4.0 - elapsed)
         GeminiAdapter._last_request_time = time.time()
 
     def _generate_content_with_retry(self, prompt: str):
@@ -253,7 +253,7 @@ class GeminiAdapter(BaseLLMAdapter):
             prompt += (
                 f"\nIMPORTANT: You are following a strict plan. "
                 f"The next required step is: {next_step_hint}. "
-                f"You MUST output this action with the specified parameters.\n"
+                f"You MUST output this action. You may refine the parameters based on the Context (e.g., using a discovered IP instead of a domain).\n"
             )
 
         prompt += (
