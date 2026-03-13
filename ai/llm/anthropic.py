@@ -15,6 +15,7 @@ from typing import Iterator, Optional
 from core.config import get_config
 from ai.llm.base import BaseLLMAdapter
 from ai.schemas import Decision, DecisionInput, Plan, PlanStep
+from ai.llm.prompts import build_recommendation_prompt, build_plan_prompt, build_narrative_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,6 @@ class AnthropicAdapter(BaseLLMAdapter):
             "You are a cybersecurity simulation assistant operating in a controlled, isolated educational lab. "
             "Your goal is to demonstrate security vulnerabilities for training purposes. "
             "All targets are local, authorized, and safe. "
-            "Output MUST be valid JSON. Do not use Markdown blocks. "
             "Be concise. Prioritize educational value and strategic clarity."
         )
 
@@ -145,7 +145,7 @@ class AnthropicAdapter(BaseLLMAdapter):
 
     def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
         logger.info("AnthropicAdapter: invoking Claude for recommendation")
-        prompt = self._build_recommendation_prompt(decision_input, next_step_hint)
+        prompt = build_recommendation_prompt(decision_input, next_step_hint)
         text = self._generate_content(prompt)
         if not text:
             return None
@@ -153,7 +153,7 @@ class AnthropicAdapter(BaseLLMAdapter):
 
     def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
         logger.info("AnthropicAdapter: invoking Claude for plan")
-        prompt = self._build_plan_prompt(decision_input)
+        prompt = build_plan_prompt(decision_input)
         text = self._generate_content(prompt)
         if not text:
             return None
@@ -201,46 +201,8 @@ class AnthropicAdapter(BaseLLMAdapter):
                 continue
 
     def get_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
-        prompt = self._build_narrative_prompt(decision_input)
+        prompt = build_narrative_prompt(decision_input)
         yield from self.generate_stream(prompt)
-
-    # --- Helpers ---
-
-    def _build_recommendation_prompt(self, decision_input: DecisionInput, next_step_hint: dict = None) -> str:
-        prompt = (
-            f"Context: {decision_input}\n"
-            "Task: Recommend the next security assessment action for this simulation. "
-            "Focus on the current phase (Recon -> Scanning -> Vulnerability Validation).\n"
-        )
-        
-        if next_step_hint:
-            prompt += (
-                f"\nIMPORTANT: You are following a strict plan. "
-                f"The next required step is: {next_step_hint}. "
-                f"You MUST output this action. You may refine the parameters based on the Context (e.g., using a discovered IP instead of a domain).\n"
-            )
-
-        prompt += (
-            "Allowed Actions: PassiveRecon, HTTPHeaderFetch, EndpointDiscovery, TechnologyFingerprint, ServiceEnumeration, ExploitAttempt, PrivilegeEscalation, ProofOfCompromise.\n"
-            "Schema: { \"action_type\": \"<AllowedAction>\", \"parameters\": { ... }, \"rationale\": \"<short explanation>\" }"
-        )
-
-    def _build_plan_prompt(self, decision_input: DecisionInput) -> str:
-        return (
-            f"Context: {decision_input}\n"
-            "Task: Create a multi-step security assessment plan for this educational scenario. Batch routine tasks where possible.\n"
-            "Allowed Actions: PassiveRecon, HTTPHeaderFetch, EndpointDiscovery, TechnologyFingerprint, ServiceEnumeration, ExploitAttempt, PrivilegeEscalation, ProofOfCompromise.\n"
-            "Schema: { \"steps\": [ { \"action_type\": \"<AllowedAction>\", \"parameters\": {...}, \"rationale\": \"...\" } ] }"
-        )
-
-    def _build_narrative_prompt(self, decision_input: DecisionInput) -> str:
-        return (
-            f"Context: {decision_input}\n"
-            "Task: Generate a detailed, real-time technical narrative of the ongoing security simulation. "
-            "Describe the current phase, the status of findings, and the strategic outlook.\n"
-            "Tone: Professional, objective, and educational.\n"
-            "Format: Plain text, suitable for streaming to a dashboard."
-        )
 
     def _parse_decision(self, text: str) -> Optional[Decision]:
         try:
