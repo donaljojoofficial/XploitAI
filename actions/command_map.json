@@ -1,0 +1,8 @@
+{
+  "HTTPHeaderFetch": "curl -I {target_url}",
+  "TechnologyFingerprint": "whatweb {target_url}",
+  "EndpointDiscovery": "dirsearch -u {target_url} -o {output_file} -f",
+  "PassiveRecon": "nslookup {target_domain}",
+  "ServiceEnumeration": "nmap -sV {target_host}",
+  "ExploitAttempt": "echo 'Simulating exploit for {vulnerability_id} on {target_host}'"
+}

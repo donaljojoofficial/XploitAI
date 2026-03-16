@@ -28,7 +28,7 @@ from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
-from ai.autonomy import AutonomousController
+from services.execution_service import ExecutionService
 from core.config import get_config, set_config
 from ai.llm.groq_adapter import GroqAdapter
 
@@ -124,6 +124,7 @@ def _get_global_context() -> dict[str, Any]:
         'connected_executors': connected_executors,
         'active_targets': active_targets,
         'has_connected_executor': connected_executors.exists(),
+        'has_local_executor': True,
         'has_active_target': active_targets.exists(),
         'active_context': active_context,
     }
@@ -251,48 +252,57 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
 def start_attack(request: HttpRequest) -> HttpResponse:
     """
     Handles the 'Start Autonomous Attack' trigger from the dashboard.
-    Creates a new AttackState and AttackContext, then starts the controller.
+    Creates a new AttackState (local execution mode), then starts the execution service.
     """
     executor_id = request.POST.get('executor_id')
     target_id = request.POST.get('target_id')
     llm_provider = request.POST.get('llm_provider', 'auto')
 
-    if not executor_id or not target_id:
+    if not target_id:
         return redirect('dashboard_index')
 
-    # 1. Create new Attack State
+    target = get_object_or_404(AttackTarget, pk=target_id)
+
+    target_reference = target.base_url or target.ip_address
+
+    # 1. Create new Attack State with local execution context
     state = AttackState.objects.create(
-        name=f"Autonomous Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        name=f"Local Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
         current_phase="RECONNAISSANCE",
-        autonomy_status="IDLE"
+        autonomy_status="IDLE",
+        state_data={
+            "target": target_reference,
+            "current_phase": "reconnaissance",
+            "completed_actions": [],
+            "findings": {},
+            "llm_provider": llm_provider,
+        },
     )
-    
+
     # Persist provider preference
     if not state.state_data:
         state.state_data = {}
     state.state_data['llm_provider'] = llm_provider
     state.save(update_fields=['state_data'])
 
-    # 2. Create Operational Context
-    executor = get_object_or_404(AttackerExecutor, pk=executor_id)
-    target = get_object_or_404(AttackTarget, pk=target_id)
+    # (Optional) create or update context for UI display; local mode doesn't require remote executor.
+    if executor_id:
+        executor = get_object_or_404(AttackerExecutor, pk=executor_id)
+        AttackContext.objects.filter(status__in=['READY', 'RUNNING']).update(
+            status='STOPPED',
+            stop_reason='Superseded by new attack start',
+            stopped_at=timezone.now()
+        )
 
-    # Close any existing active contexts
-    AttackContext.objects.filter(status__in=['READY', 'RUNNING']).update(
-        status='STOPPED',
-        stop_reason='Superseded by new attack start',
-        stopped_at=timezone.now()
-    )
+        AttackContext.objects.create(
+            attacker_executor=executor,
+            target=target,
+            status='READY'
+        )
 
-    AttackContext.objects.create(
-        attacker_executor=executor,
-        target=target,
-        status='READY'
-    )
-
-    # 3. Initialize Controller and Request Plan (Do not start loop yet)
-    controller = AutonomousController(attack_state_id=state.id, llm_provider=llm_provider)
-    controller.request_initial_plan()
+    # 2. Initialize Execution Service and start assessment
+    execution_service = ExecutionService(attack_state_id=state.id)
+    execution_service.start_assessment()
 
     return redirect('dashboard_index')
 
@@ -302,9 +312,6 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     """Approves the current plan for the given attack state."""
     state = get_object_or_404(AttackState, pk=pk)
     
-    # FIX BUG-AI-3: Read provider before mutating state_data to avoid race/overwrite issues
-    llm_provider = (state.state_data or {}).get('llm_provider', 'auto')
-
     if not state.state_data:
         state.state_data = {}
     state.state_data['plan_approved'] = True
@@ -316,8 +323,8 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    controller = AutonomousController(attack_state_id=state.id, llm_provider=llm_provider)
-    controller.start()
+    execution_service = ExecutionService(attack_state_id=state.id)
+    execution_service.start_assessment()
 
     return redirect('dashboard_attack_detail', pk=pk)
 
@@ -333,9 +340,8 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    llm_provider = (state.state_data or {}).get('llm_provider', 'auto')
-    controller = AutonomousController(attack_state_id=state.id, llm_provider=llm_provider)
-    controller.start()
+    execution_service = ExecutionService(attack_state_id=state.id)
+    execution_service.start_assessment()
     return redirect('dashboard_attack_detail', pk=pk)
 
 @login_required(login_url='login')

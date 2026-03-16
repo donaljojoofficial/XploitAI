@@ -1,0 +1,45 @@
+{
+  "PassiveRecon": {
+    "phase": "reconnaissance",
+    "description": "Resolve a domain name to IP addresses.",
+    "next_actions": [
+      "ServiceEnumeration",
+      "HTTPHeaderFetch"
+    ]
+  },
+  "HTTPHeaderFetch": {
+    "phase": "reconnaissance",
+    "description": "Fetch HTTP headers from a web server.",
+    "next_actions": [
+      "TechnologyFingerprint",
+      "EndpointDiscovery"
+    ]
+  },
+  "TechnologyFingerprint": {
+    "phase": "reconnaissance",
+    "description": "Identify technologies used by the web application.",
+    "next_actions": [
+      "EndpointDiscovery",
+      "ExploitAttempt"
+    ]
+  },
+  "EndpointDiscovery": {
+    "phase": "discovery",
+    "description": "Enumerate accessible web endpoints and directories.",
+    "next_actions": [
+      "ExploitAttempt"
+    ]
+  },
+  "ServiceEnumeration": {
+    "phase": "reconnaissance",
+    "description": "Scan a host for open ports and services.",
+    "next_actions": [
+      "ExploitAttempt"
+    ]
+  },
+  "ExploitAttempt": {
+    "phase": "exploitation",
+    "description": "Attempt to exploit a known vulnerability.",
+    "next_actions": []
+  }
+}

@@ -49,14 +49,13 @@
                         {% endif %}
                     </div>
                     <div>
-                        {% if has_connected_executor and has_active_target %}
+                        {% if has_active_target %}
                             <button type="button" @click="startModalOpen = true" class="px-6 py-3 bg-accent text-gray-900 font-bold rounded hover:bg-green-400 shadow-lg shadow-green-900/20 transition-all">
-                                Start Autonomous Attack
+                                Start Autonomous Attack (Local)
                             </button>
                         {% else %}
                             <button class="px-6 py-3 bg-gray-700 text-gray-500 font-bold rounded cursor-not-allowed" disabled>System Not Ready</button>
                             <div class="text-error text-xs mt-2 text-right font-mono">
-                                {% if not has_connected_executor %}Executor Offline. {% endif %}
                                 {% if not has_active_target %}No Active Target.{% endif %}
                             </div>
                         {% endif %}
@@ -141,12 +140,18 @@
                     </div>
                     <div class="space-y-4">
                         <div class="mb-3">
-                            <label for="executorSelect" class="block text-sm font-bold text-gray-400 mb-2">Select Attacker Machine</label>
-                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="executorSelect" name="executor_id" required>
-                                {% for executor in connected_executors %}
-                                    <option value="{{ executor.id }}">{{ executor.name }} ({{ executor.ip_address }})</option>
-                                {% endfor %}
-                            </select>
+                            <label for="executorSelect" class="block text-sm font-bold text-gray-400 mb-2">Attacker Machine</label>
+                            {% if connected_executors %}
+                                <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="executorSelect" name="executor_id">
+                                    <option value="">Local executor (default)</option>
+                                    {% for executor in connected_executors %}
+                                        <option value="{{ executor.id }}">{{ executor.name }} ({{ executor.ip_address }})</option>
+                                    {% endfor %}
+                                </select>
+                            {% else %}
+                                <div class="text-sm text-gray-300 p-2 border border-gray-700 rounded">No external executors available; running in local-only mode.</div>
+                                <input type="hidden" name="executor_id" value="" />
+                            {% endif %}
                         </div>
                         <div class="mb-3">
                             <label for="targetSelect" class="block text-sm font-bold text-gray-400 mb-2">Select Target Machine</label>

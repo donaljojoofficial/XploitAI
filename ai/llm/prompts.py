@@ -3,9 +3,10 @@ Shared prompt construction logic for LLM adapters.
 """
 import json
 from ai.schemas import DecisionInput
+from typing import List
 
 
-def build_recommendation_prompt(decision_input: DecisionInput, next_step_hint: dict = None) -> str:
+def build_recommendation_prompt(decision_input: DecisionInput, allowed_actions: List[str] = None, next_step_hint: dict = None) -> str:
     """Builds the prompt for the tactical decision recommendation."""
     # 1. Target Context
     target_context = "No active target identified."
@@ -49,17 +50,13 @@ def build_recommendation_prompt(decision_input: DecisionInput, next_step_hint: d
         "The objective is to progressively analyze the target application while keeping decisions efficient and focused on the most useful next step.\n\n"
         f"Target context:\n{target_context}\n\n"
         f"Current assessment state:\n{state_object}\n\n"
-        "The state object summarizes everything currently known about the target system, including findings extracted from previous execution results.\n\n"
-        "Available assessment actions:\n"
-        "- PassiveRecon (target_domain)\n"
-        "- HTTPHeaderFetch (target_url)\n"
-        "- EndpointDiscovery (target_url)\n"
-        "- TechnologyFingerprint (target_url)\n"
-        "- ServiceEnumeration (target_host)\n"
-        "- ExploitAttempt (target_host, vulnerability_id)\n"
-        "- PrivilegeEscalation (target_host)\n"
-        "- ProofOfCompromise (evidence_tag)\n"
-        "\n"
+        "The state object summarizes everything currently known about the target system, including findings extracted from previous execution results.\n\n")
+    
+    if allowed_actions:
+        action_list = "\n".join([f"- {action}" for action in allowed_actions])
+        prompt += f"You MUST choose one of the following actions. You cannot choose any other action:\n{action_list}\n\n"
+
+    prompt += (
         "The planner can operate in two modes.\n\n"
         "Mode:\ntactical\n\n"
         "When mode = \"tactical\"\n\n"

@@ -18,8 +18,8 @@ class FallbackAdapter(BaseLLMAdapter):
     If the first adapter fails (returns None), it tries the next.
     """
 
-    def __init__(self, adapters: List[BaseLLMAdapter]):
-        self.adapters = [a for a in adapters if a is not None]
+    def __init__(self, adapters: Optional[List[BaseLLMAdapter]] = None):
+        self.adapters = [a for a in (adapters or []) if a is not None]
         if not self.adapters:
             logger.warning("FallbackAdapter initialized with no valid adapters.")
 
