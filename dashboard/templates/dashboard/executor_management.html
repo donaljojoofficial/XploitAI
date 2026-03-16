@@ -1,41 +1,84 @@
 {% extends 'dashboard/base.html' %}
 
-{% block title %}Executor Management - XploitAI{% endblock %}
+{% block title %}Manage Executors | XploitAI{% endblock %}
 
 {% block content %}
-        <div class="row">
-            <div class="col-md-12">
-                <div class="card shadow-sm">
-                    <div class="card-header bg-dark text-white">
-                        <h5 class="card-title mb-0">Registered Attacker Executors</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="list-group">
-                            {% for executor in executors %}
-                            <div class="list-group-item d-flex justify-content-between align-items-center">
-                                <div>
-                                    <h6 class="mb-1">{{ executor.name }}</h6>
-                                    <small class="text-muted">IP: {{ executor.ip_address }} | Last Heartbeat: {{ executor.last_heartbeat|default:"Never" }}</small>
-                                    {% if executor.status == 'CONNECTED' %}
-                                    <span class="badge bg-success ms-2">Connected</span>
-                                    {% else %}
-                                    <span class="badge bg-danger ms-2">Disconnected</span>
-                                    {% endif %}
-                                </div>
-                                <form method="post" onsubmit="return confirm('Are you sure you want to remove this executor?');">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="executor_id" value="{{ executor.id }}">
-                                    <button type="submit" name="delete_executor" class="btn btn-outline-danger btn-sm">Remove</button>
-                                </form>
-                            </div>
-                            {% empty %}
-                            <div class="text-center py-3 text-muted">
-                                No executors registered.
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
+<div class="mb-8 flex justify-between items-end">
+    <div>
+        <h1 class="text-3xl font-bold text-white mb-2 tracking-tight">EXECUTOR_MANAGEMENT</h1>
+        <p class="text-sm text-gray-400 font-mono">Monitor and manage connected execution nodes.</p>
+    </div>
+</div>
+
+{% if messages %}
+<div class="mb-6 space-y-2">
+    {% for message in messages %}
+    <div class="p-4 rounded border {% if message.tags == 'success' %}bg-accent/10 border-accent/20 text-accent{% else %}bg-gray-800 border-gray-700 text-gray-200{% endif %} text-sm font-mono flex items-center gap-3">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        {{ message }}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="space-y-4">
+    <div class="flex justify-between items-center mb-4">
+        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-widest">Active Execution Nodes</h2>
+        <div class="text-xs text-gray-400 font-mono">
+            <span class="text-accent">●</span> Auto-refreshes heartbeats
+        </div>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for executor in executors %}
+        <div class="bg-gray-800 border border-gray-700 p-5 rounded-lg flex flex-col hover:border-gray-600 transition-colors">
+            <div class="flex justify-between items-start mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-2 h-2 rounded-full {% if executor.status == 'CONNECTED' %}bg-accent animate-pulse{% else %}bg-red-500{% endif %}"></div>
+                    <h3 class="text-lg font-bold text-white tracking-tight">{{ executor.name }}</h3>
+                </div>
+                <form method="POST" onsubmit="return confirm('Are you sure you want to remove this executor node?');">
+                    {% csrf_token %}
+                    <input type="hidden" name="executor_id" value="{{ executor.id }}">
+                    <button type="submit" name="delete_executor" class="text-gray-500 hover:text-red-400 transition-colors" title="Remove Executor">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </form>
+            </div>
+            
+            <div class="space-y-2 text-xs font-mono text-gray-400 mb-6 flex-1">
+                <div class="flex justify-between border-b border-gray-700 pb-2">
+                    <span>IP Address</span>
+                    <span class="text-gray-200">{{ executor.ip_address }}</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-700 pb-2 pt-1">
+                    <span>Status</span>
+                    <span class="{% if executor.status == 'CONNECTED' %}text-accent{% else %}text-red-400{% endif %} font-bold">{{ executor.status }}</span>
+                </div>
+                <div class="flex justify-between pt-1">
+                    <span>Last Heartbeat</span>
+                    <span class="text-gray-200">{{ executor.last_heartbeat|timesince|default:"Never" }} ago</span>
                 </div>
             </div>
+
+            <div class="mt-auto">
+                {% if executor.status == 'CONNECTED' %}
+                <div class="w-full bg-accent/10 text-accent text-center py-2 rounded text-xs font-bold font-mono border border-accent/20">
+                    READY FOR OPERATIONS
+                </div>
+                {% else %}
+                <div class="w-full bg-gray-700 text-gray-400 text-center py-2 rounded text-xs font-bold font-mono">
+                    OFFLINE
+                </div>
+                {% endif %}
+            </div>
         </div>
+        {% empty %}
+        <div class="col-span-full bg-gray-800 border border-gray-700 border-dashed rounded-lg p-8 text-center">
+            <p class="text-gray-500 font-mono text-sm mb-2">No execution nodes detected.</p>
+            <p class="text-xs text-gray-600 font-mono">Connect an executor agent to this console to begin operations.</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
 {% endblock %}
