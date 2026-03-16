@@ -58,6 +58,8 @@
     </style>
 </head>
 <body class="min-h-screen flex flex-col bg-gray-900 text-gray-200">
+    {% block navbar %}
+    {% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'register' %}
     <!-- Navbar -->
     <nav class="border-b border-gray-700 bg-gray-800 px-6 py-4 flex justify-between items-center">
         <div class="flex items-center gap-8">
@@ -172,6 +174,8 @@
             <div class="text-xs text-gray-500 font-mono tracking-widest">SYSTEM_ONLINE</div>
         </div>
     </nav>
+    {% endif %}
+    {% endblock navbar %}
 
     <!-- Main Content -->
     <main class="flex-1 p-6 container mx-auto max-w-7xl">

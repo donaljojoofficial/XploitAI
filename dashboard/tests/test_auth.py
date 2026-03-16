@@ -53,22 +53,29 @@ class AuthenticationTests(TestCase):
         response = self.client.get(reverse('password_reset'))
         self.assertEqual(response.status_code, 200)
 
-        # test reset post (console backend outputs message)
+        # test reset post
         response = self.client.post(reverse('password_reset'), {'email': 'tester@example.com'}, follow=True)
-        self.assertRedirects(response, reverse('password_reset_done'))
+        self.assertRedirects(response, self.login_url)
+        self.assertContains(response, "If an account with that email exists")
 
-        # simulate token generation and confirm view
-        from django.contrib.auth.tokens import default_token_generator
+        # Check cache for code
+        from django.core.cache import cache
         from django.utils.http import urlsafe_base64_encode
         from django.utils.encoding import force_bytes
+        user = User.objects.get(email='tester@example.com')
+        code = cache.get(f"reset_code_{user.pk}")
+        self.assertIsNotNone(code)
+
+        # simulate verify view by constructing the URL from the email
         uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-        confirm_url = reverse('password_reset_confirm', kwargs={'uidb64': uid, 'token': token})
-        resp2 = self.client.get(confirm_url)
+        verify_url = reverse('password_reset_verify', kwargs={'uidb64': uid})
+        resp2 = self.client.get(verify_url)
         self.assertEqual(resp2.status_code, 200)
+        
         # post new password
-        resp3 = self.client.post(confirm_url, {'new_password1': 'newpass123', 'new_password2': 'newpass123'}, follow=True)
-        self.assertRedirects(resp3, reverse('password_reset_complete'))
+        resp3 = self.client.post(verify_url, {'code': code, 'new_password': 'newpass123', 'confirm_password': 'newpass123'}, follow=True)
+        self.assertRedirects(resp3, self.login_url)
+        self.assertContains(resp3, "Password has been reset successfully")
 
         # logout again
         self.client.post(self.logout_url, follow=True)

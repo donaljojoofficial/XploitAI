@@ -16,22 +16,6 @@ urlpatterns = [
     path("profile/", auth.profile, name="profile"),
     path("profile/change-password/", auth.change_password, name="change_password"),
 
-    # password reset via built‑in auth views
-    path("password-reset/", auth_views.PasswordResetView.as_view(
-            template_name="dashboard/auth/password_reset_form.html",
-            email_template_name="dashboard/auth/password_reset_email.txt"
-        ),
-         name="password_reset"),
-    path("password-reset/done/", auth_views.PasswordResetDoneView.as_view(
-            template_name="dashboard/auth/password_reset_done.html"),
-         name="password_reset_done"),
-    path("reset/<uidb64>/<token>/", auth_views.PasswordResetConfirmView.as_view(
-            template_name="dashboard/auth/password_reset_confirm.html"),
-         name="password_reset_confirm"),
-    path("reset/done/", auth_views.PasswordResetCompleteView.as_view(
-            template_name="dashboard/auth/password_reset_complete.html"),
-         name="password_reset_complete"),
-
     # Dashboard routes (root level)
     path("", views.index, name="dashboard_index"),
     path("start/", views.start_attack, name="dashboard_start_attack"),
@@ -44,7 +28,10 @@ urlpatterns = [
     path("attack/<int:pk>/approve/", views.approve_plan, name="approve_plan"),
     path("attack/<int:pk>/resume/", views.resume_attack, name="resume_attack"),
     path("attack/<int:pk>/stop/", views.stop_attack, name="stop_attack"),
+    path('password-reset/', auth.password_reset_request, name='password_reset'),
+    path('password-reset/verify/<uidb64>/', auth.password_reset_verify, name='password_reset_verify'),
     
+
     # Configuration + settings (mounted separately under /settings/)
     path("configuration/", views.configuration, name="configuration"),
     path("check_status/", views.check_llm_status, name="check_llm_status"),

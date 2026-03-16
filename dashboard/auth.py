@@ -9,6 +9,7 @@ from django.contrib.auth.models import User, Group
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.core.cache import cache
 from django.template.loader import render_to_string
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
@@ -18,6 +19,7 @@ from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.urls import reverse
 import threading
+import random
 
 
 class RegistrationForm(forms.ModelForm):
@@ -237,6 +239,82 @@ def activate(request: HttpRequest, uidb64: str, token: str) -> HttpResponse:
     else:
         messages.error(request, "Activation link is invalid or expired.")
         return redirect('register')
+
+
+def password_reset_request(request: HttpRequest) -> HttpResponse:
+    """Handle request for a password reset code."""
+    if request.user.is_authenticated:
+        return redirect('dashboard_index')
+        
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        user = User.objects.filter(email=email, is_active=True).first()
+        if user:
+            code = str(random.randint(100000, 999999))
+            cache.set(f"reset_code_{user.pk}", code, timeout=900) # 15 mins
+            
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            verify_url = request.build_absolute_uri(
+                reverse('password_reset_verify', kwargs={'uidb64': uid})
+            )
+
+            subject = 'Your Password Reset Code'
+            message = render_to_string('dashboard/auth/password_reset_email.txt', {
+                'code': code,
+                'verify_url': verify_url,
+            })
+            threading.Thread(target=send_mail, args=(subject, message, None, [email])).start()
+            
+        # Always show the same message to prevent email enumeration
+        messages.success(request, "If an account with that email exists, a code and a link to reset your password have been sent.")
+        return redirect('login')
+        
+    return render(request, 'dashboard/auth/password_reset_request.html')
+
+
+def password_reset_verify(request: HttpRequest, uidb64: str) -> HttpResponse:
+    """Verify the 6-digit code and reset password."""
+    if request.user.is_authenticated:
+        return redirect('dashboard_index')
+        
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+
+    if user is None:
+        messages.error(request, "The password reset link is invalid or has expired.")
+        return redirect('password_reset')
+        
+    if request.method == 'POST':
+        code = request.POST.get('code')
+        new_password = request.POST.get('new_password')
+        confirm_password = request.POST.get('confirm_password')
+        
+        cached_code = cache.get(f"reset_code_{user.pk}")
+        
+        if not cached_code or cached_code != code:
+            messages.error(request, "Invalid or expired reset code.")
+            return render(request, 'dashboard/auth/password_reset_verify.html', {'uidb64': uidb64, 'email': user.email})
+            
+        if new_password != confirm_password:
+            messages.error(request, "Passwords do not match.")
+            return render(request, 'dashboard/auth/password_reset_verify.html', {'uidb64': uidb64, 'email': user.email})
+            
+        if len(new_password) < 8:
+            messages.error(request, "Password must be at least 8 characters long.")
+            return render(request, 'dashboard/auth/password_reset_verify.html', {'uidb64': uidb64, 'email': user.email})
+            
+        user.set_password(new_password)
+        user.save()
+        cache.delete(f"reset_code_{user.pk}")
+        if 'reset_email' in request.session:
+            del request.session['reset_email']
+        messages.success(request, "Password has been reset successfully. You can now log in.")
+        return redirect('login')
+            
+    return render(request, 'dashboard/auth/password_reset_verify.html', {'uidb64': uidb64, 'email': user.email})
 
 
 # Role-based decorators
