@@ -248,6 +248,15 @@ def password_reset_request(request: HttpRequest) -> HttpResponse:
         
     if request.method == 'POST':
         email = request.POST.get('email')
+        
+        # Rate limiting: limit to 1 request per 2 minutes per email
+        cooldown_key = f"pwd_reset_cooldown_{email}"
+        if cache.get(cooldown_key):
+            messages.success(request, "If an account with that email exists, a code and a link to reset your password have been sent.")
+            return redirect('login')
+            
+        cache.set(cooldown_key, True, timeout=120)
+
         user = User.objects.filter(email=email, is_active=True).first()
         if user:
             code = str(random.randint(100000, 999999))

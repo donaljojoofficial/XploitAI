@@ -1,36 +1,43 @@
 {% extends 'dashboard/base.html' %}
 
 {% block content %}
-<div class="container-fluid py-4">
+<div class="space-y-6">
     <!-- Header -->
-    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center pb-4 border-b border-gray-700">
         <div>
-            <h1 class="h2">Operation: {{ attack_state.name }}</h1>
-            <div class="mt-2">
-                <span class="badge bg-secondary">{{ attack_state.current_phase }}</span>
-                <span class="badge bg-{% if attack_state.autonomy_status == 'RUNNING' %}success{% elif attack_state.autonomy_status == 'STOPPED' %}danger{% else %}warning{% endif %}">
-                    {{ attack_state.autonomy_status }}
-                </span>
-                <span class="badge bg-info text-dark" title="AI Provider">
-                    <i class="bi bi-cpu"></i> {{ attack_state.state_data.llm_provider|default:"AUTO"|upper }}
+            <h1 class="text-2xl font-bold text-white mb-2">Operation: <span class="text-accent">{{ attack_state.name }}</span></h1>
+            <div class="flex flex-wrap gap-2 text-xs font-mono">
+                <span class="px-2 py-1 bg-gray-700 text-gray-300 rounded border border-gray-600">{{ attack_state.current_phase }}</span>
+                
+                {% if attack_state.autonomy_status == 'RUNNING' %}
+                    <span class="px-2 py-1 bg-green-900/30 text-accent border border-green-500/50 rounded flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span> {{ attack_state.autonomy_status }}
+                    </span>
+                {% elif attack_state.autonomy_status == 'STOPPED' %}
+                    <span class="px-2 py-1 bg-red-900/30 text-error border border-red-500/50 rounded">{{ attack_state.autonomy_status }}</span>
+                {% else %}
+                    <span class="px-2 py-1 bg-yellow-900/30 text-warning border border-yellow-500/50 rounded">{{ attack_state.autonomy_status }}</span>
+                {% endif %}
+                
+                <span class="px-2 py-1 bg-blue-900/30 text-info border border-blue-500/50 rounded" title="AI Provider">
+                    ⚙️ {{ attack_state.state_data.llm_provider|default:"AUTO"|upper }}
                 </span>
             </div>
         </div>
-        <div class="btn-toolbar mb-2 mb-md-0">
-            <div class="btn-group me-2">
-                <a href="{% url 'dashboard_attack_replay' attack_state.id %}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-rewind-circle"></i> Replay
-                </a>
-                <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="btn btn-sm btn-outline-info">
-                    <i class="bi bi-journal-text"></i> Plan
-                </a>
-            </div>
+        
+        <div class="mt-4 md:mt-0 flex flex-wrap gap-2">
+            <a href="{% url 'dashboard_attack_replay' attack_state.id %}" class="px-3 py-1.5 text-sm border border-info text-info hover:bg-info hover:text-gray-900 rounded transition-colors flex items-center gap-1">
+                ⏮ Replay
+            </a>
+            <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="px-3 py-1.5 text-sm border border-gray-500 text-gray-300 hover:border-gray-300 hover:text-white rounded transition-colors flex items-center gap-1">
+                📋 Plan
+            </a>
             
             {% if attack_state.autonomy_status == 'STOPPED' %}
-                <form action="{% url 'resume_attack' attack_state.id %}" method="POST" class="d-inline">
+                <form action="{% url 'resume_attack' attack_state.id %}" method="POST" class="inline-block">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-success">
-                        <i class="bi bi-play-fill"></i> Resume
+                    <button type="submit" class="px-3 py-1.5 text-sm bg-accent text-gray-900 font-bold rounded hover:bg-green-400 transition-colors flex items-center gap-1">
+                        ▶ Resume
                     </button>
                 </form>
             {% endif %}
@@ -38,10 +45,10 @@
     </div>
 
     {% if attack_state.autonomy_status != 'STOPPED' %}
-    <div class="mt-4">
+    <div>
         <form action="{% url 'stop_attack' attack_state.id %}" method="post" class="inline-block">
             {% csrf_token %}
-            <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow-md transition duration-150 ease-in-out">
+            <button type="submit" class="bg-error/20 hover:bg-error/40 text-error border border-error font-bold py-2 px-4 rounded shadow-md transition duration-150 ease-in-out flex items-center gap-2">
                 🛑 STOP AUTONOMY
             </button>
         </form>
@@ -50,73 +57,91 @@
     
     <!-- Stop Reason Alert -->
     {% if attack_state.autonomy_status == 'STOPPED' %}
-        <div class="alert alert-{% if waiting_for_approval %}warning{% elif plan_completed %}success{% else %}danger{% endif %} mb-4">
-            <strong>Stopped:</strong> {{ attack_state.stop_reason }}
+        <div class="p-4 rounded border {% if waiting_for_approval %}bg-yellow-900/20 border-warning text-yellow-200{% elif plan_completed %}bg-green-900/20 border-accent text-green-200{% else %}bg-red-900/20 border-error text-red-200{% endif %} flex justify-between items-center">
+            <div>
+                <strong class="font-bold">Stopped:</strong> <span class="text-sm">{{ attack_state.stop_reason }}</span>
+            </div>
             {% if waiting_for_approval %}
-                <form action="{% url 'approve_plan' attack_state.id %}" method="POST" class="d-inline ms-3">
+                <form action="{% url 'approve_plan' attack_state.id %}" method="POST" class="inline-block ml-4">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-warning btn-sm">Approve & Continue</button>
+                    <button type="submit" class="px-3 py-1.5 bg-warning text-gray-900 font-bold text-sm rounded hover:bg-yellow-400 transition-colors">Approve & Continue</button>
                 </form>
             {% endif %}
         </div>
     {% endif %}
 
     <!-- Main Grid -->
-    <div class="row">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Timeline / Events -->
-        <div class="col-lg-8">
-            <div class="card shadow-sm mb-4">
-                <div class="card-header">
-                    <h5 class="my-0 fw-normal">Live Event Log</h5>
+        <div class="lg:col-span-2">
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden h-[600px] flex flex-col">
+                <div class="bg-gray-700/50 px-4 py-3 border-b border-gray-700">
+                    <h5 class="font-bold text-gray-200">Live Event Log</h5>
                 </div>
-                <div class="card-body p-0">
-                    <div class="list-group list-group-flush" style="max-height: 600px; overflow-y: auto;">
-                        {% for event in unified_events reversed %}
-                            <div class="list-group-item">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h6 class="mb-1">
-                                        {% if event.source == 'AI' %}
-                                            <span class="badge bg-primary">AI</span>
-                                        {% elif event.source == 'EXECUTOR' %}
-                                            <span class="badge bg-secondary">EXEC</span>
-                                        {% elif event.source == 'DEFENDER' %}
-                                            <span class="badge bg-danger">DEFENDER</span>
-                                        {% else %}
-                                            <span class="badge bg-light text-dark">{{ event.source }}</span>
-                                        {% endif %}
-                                        {{ event.type }}
-                                    </h6>
-                                    <small class="text-muted">{{ event.dt|date:"H:i:s" }}</small>
+                <div class="flex-1 overflow-y-auto divide-y divide-gray-700 p-0">
+                    {% for event in unified_events reversed %}
+                        <div class="p-4 hover:bg-gray-700/30 transition-colors">
+                            <div class="flex w-full justify-between items-start mb-2">
+                                <h6 class="text-sm font-bold text-white flex items-center gap-2">
+                                    {% if event.source == 'AI' %}
+                                        <span class="px-2 py-0.5 text-[10px] rounded bg-purple-900/50 text-purple-300 border border-purple-500/50">AI</span>
+                                    {% elif event.source == 'EXECUTOR' %}
+                                        <span class="px-2 py-0.5 text-[10px] rounded bg-gray-700 text-gray-300 border border-gray-500/50">EXEC</span>
+                                    {% elif event.source == 'DEFENDER' %}
+                                        <span class="px-2 py-0.5 text-[10px] rounded bg-red-900/50 text-red-300 border border-red-500/50">DEFENDER</span>
+                                    {% else %}
+                                        <span class="px-2 py-0.5 text-[10px] rounded bg-gray-600 text-gray-200">{{ event.source }}</span>
+                                    {% endif %}
+                                    {{ event.type }}
+                                </h6>
+                                <span class="text-xs text-gray-500 font-mono">{{ event.dt|date:"H:i:s" }}</span>
+                            </div>
+                            <p class="text-sm text-gray-300 mb-2">{{ event.desc }}</p>
+                            {% if event.data %}
+                                <div class="bg-gray-900 p-3 rounded border border-gray-700 overflow-x-auto">
+                                    <pre class="text-xs text-green-400 font-mono m-0">{{ event.data|pprint }}</pre>
                                 </div>
-                                <p class="mb-1">{{ event.desc }}</p>
-                                {% if event.data %}
-                                    <small class="text-muted">
-                                        <pre class="mb-0 mt-1 bg-light p-1 border rounded" style="font-size: 0.75em;">{{ event.data|pprint }}</pre>
-                                    </small>
-                                {% endif %}
-                            </div>
-                        {% empty %}
-                            <div class="list-group-item text-center text-muted py-4">
-                                No events recorded yet.
-                            </div>
-                        {% endfor %}
-                    </div>
+                            {% endif %}
+                        </div>
+                    {% empty %}
+                        <div class="p-8 text-center text-gray-500 italic">
+                            No events recorded yet.
+                        </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>
 
         <!-- Sidebar Stats -->
-        <div class="col-lg-4">
+        <div class="lg:col-span-1 space-y-6">
             <!-- Alerts -->
-            {% include "dashboard/partials/defender_alerts.html" with alerts=alerts %}
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden">
+                <div class="bg-error/10 px-4 py-3 border-b border-gray-700 flex justify-between items-center">
+                    <h5 class="font-bold text-error">Defender Alerts</h5>
+                </div>
+                <div class="p-0">
+                    {% include "dashboard/partials/defender_alerts.html" with alerts=alerts %}
+                </div>
+            </div>
 
             <!-- Stats -->
-            <div class="card shadow-sm mb-4">
-                <div class="card-header">Statistics</div>
-                <div class="card-body">
-                    <p><strong>Actions:</strong> {{ actions.count }}</p>
-                    <p><strong>Tasks:</strong> {{ tasks.count }}</p>
-                    <p><strong>Failures (Consecutive):</strong> {{ consecutive_failures }}</p>
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden">
+                <div class="bg-gray-700/50 px-4 py-3 border-b border-gray-700">
+                    <h5 class="font-bold text-gray-300">Statistics</h5>
+                </div>
+                <div class="p-4 space-y-3">
+                    <div class="flex justify-between items-center border-b border-gray-700 pb-2">
+                        <span class="text-gray-400 text-sm">Actions</span>
+                        <span class="text-white font-mono font-bold">{{ actions.count }}</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-gray-700 pb-2">
+                        <span class="text-gray-400 text-sm">Tasks</span>
+                        <span class="text-white font-mono font-bold">{{ tasks.count }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400 text-sm">Failures (Consecutive)</span>
+                        <span class="{% if consecutive_failures > 0 %}text-error{% else %}text-accent{% endif %} font-mono font-bold">{{ consecutive_failures }}</span>
+                    </div>
                 </div>
             </div>
         </div>
