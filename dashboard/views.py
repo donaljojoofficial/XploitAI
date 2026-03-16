@@ -217,6 +217,20 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @login_required(login_url='login')
+def attack_command_logs(request: HttpRequest, pk: int) -> HttpResponse:
+    """Show raw command output (stdout/stderr/findings) for a given attack."""
+    state = get_object_or_404(AttackState, pk=pk)
+    execution_results = state.execution_results.select_related('command').order_by('-created_at')
+
+    context = {
+        'attack_state': state,
+        'execution_results': execution_results,
+        **_get_global_context(),
+    }
+    return render(request, 'dashboard/attack_command_logs.html', context)
+
+
+@login_required(login_url='login')
 def attack_replay(request: HttpRequest, pk: int) -> HttpResponse:
     """Show a sequential replay of the attack lifecycle."""
     state = get_object_or_404(AttackState, pk=pk)
@@ -301,7 +315,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         )
 
     # 2. Initialize Execution Service and start assessment
-    execution_service = ExecutionService(attack_state_id=state.id)
+    execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
     execution_service.start_assessment()
 
     return redirect('dashboard_index')
@@ -323,7 +337,8 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    execution_service = ExecutionService(attack_state_id=state.id)
+    llm_provider = state.state_data.get('llm_provider', 'auto') if state.state_data else 'auto'
+    execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
     execution_service.start_assessment()
 
     return redirect('dashboard_attack_detail', pk=pk)
@@ -340,7 +355,8 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    execution_service = ExecutionService(attack_state_id=state.id)
+    llm_provider = state.state_data.get('llm_provider', 'auto') if state.state_data else 'auto'
+    execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
     execution_service.start_assessment()
     return redirect('dashboard_attack_detail', pk=pk)
 

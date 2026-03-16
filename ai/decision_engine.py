@@ -3,8 +3,9 @@ import logging
 import os
 import re
 from typing import Iterator, List, Optional
-from core.models import AttackState, Action, AttackTarget, ActionResult
+from core.models import AttackState, Action, AttackTarget, ActionResult, Command
 from ai.schemas import DecisionInput, DecisionRequest, KnownService, PastActionSummary, ActionResultSummary, Plan, PlanStep
+from state.state_manager import StateManager
 
 # Attempt to import Adapters
 try:
@@ -45,6 +46,10 @@ class DecisionEngine:
         
         adapters = []
         
+        if provider == "auto":
+            from core.config import get_config
+            provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
+            
         def _init_gemini():
             if GEMINI_AVAILABLE:
                 # Check for API keys to avoid potential crashes in adapter initialization
@@ -218,6 +223,25 @@ class DecisionEngine:
         Generates a list of actions based on the current attack state.
         Includes a fallback mechanism to prevent autonomy stalls.
         """
+        # If no LLM adapter is available, use the deterministic fallback planner engine.
+        if not self.llm_adapter:
+            from ai.planner import FallbackPlannerEngine
+            logger.info("No LLM adapter available in DecisionEngine; using FallbackPlannerEngine.")
+            fallback = FallbackPlannerEngine(StateManager(attack_state.id))
+            plan = fallback.get_next_command()
+            if not plan:
+                return []
+
+            action = Action(
+                attack_state=attack_state,
+                name=Command.objects.get(id=plan['command_id']).name if plan.get('command_id') else 'Unknown',
+                description=plan.get('reason', 'Fallback planner selected command'),
+                reasoning=plan.get('reason', 'Fallback planner selected command'),
+                parameters={"target_url": attack_state.state_data.get('target')} if attack_state.state_data else {},
+                status='PENDING'
+            )
+            return [action]
+
         proposed_actions = []
         
         # 1. AI Planning Logic

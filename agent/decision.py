@@ -66,7 +66,20 @@ class DecisionEngine:
     """
 
     def __init__(self) -> None:
-        self.llm_adapter = GeminiAdapter()
+        from core.config import get_config
+        provider = get_config("DEFAULT_LLM_PROVIDER", "gemini")
+        
+        if provider == "ollama":
+            from ai.llm.ollama_adapter import OllamaAdapter
+            self.llm_adapter = OllamaAdapter()
+        elif provider == "claude":
+            from ai.llm.anthropic import AnthropicAdapter
+            self.llm_adapter = AnthropicAdapter()
+        elif provider == "groq":
+            from ai.llm.groq_adapter import GroqAdapter
+            self.llm_adapter = GroqAdapter()
+        else:
+            self.llm_adapter = GeminiAdapter()
 
     def generate_actions(self, state: AttackStateLike, limit: int = 3) -> list[ActionProposal]:
         """Alias for propose_next_actions to satisfy AutonomousController interface."""

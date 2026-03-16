@@ -74,6 +74,10 @@ class CommandGenerator:
         self.llm_client = None
 
         if self.use_llm:
+            if llm_provider == "auto":
+                from core.config import get_config
+                llm_provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
+                
             # Ensure API keys are set for Gemini
             google_key = os.getenv("GOOGLE_API_KEY")
             gemini_key = os.getenv("GEMINI_API_KEY")

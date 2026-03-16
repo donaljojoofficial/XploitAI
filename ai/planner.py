@@ -14,6 +14,61 @@ from state.state_manager import StateManager
 logger = logging.getLogger(__name__)
 
 
+class FallbackPlannerEngine:
+    """Deterministic engine used when no LLM provider is available."""
+
+    PHASE_ORDER = [
+        "RECONNAISSANCE",
+        "ENUMERATION",
+        "EXPLOITATION",
+        "PRIVILEGE_ESCALATION",
+        "PROOF_OF_COMPROMISE",
+        "COMPLETED",
+    ]
+
+    def __init__(self, state_manager: StateManager):
+        self.state_manager = state_manager
+
+    def _get_next_phase(self, current_phase: str) -> str:
+        current_phase = current_phase.upper() if current_phase else ""
+        if current_phase not in self.PHASE_ORDER:
+            return "RECONNAISSANCE"
+
+        current_index = self.PHASE_ORDER.index(current_phase)
+        if current_index + 1 < len(self.PHASE_ORDER):
+            return self.PHASE_ORDER[current_index + 1]
+
+        return "COMPLETED"
+
+    def get_next_command(self) -> Optional[dict]:
+        from core.models import AttackState
+
+        current_state = self.state_manager.get_current_state_for_planner()
+        phase = current_state.get("current_phase", "RECONNAISSANCE")
+
+        # Prefer an available command in the current phase
+        available_commands = list(self.state_manager.get_available_commands(phase))
+
+        if not available_commands:
+            # Advance to next phase, save, and try again exactly once
+            attack_state = AttackState.objects.get(id=self.state_manager.attack_state_id)
+            next_phase = self._get_next_phase(attack_state.current_phase)
+            if next_phase != attack_state.current_phase and next_phase != "COMPLETED":
+                attack_state.current_phase = next_phase
+                attack_state.save(update_fields=["current_phase"])
+                available_commands = list(self.state_manager.get_available_commands(next_phase))
+
+        if not available_commands:
+            return None
+
+        chosen = available_commands[0]
+        return {
+            "command_id": chosen.id,
+            "command_name": chosen.name,
+            "reason": f"Fallback planner selects command '{chosen.name}' in phase '{phase}'.",
+        }
+
+
 class AIPlanner:
     """
     Uses an action graph and an LLM to decide the next best action.
@@ -29,6 +84,33 @@ class AIPlanner:
             # Fallback to a default if not specified in settings
             provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
 
+        # Try specific provider first to avoid initializing others unnecessarily
+        if provider == "gemini":
+            try:
+                from ai.llm.gemini import GeminiAdapter
+                gemini = GeminiAdapter()
+                if gemini._client: return gemini
+            except Exception: pass
+        elif provider == "claude":
+            try:
+                from ai.llm.anthropic import AnthropicAdapter
+                claude = AnthropicAdapter()
+                if claude._client or claude._use_raw_http: return claude
+            except Exception: pass
+        elif provider == "groq":
+            try:
+                from ai.llm.groq_adapter import GroqAdapter
+                groq = GroqAdapter()
+                if groq._client: return groq
+            except Exception: pass
+        elif provider == "ollama":
+            try:
+                from ai.llm.ollama_adapter import OllamaAdapter
+                ollama = OllamaAdapter()
+                if ollama._client: return ollama
+            except Exception: pass
+
+        # If specific provider failed or "fallback" was selected, initialize all available
         adapters = []
         
         try:
@@ -55,15 +137,6 @@ class AIPlanner:
             if ollama._client: adapters.append(ollama)
         except Exception: pass
 
-        if provider == "gemini" and any(isinstance(a, GeminiAdapter) for a in adapters):
-            return next(a for a in adapters if isinstance(a, GeminiAdapter))
-        elif provider == "claude" and any(isinstance(a, AnthropicAdapter) for a in adapters):
-            return next(a for a in adapters if isinstance(a, AnthropicAdapter))
-        elif provider == "groq" and any(isinstance(a, GroqAdapter) for a in adapters):
-            return next(a for a in adapters if isinstance(a, GroqAdapter))
-        elif provider == "ollama" and any(isinstance(a, OllamaAdapter) for a in adapters):
-            return next(a for a in adapters if isinstance(a, OllamaAdapter))
-
         if not adapters:
             logger.info("No LLM providers available in AIPlanner. Falling back to deterministic action selection.")
             return None
@@ -73,6 +146,11 @@ class AIPlanner:
 
     def get_next_command(self, state_manager: StateManager) -> Optional[dict]:
         """Determines the next command ID to execute. AI sees only metadata, not templates."""
+
+        if not self.adapter:
+            logger.info("No LLM provider active; using fallback planner engine.")
+            return FallbackPlannerEngine(state_manager).get_next_command()
+
         from core.models import Command
 
         current_state = state_manager.get_current_state_for_planner()
@@ -80,8 +158,8 @@ class AIPlanner:
 
         available_commands = list(state_manager.get_available_commands(phase))
         if not available_commands:
-            logger.info("No available commands for current phase. Stopping.")
-            return None
+            logger.info("No available commands for current phase. Falling back to deterministic engine.")
+            return FallbackPlannerEngine(state_manager).get_next_command()
 
         available_command_metadata = [
             {"id": c.id, "name": c.name, "description": c.description}
@@ -101,11 +179,10 @@ class AIPlanner:
         )
 
         proposal = None
-        if self.adapter:
-            try:
-                proposal = self.adapter.get_recommendation(decision_input)
-            except Exception as e:
-                logger.warning(f"LLM recommendation failed: {e}")
+        try:
+            proposal = self.adapter.get_recommendation(decision_input)
+        except Exception as e:
+            logger.warning(f"LLM recommendation failed: {e}")
 
         if proposal is not None:
             chosen_name = proposal.action_type
@@ -119,11 +196,5 @@ class AIPlanner:
             else:
                 logger.warning(f"LLM proposed unknown command: {chosen_name}")
 
-        # Fallback deterministic selection
-        chosen = available_commands[0]
-
-        return {
-            "command_id": chosen.id,
-            "command_name": chosen.name,
-            "reason": chosen.description or "Fallback selection of first available command.",
-        }
+        logger.info("Fallback planner engine engaged after LLM fallback.")
+        return FallbackPlannerEngine(state_manager).get_next_command()

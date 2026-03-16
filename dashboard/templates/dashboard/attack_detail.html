@@ -32,6 +32,9 @@
             <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="px-3 py-1.5 text-sm border border-gray-500 text-gray-300 hover:border-gray-300 hover:text-white rounded transition-colors flex items-center gap-1">
                 📋 Plan
             </a>
+            <a href="{% url 'dashboard_attack_command_logs' attack_state.id %}" class="px-3 py-1.5 text-sm border border-gray-500 text-gray-300 hover:border-gray-300 hover:text-white rounded transition-colors flex items-center gap-1">
+                🖥️ Command Logs
+            </a>
             
             {% if attack_state.autonomy_status == 'STOPPED' %}
                 <form action="{% url 'resume_attack' attack_state.id %}" method="POST" class="inline-block">

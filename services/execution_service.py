@@ -26,6 +26,7 @@ class ExecutionService:
         max_time_seconds: int = 120,
         max_retries: int = 1,
         max_commands_per_phase: int = 3,
+        llm_provider: str = "auto",
     ):
         self.attack_state_id = attack_state_id
         self.max_steps = max_steps
@@ -33,7 +34,7 @@ class ExecutionService:
         self.max_retries = max_retries
         self.max_commands_per_phase = max_commands_per_phase
         self.state_manager = StateManager(attack_state_id=attack_state_id)
-        self.planner = AIPlanner()
+        self.planner = AIPlanner(provider=llm_provider)
         self.phase_command_counts = {}
 
     def start_assessment(self):
