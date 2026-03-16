@@ -63,7 +63,11 @@ class AIPlanner:
             return next(a for a in adapters if isinstance(a, GroqAdapter))
         elif provider == "ollama" and any(isinstance(a, OllamaAdapter) for a in adapters):
             return next(a for a in adapters if isinstance(a, OllamaAdapter))
-            
+
+        if not adapters:
+            logger.info("No LLM providers available in AIPlanner. Falling back to deterministic action selection.")
+            return None
+
         from ai.llm.fallback import FallbackAdapter
         return FallbackAdapter(adapters)
 
@@ -97,10 +101,11 @@ class AIPlanner:
         )
 
         proposal = None
-        try:
-            proposal = self.adapter.get_recommendation(decision_input)
-        except Exception as e:
-            logger.warning(f"LLM recommendation failed: {e}")
+        if self.adapter:
+            try:
+                proposal = self.adapter.get_recommendation(decision_input)
+            except Exception as e:
+                logger.warning(f"LLM recommendation failed: {e}")
 
         if proposal is not None:
             chosen_name = proposal.action_type

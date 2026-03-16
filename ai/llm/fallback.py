@@ -21,11 +21,14 @@ class FallbackAdapter(BaseLLMAdapter):
     def __init__(self, adapters: Optional[List[BaseLLMAdapter]] = None):
         self.adapters = [a for a in (adapters or []) if a is not None]
         if not self.adapters:
-            logger.warning("FallbackAdapter initialized with no valid adapters.")
+            logger.info("FallbackAdapter initialized with no valid adapters. LLM recommendation will be disabled.")
 
-    def get_recommendation(self, decision_input: DecisionInput) -> Optional[Decision]:
+    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
+        if not self.adapters:
+            return None
+
         for adapter in self.adapters:
-            result = adapter.get_recommendation(decision_input)
+            result = adapter.get_recommendation(decision_input, next_step_hint=next_step_hint)
             if result:
                 return result
             logger.warning(f"Adapter {adapter.__class__.__name__} failed to return recommendation. Trying next...")
@@ -33,6 +36,9 @@ class FallbackAdapter(BaseLLMAdapter):
         return None
 
     def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+        if not self.adapters:
+            return None
+
         for adapter in self.adapters:
             result = adapter.get_plan(decision_input)
             if result:
