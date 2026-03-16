@@ -21,17 +21,17 @@ def build_recommendation_prompt(decision_input: DecisionInput, allowed_actions: 
     # 2. State Object
     state_dict = {
         "phase": decision_input.phase,
-        "completed_actions": [
-            f"{a.action_type}({json.dumps(a.parameters)})" 
-            for a in decision_input.past_actions[-5:]
-        ],
-        "findings": decision_input.findings or {}
+        "target": decision_input.known_services[0].endpoint if decision_input.known_services else "unknown",
+        "completed_commands": [a.action_type for a in decision_input.past_actions[-10:]],
+        "findings": decision_input.findings or {},
+        "available_commands": decision_input.available_commands or [],
     }
-    
+
     if decision_input.last_result:
         state_dict["last_result"] = {
             "success": decision_input.last_result.success,
-            "summary": decision_input.last_result.output_summary or "No output"
+            "summary": decision_input.last_result.output_summary or "No output",
+            "error": decision_input.last_result.error,
         }
 
     state_object = json.dumps(state_dict, indent=2)
@@ -61,12 +61,13 @@ def build_recommendation_prompt(decision_input: DecisionInput, allowed_actions: 
         "Mode:\ntactical\n\n"
         "When mode = \"tactical\"\n\n"
         f"The current phase goal is:\n{phase_goal}\n\n"
-        "Based on the current findings and completed actions, select the next action that will most effectively advance the phase objective.\n\n"
-        "Return JSON:\n"
+        "The AI must never propose raw commands. It must only choose from the provided metadata command catalog.\n"
+        "Do not return any command templates or shell strings.\n\n"
+        "Return JSON only in the format:\n"
         "{\n"
-        "  \"action_type\": \"<chosen_action>\",\n"
-        "  \"parameters\": { \"<param>\": \"<value>\" },\n"
-        "  \"rationale\": \"<brief, user-friendly explanation for the dashboard>\"\n"
+        "  \"action_type\": \"<name_of_the_command_from_catalog>\",\n"
+        "  \"parameters\": {},\n"
+        "  \"rationale\": \"<brief decision rationale>\"\n"
         "}"
     )
     return prompt

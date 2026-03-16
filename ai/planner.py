@@ -22,80 +22,103 @@ class AIPlanner:
 
     def __init__(self, provider: str = "auto"):
         self.adapter = self._get_adapter(provider)
-        self.action_graph = self._load_json_file("actions/action_graph.json")
-        self.command_map = self._load_json_file("actions/command_map.json")
 
     def _get_adapter(self, provider: str) -> BaseLLMAdapter:
+        from core.config import get_config
         if provider == "auto":
             # Fallback to a default if not specified in settings
-            provider = getattr(settings, "DEFAULT_LLM_PROVIDER", "fallback")
+            provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
 
-        if provider == "gemini":
-            return GeminiAdapter()
-        # In a real scenario, you would import and instantiate other adapters
-        # from ai.llm.openai import OpenAIAdapter etc.
-        return FallbackAdapter()
-
-    def _load_json_file(self, path: str) -> dict:
+        adapters = []
+        
         try:
-            with open(path, "r") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to load or parse {path}: {e}")
-            return {}
+            from ai.llm.gemini import GeminiAdapter
+            gemini = GeminiAdapter()
+            if gemini._client: adapters.append(gemini)
+        except Exception: pass
+        
+        try:
+            from ai.llm.anthropic import AnthropicAdapter
+            claude = AnthropicAdapter()
+            if claude._client or claude._use_raw_http: adapters.append(claude)
+        except Exception: pass
 
-    def get_next_action(self, state_manager: StateManager) -> Optional[dict]:
-        """
-        Determines the next action to take based on the current state and action graph.
-        """
+        try:
+            from ai.llm.groq_adapter import GroqAdapter
+            groq = GroqAdapter()
+            if groq._client: adapters.append(groq)
+        except Exception: pass
+        
+        try:
+            from ai.llm.ollama_adapter import OllamaAdapter
+            ollama = OllamaAdapter()
+            if ollama._client: adapters.append(ollama)
+        except Exception: pass
+
+        if provider == "gemini" and any(isinstance(a, GeminiAdapter) for a in adapters):
+            return next(a for a in adapters if isinstance(a, GeminiAdapter))
+        elif provider == "claude" and any(isinstance(a, AnthropicAdapter) for a in adapters):
+            return next(a for a in adapters if isinstance(a, AnthropicAdapter))
+        elif provider == "groq" and any(isinstance(a, GroqAdapter) for a in adapters):
+            return next(a for a in adapters if isinstance(a, GroqAdapter))
+        elif provider == "ollama" and any(isinstance(a, OllamaAdapter) for a in adapters):
+            return next(a for a in adapters if isinstance(a, OllamaAdapter))
+            
+        from ai.llm.fallback import FallbackAdapter
+        return FallbackAdapter(adapters)
+
+    def get_next_command(self, state_manager: StateManager) -> Optional[dict]:
+        """Determines the next command ID to execute. AI sees only metadata, not templates."""
+        from core.models import Command
+
         current_state = state_manager.get_current_state_for_planner()
+        phase = current_state.get("current_phase")
 
-        completed_actions = current_state.get("completed_actions", [])
-        if not completed_actions:
-            valid_actions = [
-                action
-                for action, details in self.action_graph.items()
-                if details.get("phase") == "reconnaissance"
-            ]
-        else:
-            last_action = completed_actions[-1]
-            valid_actions = self.action_graph.get(last_action, {}).get("next_actions", [])
-
-        if not valid_actions:
-            logger.info("No valid next actions found in graph. Stopping.")
+        available_commands = list(state_manager.get_available_commands(phase))
+        if not available_commands:
+            logger.info("No available commands for current phase. Stopping.")
             return None
 
-        valid_actions = [a for a in valid_actions if a in self.command_map]
-        if not valid_actions:
-            logger.warning("No executable actions found for the current state. Stopping.")
-            return None
-
-        attack_state_obj = state_manager.get_attack_state()
-        past_actions_summary = [
-            PastActionSummary(action_type=a, parameters={}) for a in completed_actions
+        available_command_metadata = [
+            {"id": c.id, "name": c.name, "description": c.description}
+            for c in available_commands
         ]
 
+        # Build a structured DecisionInput for the policy engine / LLM.
         decision_input = DecisionInput(
-            phase=attack_state_obj.current_phase,
+            phase=phase,
             known_services=[],
-            past_actions=past_actions_summary,
+            past_actions=[
+                PastActionSummary(action_type=str(ac), parameters={})
+                for ac in current_state.get("completed_commands", [])
+            ],
+            available_commands=available_command_metadata,
             findings=current_state.get("findings"),
         )
 
+        proposal = None
         try:
-            proposal = self.adapter.get_recommendation(
-                decision_input,
-                next_step_hint={"allowed_actions": valid_actions},
-            )
-
-            if proposal and proposal.action_type in valid_actions:
-                return {
-                    "name": proposal.action_type,
-                    "parameters": proposal.parameters,
-                    "reasoning": proposal.rationale,
-                }
-            raise ValueError("LLM proposed an invalid or no action.")
+            proposal = self.adapter.get_recommendation(decision_input)
         except Exception as e:
-            logger.warning(f"AI planning failed ({e}). Falling back to first valid action.")
-            action_name = valid_actions[0]
-            return {"name": action_name, "parameters": {}, "reasoning": "Fallback selection."}
+            logger.warning(f"LLM recommendation failed: {e}")
+
+        if proposal is not None:
+            chosen_name = proposal.action_type
+            chosen = next((c for c in available_commands if c.name == chosen_name), None)
+            if chosen:
+                return {
+                    "command_id": chosen.id,
+                    "command_name": chosen.name,
+                    "reason": proposal.rationale or "Chosen by AI recommendation.",
+                }
+            else:
+                logger.warning(f"LLM proposed unknown command: {chosen_name}")
+
+        # Fallback deterministic selection
+        chosen = available_commands[0]
+
+        return {
+            "command_id": chosen.id,
+            "command_name": chosen.name,
+            "reason": chosen.description or "Fallback selection of first available command.",
+        }

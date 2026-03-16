@@ -8,7 +8,7 @@ from ai.planner import AIPlanner
 from executor.local_executor import run_command
 from parser.output_parser import parse_output
 from state.state_manager import StateManager
-from core.models import AttackState
+from core.models import AttackState, Command, ExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -19,22 +19,22 @@ class ExecutionService:
     Replaces the previous AutonomousController for this new architecture.
     """
 
-    def __init__(self, attack_state_id: int, max_steps: int = 8, max_time_seconds: int = 300, max_retries: int = 1):
+    def __init__(
+        self,
+        attack_state_id: int,
+        max_steps: int = 10,
+        max_time_seconds: int = 120,
+        max_retries: int = 1,
+        max_commands_per_phase: int = 3,
+    ):
         self.attack_state_id = attack_state_id
         self.max_steps = max_steps
         self.max_time_seconds = max_time_seconds
         self.max_retries = max_retries
+        self.max_commands_per_phase = max_commands_per_phase
         self.state_manager = StateManager(attack_state_id=attack_state_id)
         self.planner = AIPlanner()
-        self.command_map = self._load_json_file("actions/command_map.json")
-
-    def _load_json_file(self, path: str) -> dict:
-        try:
-            with open(path, "r") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to load or parse {path}: {e}")
-            return {}
+        self.phase_command_counts = {}
 
     def start_assessment(self):
         """Starts the assessment in a background thread."""
@@ -57,63 +57,92 @@ class ExecutionService:
 
             logger.info(f"Execution loop step {step + 1}/{self.max_steps} for AttackState {self.attack_state_id} (elapsed {elapsed:.1f}s)")
 
-            action_proposal = self.planner.get_next_action(self.state_manager)
-            if not action_proposal:
-                self.stop_assessment("Goal reached or no more actions possible.")
-                return
-
-            action_name = action_proposal["name"]
-            action_params = action_proposal.get("parameters", {}) or {}
-            action_reasoning = action_proposal.get("reasoning", "")
-
-            if action_name not in self.command_map:
-                self.stop_assessment(f"Action '{action_name}' is not permitted by command map.")
-                return
-
-            command_template = self.command_map.get(action_name)
             current_state = self.state_manager.get_current_state_for_planner()
-            output_file = os.path.join("/tmp", f"xploitai_{self.attack_state_id}_{action_name}.txt")
+            available_commands = list(self.state_manager.get_available_commands(current_state.get("current_phase")))
+
+            if not available_commands:
+                self.stop_assessment("No available commands remaining for current phase.")
+                return
+
+            decision = self.planner.get_next_command(self.state_manager)
+            if not decision:
+                self.stop_assessment("No command selected by AI planner.")
+                return
+
+            command_id = decision.get("command_id")
+            decision_reason = decision.get("reason", "No reason provided.")
+
+            command_obj = Command.objects.filter(id=command_id).first()
+            if not command_obj:
+                self.stop_assessment(f"Selected command_id {command_id} not found.")
+                return
+
+            # Prepare command string using safe placeholders
+            target = current_state.get("target") or ""
             sub_context = {
-                "target_url": current_state.get("target"),
-                "target_host": current_state.get("target"),
-                "target_domain": current_state.get("target"),
-                "output_file": output_file,
-                **action_params,
+                "target": target,
+                "target_url": target,
+                "target_host": target,
+                "target_domain": target,
             }
 
             try:
-                command = command_template.format(**sub_context)
+                command = command_obj.command_template.format(**sub_context)
             except KeyError as e:
-                self.stop_assessment(f"Configuration error for action '{action_name}': missing {e}.")
+                self.stop_assessment(f"Command template for '{command_obj.name}' missing placeholder {e}.")
                 return
 
             result = None
+            final_status = "FAILED"
             for attempt in range(self.max_retries + 1):
                 result = run_command(command)
-                self.state_manager.record_action(action_name, action_params, result, action_reasoning)
-
-                if result.get("returncode") == 0:
+                if result and result.get("returncode") == 0:
+                    final_status = "SUCCESS"
                     break
-                logger.warning(f"Action '{action_name}' failed (attempt {attempt + 1}/{self.max_retries + 1}).")
+                logger.warning(f"Command '{command_obj.name}' (id={command_id}) failed (attempt {attempt + 1}/{self.max_retries + 1}).")
                 if attempt < self.max_retries:
                     time.sleep(1)
 
             if not result:
-                self.stop_assessment(f"Action '{action_name}' did not return a result.")
+                self.stop_assessment(f"Command '{command_obj.name}' returned no result.")
                 return
 
-            if result.get("returncode") == 0:
-                output_to_parse = result.get("stdout", "")
-                if "{output_file}" in command_template and os.path.exists(output_file):
-                    with open(output_file, "r") as f:
-                        output_to_parse = f.read()
+            stdout = result.get("stdout", "")
+            stderr = result.get("stderr", "")
 
-                findings = parse_output(action_name, output_to_parse)
-                if findings:
-                    logger.info(f"Parsed findings for action '{action_name}': {findings}")
-                    self.state_manager.update_state_with_findings(findings)
-            else:
-                logger.warning(f"Action '{action_name}' failed after retries. Skipping parsing.")
+            findings = parse_output(command_obj.name, stdout)
+            if findings:
+                logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
+                self.state_manager.update_state_with_findings(findings)
+
+            attack_state = AttackState.objects.get(id=self.attack_state_id)
+            ExecutionResult.objects.create(
+                command=command_obj,
+                attack_state=attack_state,
+                target=target,
+                status=final_status,
+                stdout=stdout,
+                stderr=stderr,
+                findings=findings or {},
+            )
+
+            # Track completed command and step counts
+            self.state_manager.add_completed_command(command_id)
+            self.phase_command_counts[current_state.get("current_phase")] = (
+                self.phase_command_counts.get(current_state.get("current_phase"), 0) + 1
+            )
+
+            if self.phase_command_counts[current_state.get("current_phase")] >= self.max_commands_per_phase:
+                self.stop_assessment(
+                    f"Maximum commands per phase ({self.max_commands_per_phase}) reached for phase {current_state.get('current_phase')}.")
+                return
+
+            if final_status == "FAILED":
+                logger.info(f"Command id {command_id} failed, continuing to next available command.")
+                continue
+
+            # Optionally, keep Action history for compatibility with existing event models
+            self.state_manager.record_action(command_obj.name, {"target": target}, result, decision_reason)
 
             time.sleep(2)
 

@@ -1,5 +1,34 @@
 from django.contrib import admin
-from .models import AttackerExecutor, AttackTarget, AttackContext
+from .models import (
+    AttackerExecutor, AttackTarget, AttackContext,
+    Phase, Command, ExecutionResult, AttackState
+)
+
+@admin.register(Phase)
+class PhaseAdmin(admin.ModelAdmin):
+    list_display = ('name', 'description')
+    search_fields = ('name',)
+
+@admin.register(Command)
+class CommandAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'phase', 'description')
+    list_filter = ('phase',)
+    search_fields = ('name', 'description')
+    readonly_fields = ('id',)
+
+@admin.register(ExecutionResult)
+class ExecutionResultAdmin(admin.ModelAdmin):
+    list_display = ('id', 'command', 'attack_state', 'target', 'status', 'created_at')
+    list_filter = ('status', 'command', 'created_at')
+    search_fields = ('target', 'command__name')
+    readonly_fields = ('created_at',)
+
+@admin.register(AttackState)
+class AttackStateAdmin(admin.ModelAdmin):
+    list_display = ('name', 'current_phase', 'autonomy_status', 'created_at', 'updated_at')
+    list_filter = ('current_phase', 'autonomy_status')
+    search_fields = ('name',)
+    readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(AttackerExecutor)
 class AttackerExecutorAdmin(admin.ModelAdmin):

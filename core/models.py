@@ -185,6 +185,69 @@ class AttackState(models.Model):
         self.save(update_fields=["state_data", "updated_at"])
 
 
+class Phase(models.Model):
+    """Defines a penetration testing phase."""
+
+    name = models.CharField(
+        max_length=80,
+        unique=True,
+        help_text="Canonical phase name (e.g., reconnaissance, discovery).",
+    )
+    description = models.TextField(blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class Command(models.Model):
+    """Defines an executable command template bound to a phase."""
+
+    phase = models.ForeignKey(
+        Phase,
+        on_delete=models.PROTECT,
+        related_name="commands",
+        help_text="Phase this command belongs to.",
+    )
+    name = models.CharField(max_length=120, unique=True)
+    description = models.TextField(blank=True)
+    command_template = models.TextField(help_text="Command string with placeholders, e.g. 'curl -I {target}'.")
+
+    class Meta:
+        ordering = ["phase", "name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.phase.name})"
+
+
+class ExecutionResult(models.Model):
+    """Stores the terminal output from a command execution."""
+
+    command = models.ForeignKey(
+        Command,
+        on_delete=models.PROTECT,
+        related_name="results",
+        help_text="The command that was executed.",
+    )
+    attack_state = models.ForeignKey(
+        AttackState,
+        on_delete=models.CASCADE,
+        related_name="execution_results",
+        help_text="The attack state this result belongs to.",
+    )
+    target = models.CharField(max_length=255, help_text="Target string used for command replacement.")
+    status = models.CharField(max_length=20, choices=[("SUCCESS", "Success"), ("FAILED", "Failed")])
+    stdout = models.TextField(blank=True)
+    stderr = models.TextField(blank=True)
+    findings = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Result for {self.command.name} ({self.status})"
+
+
 ACTION_STATUS_CHOICES = [
     ("PENDING", "Pending"),
     ("EXECUTED", "Executed"),

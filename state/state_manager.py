@@ -1,6 +1,9 @@
+import logging
 from django.db import transaction
 
 from core.models import Action, ActionResult, AttackState
+
+logger = logging.getLogger(__name__)
 
 
 class StateManager:
@@ -30,18 +33,57 @@ class StateManager:
                 .get("primary_ref", "unknown")
             )
 
-        completed_actions = list(
-            Action.objects.filter(attack_state=state_obj, status="COMPLETED")
-            .order_by("created_at")
-            .values_list("name", flat=True)
-        )
+        # Prefer command IDs from state_data to avoid exposing raw command templates.
+        completed_commands = state_obj.state_data.get("completed_commands", [])
+        if not isinstance(completed_commands, list):
+            completed_commands = []
+
+        # Backward compatibility: if no completed_commands maintained, use completed actions names.
+        if not completed_commands:
+            completed_actions = list(
+                Action.objects.filter(attack_state=state_obj, status="COMPLETED")
+                .order_by("created_at")
+                .values_list("name", flat=True)
+            )
+            # No ID conversion possible here; keep names as placeholders for user-level transparency maybe.
+            completed_commands = []
 
         return {
             "target": target_ref,
             "current_phase": state_obj.current_phase,
-            "completed_actions": completed_actions,
+            "completed_commands": completed_commands,
             "findings": state_obj.state_data.get("findings", {}),
         }
+
+    def get_available_commands(self, phase_name: str):
+        """Returns Command queryset for phase excluding already completed IDs."""
+        from core.models import Command, Phase
+
+        # Normalize phase name to lowercase for database lookup
+        normalized_phase = phase_name.lower() if phase_name else ""
+
+        try:
+            phase = Phase.objects.get(name__iexact=normalized_phase)
+        except Phase.DoesNotExist:
+            logger.warning(f"Phase not found: {phase_name} (normalized: {normalized_phase})")
+            return Command.objects.none()
+
+        state = self.get_attack_state()
+        completed = state.state_data.get("completed_commands", []) or []
+        return Command.objects.filter(phase=phase).exclude(id__in=completed)
+
+    @transaction.atomic
+    def add_completed_command(self, command_id: int):
+        state = self.get_attack_state()
+        if not state.state_data or not isinstance(state.state_data, dict):
+            state.state_data = {}
+        completed = state.state_data.get("completed_commands", [])
+        if not isinstance(completed, list):
+            completed = []
+        if command_id not in completed:
+            completed.append(command_id)
+        state.state_data["completed_commands"] = completed
+        state.save(update_fields=["state_data", "updated_at"])
 
     @transaction.atomic
     def update_state_with_findings(self, findings: dict):
