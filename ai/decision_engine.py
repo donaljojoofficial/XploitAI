@@ -49,6 +49,13 @@ class DecisionEngine:
         if provider == "auto":
             from core.config import get_config
             provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
+
+        # Local provider has no external dependency
+        if provider == "local":
+            from ai.llm.local_rule_engine import LocalRuleEngine
+            self.llm_adapter = LocalRuleEngine()
+            logger.info("DecisionEngine initialized with LocalRuleEngine.")
+            return
             
         def _init_gemini():
             if GEMINI_AVAILABLE:
@@ -128,15 +135,15 @@ class DecisionEngine:
             ol = _init_ollama()
             if ol: adapters.append(ol)
 
-        if adapters:
-            if len(adapters) > 1:
-                self.llm_adapter = FallbackAdapter(adapters)
-                logger.info(f"DecisionEngine initialized with FallbackAdapter ({len(adapters)} providers).")
-            else:
-                self.llm_adapter = adapters[0]
-                logger.info(f"DecisionEngine initialized with {adapters[0].__class__.__name__}.")
-        else:
-            logger.warning("No LLM adapters available.")
+        from ai.llm.local_rule_engine import LocalRuleEngine
+        adapters.append(LocalRuleEngine())
+
+        if len(adapters) > 1:
+            self.llm_adapter = FallbackAdapter(adapters)
+            logger.info(f"DecisionEngine initialized with FallbackAdapter ({len(adapters)} providers).")
+        elif len(adapters) == 1:
+            self.llm_adapter = adapters[0]
+            logger.info(f"DecisionEngine initialized with {adapters[0].__class__.__name__}.")
 
     def generate_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
         """
@@ -197,14 +204,21 @@ class DecisionEngine:
         if last_finished_action:
             result = ActionResult.objects.filter(action=last_finished_action).first()
             if result:
-                # Truncate output to avoid context window overflow
-                output_text = str(result.output) if result.output else "No output."
-                if len(output_text) > 2000:
-                    output_text = output_text[:2000] + "... (truncated)"
-                
+                raw_output = None
+                if isinstance(result.output, dict):
+                    raw_output = result.output.get("stdout") or result.output.get("output")
+                if not raw_output:
+                    raw_output = str(result.output) if result.output else ""
+                raw_output = raw_output[:1500]
+
+                output_summary = str(result.output) if result.output else "No output."
+                if len(output_summary) > 2000:
+                    output_summary = output_summary[:2000] + "... (truncated)"
+
                 last_result_summary = ActionResultSummary(
                     success=result.success,
-                    output_summary=output_text,
+                    output_summary=output_summary,
+                    raw_output=raw_output,
                     error=result.log_message if not result.success else None
                 )
 
@@ -409,7 +423,7 @@ class DecisionEngine:
         decision = self.llm_adapter.get_recommendation(decision_input, next_step_hint=next_step_hint)
         
         if decision:
-            return Action(
+            action = Action(
                 attack_state=state,
                 name=decision.action_type,
                 description=decision.rationale or "AI generated action",
@@ -417,4 +431,28 @@ class DecisionEngine:
                 parameters=decision.parameters,
                 status="PENDING"
             )
+
+            # NEW: store phase suggestion in action reasoning so it surfaces
+            # in the dashboard, and apply phase transition if suggested.
+            if decision.suggested_next_phase:
+                next_p = decision.suggested_next_phase.upper()
+                current_p = state.current_phase.upper()
+                phase_note = f" | Phase: {decision.phase_reason or 'advance suggested'}"
+                action.reasoning = (action.reasoning or "") + phase_note
+
+                # Only advance — never go backwards
+                PHASE_ORDER = [
+                    "RECONNAISSANCE", "ENUMERATION", "EXPLOITATION",
+                    "PRIVILEGE_ESCALATION", "PROOF_OF_COMPROMISE", "COMPLETED"
+                ]
+                if (next_p in PHASE_ORDER and current_p in PHASE_ORDER
+                        and PHASE_ORDER.index(next_p) > PHASE_ORDER.index(current_p)):
+                    state.current_phase = next_p
+                    state.save(update_fields=["current_phase"])
+                    logger.info(
+                        f"DecisionEngine: phase advanced {current_p} → {next_p}. "
+                        f"Reason: {decision.phase_reason}"
+                    )
+
+            return action
         return None

@@ -179,16 +179,19 @@ class OllamaAdapter(BaseLLMAdapter):
     def _parse_decision(self, text: str) -> Optional[Decision]:
         json_str = self._find_json_blob(text)
         if not json_str:
-            logger.error(f"Could not extract JSON from Ollama decision response: {text}")
+            logger.error(f"Could not extract JSON from Ollama response: {text}")
             return None
         try:
             data = json.loads(json_str)
-            # Filter out unexpected keys (like 'result') that Ollama might hallucinate
-            valid_keys = {"action_type", "parameters", "rationale"}
-            filtered_data = {k: v for k, v in data.items() if k in valid_keys}
-            return Decision(**filtered_data)
+            return Decision(
+                action_type=data.get("action_type", "wait"),
+                parameters=data.get("parameters", {}),
+                rationale=data.get("rationale"),
+                suggested_next_phase=data.get("suggested_next_phase"),
+                phase_reason=data.get("phase_reason"),
+            )
         except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Failed to parse Ollama decision JSON: {e}\nExtracted: {json_str}\nOriginal: {text}")
+            logger.error(f"Failed to parse Ollama decision JSON: {e}\nExtracted: {json_str}")
             return None
 
     def _parse_plan(self, text: str) -> Optional[Plan]:

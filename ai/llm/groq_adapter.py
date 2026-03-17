@@ -199,9 +199,14 @@ class GroqAdapter(BaseLLMAdapter):
 
     def _parse_decision(self, text: str) -> Optional[Decision]:
         try:
-            # With response_format=json_object, we don't need to clean markdown
             data = json.loads(text)
-            return Decision(**data)
+            return Decision(
+                action_type=data.get("action_type", "wait"),
+                parameters=data.get("parameters", {}),
+                rationale=data.get("rationale"),
+                suggested_next_phase=data.get("suggested_next_phase"),
+                phase_reason=data.get("phase_reason"),
+            )
         except (json.JSONDecodeError, TypeError) as e:
             logger.error(f"Failed to parse Groq decision JSON: {e}\nResponse: {text}")
             return None

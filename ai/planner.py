@@ -110,6 +110,11 @@ class AIPlanner:
                 if ollama._client: return ollama
             except Exception: pass
 
+        # Local provider has no external dependency
+        if provider == "local":
+            from ai.llm.local_rule_engine import LocalRuleEngine
+            return LocalRuleEngine()
+
         # If specific provider failed or "fallback" was selected, initialize all available
         adapters = []
         
@@ -137,9 +142,8 @@ class AIPlanner:
             if ollama._client: adapters.append(ollama)
         except Exception: pass
 
-        if not adapters:
-            logger.info("No LLM providers available in AIPlanner. Falling back to deterministic action selection.")
-            return None
+        from ai.llm.local_rule_engine import LocalRuleEngine
+        adapters.append(LocalRuleEngine())
 
         from ai.llm.fallback import FallbackAdapter
         return FallbackAdapter(adapters)

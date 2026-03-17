@@ -3,101 +3,169 @@ Shared prompt construction logic for LLM adapters.
 """
 import json
 from ai.schemas import DecisionInput
-from typing import List
+from typing import List, Optional
 
 
 def build_recommendation_prompt(decision_input: DecisionInput, allowed_actions: List[str] = None, next_step_hint: dict = None) -> str:
-    """Builds the prompt for the tactical decision recommendation."""
-    # 1. Target Context
-    target_context = "No active target identified."
+    phase = decision_input.phase or "unknown"
+    phase_desc = "Tactical phase decisioning"
+
+    service_name = "unknown"
+    endpoint = "unknown"
+    protocol = "unknown"
     if decision_input.known_services:
-        services = []
-        for s in decision_input.known_services:
-            endpoint = s.endpoint or "unknown"
-            proto = s.protocol or "tcp"
-            services.append(f"{s.name} ({proto}://{endpoint})")
-        target_context = f"Known Services: {', '.join(services)}"
+        svc = decision_input.known_services[0]
+        service_name = svc.name
+        endpoint = svc.endpoint or "unknown"
+        protocol = svc.protocol or "unknown"
 
-    # 2. State Object
-    state_dict = {
-        "phase": decision_input.phase,
-        "target": decision_input.known_services[0].endpoint if decision_input.known_services else "unknown",
-        "completed_commands": [a.action_type for a in decision_input.past_actions[-10:]],
-        "findings": decision_input.findings or {},
-        "available_commands": decision_input.available_commands or [],
-    }
+    if not decision_input.last_result:
+        previous_line = "Previous command: none (first action)."
+    else:
+        success = "SUCCESS" if decision_input.last_result.success else "FAILED"
+        error = decision_input.last_result.error or "none"
+        output_text = decision_input.last_result.raw_output or decision_input.last_result.output_summary or ""
+        previous_line = f"Previous command result: {success}\nError: {error}\nOutput:\n{output_text}"
 
-    if decision_input.last_result:
-        state_dict["last_result"] = {
-            "success": decision_input.last_result.success,
-            "summary": decision_input.last_result.output_summary or "No output",
-            "error": decision_input.last_result.error,
-        }
+    findings = decision_input.findings or {}
+    findings_str = "Findings: none yet." if not findings else f"Findings:\n{json.dumps(findings, indent=2)}"
 
-    state_object = json.dumps(state_dict, indent=2)
+    history_items = []
+    for a in (decision_input.past_actions or [])[-5:]:
+        params = a.parameters or {}
+        history_items.append(f"  {a.action_type}({params})")
+    history_str = "History (recent):\n" + "\n".join(history_items) if history_items else "History (recent):\n  none"
 
-    # 3. Phase Goal
-    phase_goal = f"Advance the {decision_input.phase} phase by gathering new information or exploiting found vulnerabilities."
+    actions_text = ", ".join(allowed_actions) if allowed_actions else "all available actions"
+
     if next_step_hint:
-        phase_goal = (
-            f"EXECUTE PLANNED STEP: {next_step_hint}. "
-            "You MUST output this action. Refine parameters based on findings if needed."
+        hint_action = next_step_hint.get("action_type") or next_step_hint.get("action")
+        hint_params = next_step_hint.get("parameters") or {}
+        task_line = (
+            f"Execute planned step: action='{hint_action}', hint_parameters={hint_params}. "
+            "Refine parameters from output. If impossible, pick closest alternative."
+        )
+    else:
+        task_line = (
+            f"Task: Choose the single best next action from: {actions_text}. "
+            "Base your choice on the previous command output and findings. If FAILED, retry with corrected parameters or pick an alternative."
         )
 
-    prompt = (
-        "You are assisting an automated security assessment system operating in an authorized laboratory environment using intentionally vulnerable applications for educational testing.\n"
-        "The system performs assessments step-by-step, executes actions, summarizes the results, and updates its internal state before asking for further guidance.\n\n"
-        "The objective is to progressively analyze the target application while keeping decisions efficient and focused on the most useful next step.\n\n"
-        f"Target context:\n{target_context}\n\n"
-        f"Current assessment state:\n{state_object}\n\n"
-        "The state object summarizes everything currently known about the target system, including findings extracted from previous execution results.\n\n")
-    
-    if allowed_actions:
-        action_list = "\n".join([f"- {action}" for action in allowed_actions])
-        prompt += f"You MUST choose one of the following actions. You cannot choose any other action:\n{action_list}\n\n"
+    next_phase = phase
+    if phase.upper() == "RECONNAISSANCE":
+        next_phase = "ENUMERATION"
+    elif phase.upper() == "ENUMERATION":
+        next_phase = "EXPLOITATION"
+    elif phase.upper() == "EXPLOITATION":
+        next_phase = "PRIVILEGE_ESCALATION"
+    elif phase.upper() == "PRIVILEGE_ESCALATION":
+        next_phase = "PROOF_OF_COMPROMISE"
 
-    prompt += (
-        "The planner can operate in two modes.\n\n"
-        "Mode:\ntactical\n\n"
-        "When mode = \"tactical\"\n\n"
-        f"The current phase goal is:\n{phase_goal}\n\n"
-        "The AI must never propose raw commands. It must only choose from the provided metadata command catalog.\n"
-        "Do not return any command templates or shell strings.\n\n"
-        "Return JSON only in the format:\n"
-        "{\n"
-        "  \"action_type\": \"<name_of_the_command_from_catalog>\",\n"
-        "  \"parameters\": {},\n"
-        "  \"rationale\": \"<brief decision rationale>\"\n"
-        "}"
+    prompt = (
+        f"Phase: {phase} — {phase_desc}\n"
+        f"Target: {service_name} ({protocol}://{endpoint})\n"
+        f"{previous_line}\n"
+        f"{findings_str}\n"
+        f"{history_str}\n"
+        f"{task_line}\n"
+        f"Phase rule: stay in {phase} if there are still useful actions; suggest {next_phase} if phase objective is complete.\n"
+        '{ "action_type": "...", "parameters": {}, "rationale": "one sentence: what was found and why this action", "suggested_next_phase": "{phase} or {next_phase}", "phase_reason": "one sentence: why this phase decision" }'
     )
+
     return prompt
 
 
 def build_plan_prompt(decision_input: DecisionInput) -> str:
-    """Builds the prompt for generating a multi-step plan."""
-    return (
-        f"Context: {decision_input}\n"
-        "Task: Create a multi-step security assessment plan for this educational scenario. Batch routine tasks where possible.\n"
-        "You MUST include specific parameters (target_url, target_host, etc.) extracted from the Context.\n"
-        "Allowed Actions & Parameters:\n"
-        "- PassiveRecon (target_domain)\n"
-        "- HTTPHeaderFetch (target_url)\n"
-        "- EndpointDiscovery (target_url)\n"
-        "- TechnologyFingerprint (target_url)\n"
-        "- ServiceEnumeration (target_host)\n"
-        "- ExploitAttempt (target_host, vulnerability_id)\n"
-        "- PrivilegeEscalation (target_host)\n"
-        "- ProofOfCompromise (evidence_tag)\n"
-        "Schema: { \"steps\": [ { \"action_type\": \"<AllowedAction>\", \"parameters\": { \"<param>\": \"<value>\" }, \"rationale\": \"<user-friendly explanation>\" } ] }"
+    phase = decision_input.phase or "unknown"
+    phase_desc = "Tactical phase planning"
+    service_name = "unknown"
+    endpoint = "unknown"
+    protocol = "unknown"
+    if decision_input.known_services:
+        svc = decision_input.known_services[0]
+        service_name = svc.name
+        endpoint = svc.endpoint or "unknown"
+        protocol = svc.protocol or "unknown"
+
+    if not decision_input.last_result:
+        previous_line = "Previous command: none (first action)."
+    else:
+        success = "SUCCESS" if decision_input.last_result.success else "FAILED"
+        error = decision_input.last_result.error or "none"
+        output_text = decision_input.last_result.raw_output or decision_input.last_result.output_summary or ""
+        previous_line = f"Previous command result: {success}\nError: {error}\nOutput:\n{output_text}"
+
+    findings = decision_input.findings or {}
+    findings_str = "Findings: none yet." if not findings else f"Findings:\n{json.dumps(findings, indent=2)}"
+
+    already_done = "\n".join([f"  {a.action_type}({a.parameters})" for a in (decision_input.past_actions or [])]) or "None"
+
+    phases_remaining = [
+        "RECONNAISSANCE: gather initial data",
+        "ENUMERATION: map discovered services",
+        "EXPLOITATION: attempt controlled exploitation",
+        "PRIVILEGE_ESCALATION: gain elevated access",
+        "PROOF_OF_COMPROMISE: document success",
+    ]
+
+    allowed_actions = decision_input.available_commands or []
+    allowed_list = "\n".join([f"  {item.get('name')}: {item.get('description', '')}" for item in allowed_actions]) or "  None"
+
+    prompt = (
+        f"Phase: {phase} — {phase_desc}\n"
+        f"Target: {service_name} ({protocol}://{endpoint})\n"
+        f"{previous_line}\n"
+        f"{findings_str}\n"
+        f"Already done actions:\n{already_done}\n"
+        f"Phases remaining:\n{chr(10).join(phases_remaining)}\n"
+        f"Allowed actions:\n{allowed_list}\n"
+        '{ "steps": [ { "action_type": "...", "parameters": {}, "rationale": "..." } ] }'
     )
+
+    return prompt
 
 
 def build_narrative_prompt(decision_input: DecisionInput) -> str:
-    """Builds the prompt for generating the attack narrative."""
-    return (
-        f"Context: {decision_input}\n"
-        "Task: Generate a detailed, real-time technical narrative of the ongoing security simulation. "
-        "Describe the current phase, the status of findings, and the strategic outlook.\n"
-        "Tone: Professional, objective, and educational.\n"
-        "Format: Markdown. Use bold for emphasis and bullet points for lists. Structure for dashboard readability."
+    phase = decision_input.phase or "unknown"
+    phase_desc = "Tactical phase narration"
+    service_name = "unknown"
+    endpoint = "unknown"
+    protocol = "unknown"
+    if decision_input.known_services:
+        svc = decision_input.known_services[0]
+        service_name = svc.name
+        endpoint = svc.endpoint or "unknown"
+        protocol = svc.protocol or "unknown"
+
+    if not decision_input.last_result:
+        previous_line = "Previous command: none (first action)."
+    else:
+        success = "SUCCESS" if decision_input.last_result.success else "FAILED"
+        error = decision_input.last_result.error or "none"
+        output_text = decision_input.last_result.raw_output or decision_input.last_result.output_summary or ""
+        previous_line = f"Previous command result: {success}\nError: {error}\nOutput:\n{output_text}"
+
+    findings = decision_input.findings or {}
+    findings_str = "Findings: none yet." if not findings else f"Findings:\n{json.dumps(findings, indent=2)}"
+
+    next_phase = "unknown"
+    if phase.upper() == "RECONNAISSANCE":
+        next_phase = "ENUMERATION"
+    elif phase.upper() == "ENUMERATION":
+        next_phase = "EXPLOITATION"
+    elif phase.upper() == "EXPLOITATION":
+        next_phase = "PRIVILEGE_ESCALATION"
+    elif phase.upper() == "PRIVILEGE_ESCALATION":
+        next_phase = "PROOF_OF_COMPROMISE"
+    elif phase.upper() == "PROOF_OF_COMPROMISE":
+        next_phase = "COMPLETED"
+
+    prompt = (
+        f"Phase: {phase} — {phase_desc}\n"
+        f"Target: {service_name} ({protocol}://{endpoint})\n"
+        f"{previous_line}\n"
+        f"{findings_str}\n"
+        f"Task: Write 3-5 bullet Markdown status update. Cover: what ran, what was found, next step, whether to advance to {next_phase}. Reference actual output. No filler."
     )
+
+    return prompt

@@ -70,11 +70,13 @@ class ActionResultSummary:
     Fields
     - success: Whether the action was considered successful.
     - output_summary: Optional short, sanitized description of the outcome.
+    - raw_output: Optional actual command stdout (truncated to 1500 chars).
     - error: Optional error message if the action failed.
     """
 
     success: bool
     output_summary: Optional[str] = None
+    raw_output: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -128,6 +130,8 @@ class Decision:
     action_type: str
     parameters: Mapping[str, Any]
     rationale: Optional[str] = None
+    suggested_next_phase: Optional[str] = None
+    phase_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)

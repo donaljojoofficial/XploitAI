@@ -245,8 +245,18 @@ class GeminiAdapter(BaseLLMAdapter):
     def _parse_decision(self, text: str) -> Optional[Decision]:
         try:
             clean_text = text.replace("```json", "").replace("```", "").strip()
+            start = clean_text.find("{")
+            end = clean_text.rfind("}")
+            if start != -1 and end != -1 and start < end:
+                clean_text = clean_text[start : end + 1]
             data = json.loads(clean_text)
-            return Decision(**data)
+            return Decision(
+                action_type=data.get("action_type", "wait"),
+                parameters=data.get("parameters", {}),
+                rationale=data.get("rationale"),
+                suggested_next_phase=data.get("suggested_next_phase"),
+                phase_reason=data.get("phase_reason"),
+            )
         except Exception:
             return None
 
