@@ -13,19 +13,19 @@
                             System Status: 
                             {% if attack_state.autonomy_status == 'RUNNING' %}
                                 <span class="status-running px-4 py-2 rounded-lg border border-cyber-accent/50 bg-green-900/20 text-cyber-accent animate-pulse shadow-[0_0_15px_rgba(0,255,136,0.3)]">
-                                    🚀 RUNNING
+                                     RUNNING
                                 </span>
                             {% elif attack_state.autonomy_status == 'PLANNING' %}
                                 <span class="status-planning px-4 py-2 rounded-lg border border-cyber-info/50 bg-blue-900/20 text-cyber-info shadow-[0_0_15px_rgba(51,136,255,0.3)]">
-                                    🧠 PLANNING...
+                                     PLANNING...
                                 </span>
                             {% elif waiting_for_approval %}
                                 <span class="status-warning px-4 py-2 rounded-lg border border-cyber-warning/50 bg-orange-900/20 text-cyber-warning shadow-[0_0_15px_rgba(255,170,0,0.3)]">
-                                    ⏸️ WAITING FOR APPROVAL
+                                    ⏸ WAITING FOR APPROVAL
                                 </span>
                             {% else %}
                                 <span class="px-4 py-2 rounded-lg border border-slate-600/50 bg-slate-800/50 text-slate-400">
-                                    🛑 {{ attack_state.autonomy_status|default:"IDLE" }}
+                                     {{ attack_state.autonomy_status|default:"IDLE" }}
                                 </span>
                             {% endif %}
                         </h4>
@@ -46,19 +46,19 @@
                         {% if attack_state %}
                             <div class="mt-6 flex flex-wrap gap-3">
                                 <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-primary/50 hover:shadow-[0_0_20px_rgba(0,245,255,0.3)] transition-all">
-                                    📊 View Operation
+                                     View Operation
                                 </a>
                                 <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-info/50 hover:shadow-[0_0_20px_rgba(51,136,255,0.3)] transition-all">
-                                    📋 View Plan
+                                     View Plan
                                 </a>
                                 <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-warning/50 hover:shadow-[0_0_20px_rgba(255,170,0,0.3)] transition-all">
-                                    🔄 Replay
+                                     Replay
                                 </a>
                                 {% if waiting_for_approval %}
                                 <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="inline-block">
                                     {% csrf_token %}
                                     <button type="submit" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-accent/50 bg-green-900/20 text-cyber-accent hover:shadow-[0_0_20px_rgba(0,255,136,0.3)] transition-all">
-                                        ✅ Approve & Resume
+                                         Approve & Resume
                                     </button>
                                 </form>
                                 {% endif %}
@@ -69,13 +69,13 @@
                     <div class="flex-shrink-0">
                         {% if has_active_target %}
                             <button type="button" @click="startModalOpen = true" class="group relative px-8 py-4 bg-gradient-to-r from-cyber-primary to-cyber-secondary text-slate-900 font-bold rounded-xl shadow-2xl shadow-cyber-primary/30 hover:shadow-cyber-primary/50 transition-all duration-300 transform hover:scale-105 hover:shadow-[0_0_30px_rgba(0,245,255,0.5)]">
-                                <span class="relative z-10">🚀 Launch Attack</span>
+                                <span class="relative z-10"> Initiate Test</span>
                                 <div class="absolute inset-0 bg-gradient-to-r from-cyber-secondary to-cyber-primary opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
                             </button>
                         {% else %}
                             <div class="text-center">
                                 <button class="px-8 py-4 bg-slate-700/50 text-slate-500 font-bold rounded-xl cursor-not-allowed border border-slate-600/50" disabled>
-                                    🛑 System Not Ready
+                                     System Not Ready
                                 </button>
                                 <div class="text-cyber-danger text-sm mt-2 font-mono">
                                     {% if not has_active_target %}No Active Target Configured{% endif %}
@@ -271,7 +271,7 @@
                             Cancel
                         </button>
                         <button type="submit" class="group relative px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold rounded-lg shadow-lg shadow-red-900/30 hover:shadow-red-900/50 transition-all duration-300 transform hover:scale-105">
-                            <span class="relative z-10">🚀 Launch Attack</span>
+                            <span class="relative z-10"> Initiate Test</span>
                             <div class="absolute inset-0 bg-gradient-to-r from-red-700 to-red-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
                         </button>
                     </div>
