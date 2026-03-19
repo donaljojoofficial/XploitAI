@@ -5,167 +5,168 @@ import json
 from ai.schemas import DecisionInput
 from typing import List, Optional
 
+PHASE_DESCRIPTIONS = {
+    "RECONNAISSANCE":       "Passive/active info gathering: headers, banners, tech stack, DNS.",
+    "ENUMERATION":          "Service and endpoint discovery: open ports, directories, login pages.",
+    "EXPLOITATION":         "Exploit identified vulnerabilities to gain access.",
+    "PRIVILEGE_ESCALATION": "Escalate from low-privilege to root/admin.",
+    "PROOF_OF_COMPROMISE":  "Capture evidence: flags, sensitive files, screenshots.",
+    "COMPLETED":            "Simulation finished.",
+}
 
-def build_recommendation_prompt(decision_input: DecisionInput, allowed_actions: List[str] = None, next_step_hint: dict = None) -> str:
-    phase = decision_input.phase or "unknown"
-    phase_desc = "Tactical phase decisioning"
+PHASE_ORDER = [
+    "RECONNAISSANCE", "ENUMERATION", "EXPLOITATION",
+    "PRIVILEGE_ESCALATION", "PROOF_OF_COMPROMISE", "COMPLETED",
+]
 
-    service_name = "unknown"
-    endpoint = "unknown"
-    protocol = "unknown"
-    if decision_input.known_services:
-        svc = decision_input.known_services[0]
-        service_name = svc.name
-        endpoint = svc.endpoint or "unknown"
-        protocol = svc.protocol or "unknown"
+ALLOWED_ACTIONS = [
+    "HTTPHeaderFetch", "PassiveRecon", "TechnologyFingerprint",
+    "ServiceEnumeration", "EndpointDiscovery",
+    "ExploitAttempt", "PrivilegeEscalation", "ProofOfCompromise",
+]
 
-    if not decision_input.last_result:
-        previous_line = "Previous command: none (first action)."
-    else:
-        success = "SUCCESS" if decision_input.last_result.success else "FAILED"
-        error = decision_input.last_result.error or "none"
-        output_text = decision_input.last_result.raw_output or decision_input.last_result.output_summary or ""
-        previous_line = f"Previous command result: {success}\nError: {error}\nOutput:\n{output_text}"
 
+def _next_phase(phase: str) -> str:
+    upper = phase.upper()
+    try:
+        idx = PHASE_ORDER.index(upper)
+        return PHASE_ORDER[idx + 1] if idx + 1 < len(PHASE_ORDER) else "COMPLETED"
+    except ValueError:
+        return "ENUMERATION"
+
+
+def _phase_desc(phase: str) -> str:
+    return PHASE_DESCRIPTIONS.get(phase.upper(), "Unknown phase.")
+
+
+def _result_block(decision_input: DecisionInput) -> str:
+    lr = decision_input.last_result
+    if not lr:
+        return "Previous command: none (first action)."
+    status = "SUCCESS" if lr.success else "FAILED"
+    output = lr.raw_output or lr.output_summary or ""
+    error_line = f"\nError: {lr.error}" if lr.error else ""
+    output_line = f"\nOutput:\n{output}" if output else "\nOutput: (empty)"
+    return f"Previous command result: {status}{error_line}{output_line}"
+
+
+def _findings_block(decision_input: DecisionInput) -> str:
     findings = decision_input.findings or {}
-    findings_str = "Findings: none yet." if not findings else f"Findings:\n{json.dumps(findings, indent=2)}"
+    if not findings:
+        return "Findings: none yet."
+    # compact JSON — no indent, saves ~30% tokens vs indent=2
+    return "Findings: " + json.dumps(findings, separators=(',', ':'))
 
-    history_items = []
-    for a in (decision_input.past_actions or [])[-5:]:
-        params = a.parameters or {}
-        history_items.append(f"  {a.action_type}({params})")
-    history_str = "History (recent):\n" + "\n".join(history_items) if history_items else "History (recent):\n  none"
 
-    actions_text = ", ".join(allowed_actions) if allowed_actions else "all available actions"
+def _history_block(decision_input: DecisionInput) -> str:
+    past = decision_input.past_actions or []
+    if not past:
+        return "History: none."
+    lines = [f"  {a.action_type}({json.dumps(a.parameters, separators=(',', ':'))})"
+             for a in past[-3:]]
+    return "History (last 3):\n" + "\n".join(lines)
+
+
+def _target_block(decision_input: DecisionInput) -> str:
+    if not decision_input.known_services:
+        return "Target: unknown."
+    svc = decision_input.known_services[0]
+    return f"Target: {svc.name} ({svc.protocol or 'tcp'}://{svc.endpoint or '?'})"
+
+
+def build_recommendation_prompt(
+    decision_input: DecisionInput,
+    allowed_actions: List[str] = None,
+    next_step_hint: dict = None,
+) -> str:
+    phase = decision_input.phase or "RECONNAISSANCE"
+    next_p = _next_phase(phase)
+    actions = ", ".join(allowed_actions) if allowed_actions else ", ".join(ALLOWED_ACTIONS)
 
     if next_step_hint:
         hint_action = next_step_hint.get("action_type") or next_step_hint.get("action")
         hint_params = next_step_hint.get("parameters") or {}
         task_line = (
-            f"Execute planned step: action='{hint_action}', hint_parameters={hint_params}. "
+            f"Execute planned step: action='{hint_action}', "
+            f"hint_parameters={json.dumps(hint_params, separators=(',', ':'))}. "
             "Refine parameters from output. If impossible, pick closest alternative."
         )
     else:
         task_line = (
-            f"Task: Choose the single best next action from: {actions_text}. "
-            "Base your choice on the previous command output and findings. If FAILED, retry with corrected parameters or pick an alternative."
+            f"Choose the single best next action from: {actions}. "
+            "Base your choice on the previous command output and findings. "
+            "If FAILED, retry with corrected parameters or pick an alternative."
         )
 
-    next_phase = phase
-    if phase.upper() == "RECONNAISSANCE":
-        next_phase = "ENUMERATION"
-    elif phase.upper() == "ENUMERATION":
-        next_phase = "EXPLOITATION"
-    elif phase.upper() == "EXPLOITATION":
-        next_phase = "PRIVILEGE_ESCALATION"
-    elif phase.upper() == "PRIVILEGE_ESCALATION":
-        next_phase = "PROOF_OF_COMPROMISE"
-
-    prompt = (
-        f"Phase: {phase} — {phase_desc}\n"
-        f"Target: {service_name} ({protocol}://{endpoint})\n"
-        f"{previous_line}\n"
-        f"{findings_str}\n"
-        f"{history_str}\n"
-        f"{task_line}\n"
-        f"Phase rule: stay in {phase} if there are still useful actions; suggest {next_phase} if phase objective is complete.\n"
-        '{ "action_type": "...", "parameters": {}, "rationale": "one sentence: what was found and why this action", "suggested_next_phase": "{phase} or {next_phase}", "phase_reason": "one sentence: why this phase decision" }'
+    # NOTE: JSON schema uses f-string interpolation — phase values are real strings here
+    schema = (
+        '{\n'
+        '  "action_type": "<action name>",\n'
+        '  "parameters": {},\n'
+        '  "rationale": "<one sentence: what was found and why this action>",\n'
+        f'  "suggested_next_phase": "<{phase} to stay, or {next_p} to advance>",\n'
+        '  "phase_reason": "<one sentence: why this phase decision>"\n'
+        '}'
     )
 
-    return prompt
+    return (
+        f"Phase: {phase} — {_phase_desc(phase)}\n"
+        f"{_target_block(decision_input)}\n\n"
+        f"{_result_block(decision_input)}\n\n"
+        f"{_findings_block(decision_input)}\n\n"
+        f"{_history_block(decision_input)}\n\n"
+        f"Task: {task_line}\n\n"
+        f"Phase rule: stay in {phase} if actions remain; suggest {next_p} if phase objective is complete.\n\n"
+        f"Respond ONLY with this JSON (no markdown, no extra text):\n{schema}"
+    )
 
 
 def build_plan_prompt(decision_input: DecisionInput) -> str:
-    phase = decision_input.phase or "unknown"
-    phase_desc = "Tactical phase planning"
-    service_name = "unknown"
-    endpoint = "unknown"
-    protocol = "unknown"
-    if decision_input.known_services:
-        svc = decision_input.known_services[0]
-        service_name = svc.name
-        endpoint = svc.endpoint or "unknown"
-        protocol = svc.protocol or "unknown"
+    phase = decision_input.phase or "RECONNAISSANCE"
+    upper = phase.upper()
+    try:
+        start = PHASE_ORDER.index(upper)
+    except ValueError:
+        start = 0
+    remaining = [p for p in PHASE_ORDER[start:] if p != "COMPLETED"]
+    phase_guide = "\n".join(f"  {p}: {_phase_desc(p)}" for p in remaining)
+    done = [a.action_type for a in (decision_input.past_actions or [])]
 
-    if not decision_input.last_result:
-        previous_line = "Previous command: none (first action)."
-    else:
-        success = "SUCCESS" if decision_input.last_result.success else "FAILED"
-        error = decision_input.last_result.error or "none"
-        output_text = decision_input.last_result.raw_output or decision_input.last_result.output_summary or ""
-        previous_line = f"Previous command result: {success}\nError: {error}\nOutput:\n{output_text}"
-
-    findings = decision_input.findings or {}
-    findings_str = "Findings: none yet." if not findings else f"Findings:\n{json.dumps(findings, indent=2)}"
-
-    already_done = "\n".join([f"  {a.action_type}({a.parameters})" for a in (decision_input.past_actions or [])]) or "None"
-
-    phases_remaining = [
-        "RECONNAISSANCE: gather initial data",
-        "ENUMERATION: map discovered services",
-        "EXPLOITATION: attempt controlled exploitation",
-        "PRIVILEGE_ESCALATION: gain elevated access",
-        "PROOF_OF_COMPROMISE: document success",
-    ]
-
-    allowed_actions = decision_input.available_commands or []
-    allowed_list = "\n".join([f"  {item.get('name')}: {item.get('description', '')}" for item in allowed_actions]) or "  None"
-
-    prompt = (
-        f"Phase: {phase} — {phase_desc}\n"
-        f"Target: {service_name} ({protocol}://{endpoint})\n"
-        f"{previous_line}\n"
-        f"{findings_str}\n"
-        f"Already done actions:\n{already_done}\n"
-        f"Phases remaining:\n{chr(10).join(phases_remaining)}\n"
-        f"Allowed actions:\n{allowed_list}\n"
-        '{ "steps": [ { "action_type": "...", "parameters": {}, "rationale": "..." } ] }'
+    schema = (
+        '{\n'
+        '  "rationale": "<one sentence overall plan rationale>",\n'
+        '  "steps": [\n'
+        '    {"step_number": 1, "action_type": "<action>", "parameters": {}, '
+        '"rationale": "<one sentence referencing output or findings>"}\n'
+        '  ]\n'
+        '}'
     )
 
-    return prompt
+    return (
+        f"Phase: {phase} — {_phase_desc(phase)}\n"
+        f"{_target_block(decision_input)}\n\n"
+        f"{_result_block(decision_input)}\n\n"
+        f"{_findings_block(decision_input)}\n\n"
+        f"Task: Generate a complete ordered plan from {phase} to ProofOfCompromise.\n"
+        f"- Use real values from findings/output for parameters (IPs, URLs, ports).\n"
+        f"- Skip already done: {done}\n"
+        f"- Each step rationale must reference actual output or findings.\n\n"
+        f"Phases remaining:\n{phase_guide}\n\n"
+        f"Allowed actions: {', '.join(ALLOWED_ACTIONS)}\n\n"
+        f"Respond ONLY with this JSON (no markdown):\n{schema}"
+    )
 
 
 def build_narrative_prompt(decision_input: DecisionInput) -> str:
-    phase = decision_input.phase or "unknown"
-    phase_desc = "Tactical phase narration"
-    service_name = "unknown"
-    endpoint = "unknown"
-    protocol = "unknown"
-    if decision_input.known_services:
-        svc = decision_input.known_services[0]
-        service_name = svc.name
-        endpoint = svc.endpoint or "unknown"
-        protocol = svc.protocol or "unknown"
+    phase = decision_input.phase or "RECONNAISSANCE"
+    next_p = _next_phase(phase)
 
-    if not decision_input.last_result:
-        previous_line = "Previous command: none (first action)."
-    else:
-        success = "SUCCESS" if decision_input.last_result.success else "FAILED"
-        error = decision_input.last_result.error or "none"
-        output_text = decision_input.last_result.raw_output or decision_input.last_result.output_summary or ""
-        previous_line = f"Previous command result: {success}\nError: {error}\nOutput:\n{output_text}"
-
-    findings = decision_input.findings or {}
-    findings_str = "Findings: none yet." if not findings else f"Findings:\n{json.dumps(findings, indent=2)}"
-
-    next_phase = "unknown"
-    if phase.upper() == "RECONNAISSANCE":
-        next_phase = "ENUMERATION"
-    elif phase.upper() == "ENUMERATION":
-        next_phase = "EXPLOITATION"
-    elif phase.upper() == "EXPLOITATION":
-        next_phase = "PRIVILEGE_ESCALATION"
-    elif phase.upper() == "PRIVILEGE_ESCALATION":
-        next_phase = "PROOF_OF_COMPROMISE"
-    elif phase.upper() == "PROOF_OF_COMPROMISE":
-        next_phase = "COMPLETED"
-
-    prompt = (
-        f"Phase: {phase} — {phase_desc}\n"
-        f"Target: {service_name} ({protocol}://{endpoint})\n"
-        f"{previous_line}\n"
-        f"{findings_str}\n"
-        f"Task: Write 3-5 bullet Markdown status update. Cover: what ran, what was found, next step, whether to advance to {next_phase}. Reference actual output. No filler."
+    return (
+        f"Phase: {phase} — {_phase_desc(phase)}\n"
+        f"{_target_block(decision_input)}\n\n"
+        f"{_result_block(decision_input)}\n\n"
+        f"{_findings_block(decision_input)}\n\n"
+        f"Task: Write a 3-5 bullet Markdown status update for the security dashboard.\n"
+        f"Cover: what just ran, what was found, next step, whether to advance to {next_p}.\n"
+        f"Reference actual output above. No filler."
     )
-
-    return prompt

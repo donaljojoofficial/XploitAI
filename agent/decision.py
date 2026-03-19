@@ -67,19 +67,53 @@ class DecisionEngine:
 
     def __init__(self) -> None:
         from core.config import get_config
+        from ai.llm.fallback import FallbackAdapter
+        from ai.llm.local_rule_engine import LocalRuleEngine
+
         provider = get_config("DEFAULT_LLM_PROVIDER", "gemini")
-        
+        adapters = []
+
+        if provider == "local":
+            self.llm_adapter = LocalRuleEngine()
+            return
+
+        # Try the configured provider first
         if provider == "ollama":
-            from ai.llm.ollama_adapter import OllamaAdapter
-            self.llm_adapter = OllamaAdapter()
+            try:
+                from ai.llm.ollama_adapter import OllamaAdapter
+                a = OllamaAdapter()
+                if getattr(a, '_client', None):
+                    adapters.append(a)
+            except Exception:
+                pass
         elif provider == "claude":
-            from ai.llm.anthropic import AnthropicAdapter
-            self.llm_adapter = AnthropicAdapter()
+            try:
+                from ai.llm.anthropic import AnthropicAdapter
+                a = AnthropicAdapter()
+                if getattr(a, '_client', None) or getattr(a, '_use_raw_http', False):
+                    adapters.append(a)
+            except Exception:
+                pass
         elif provider == "groq":
-            from ai.llm.groq_adapter import GroqAdapter
-            self.llm_adapter = GroqAdapter()
-        else:
-            self.llm_adapter = GeminiAdapter()
+            try:
+                from ai.llm.groq_adapter import GroqAdapter
+                a = GroqAdapter()
+                if getattr(a, '_client', None):
+                    adapters.append(a)
+            except Exception:
+                pass
+        else:  # gemini or fallback
+            try:
+                a = GeminiAdapter()
+                if getattr(a, '_client', None):
+                    adapters.append(a)
+            except Exception:
+                pass
+
+        # LocalRuleEngine is always last — guarantees we never have no adapter
+        adapters.append(LocalRuleEngine())
+
+        self.llm_adapter = FallbackAdapter(adapters) if len(adapters) > 1 else adapters[0]
 
     def generate_actions(self, state: AttackStateLike, limit: int = 3) -> list[ActionProposal]:
         """Alias for propose_next_actions to satisfy AutonomousController interface."""
@@ -156,12 +190,9 @@ class DecisionEngine:
         """Attempts to generate a valid action proposal using the LLM adapter."""
         try:
             decision_input = self._build_decision_input(state)
-            
-            # Pass planner context via DecisionRequest
-            context = state.state_data.get('planner_context') if state.state_data else None
-            request = DecisionRequest(decision_input=decision_input, context=context)
-            
-            decision = self.llm_adapter.get_recommendation(request)
+
+            # Adapters expect decision_input directly, not DecisionRequest wrapper
+            decision = self.llm_adapter.get_recommendation(decision_input)
 
             if not decision:
                 return None
@@ -170,13 +201,29 @@ class DecisionEngine:
             ok, reason = validate_action(decision.action_type, state, decision.parameters)
             if not ok:
                 logger.warning(
-                    "Gemini proposed invalid action '%s': %s", decision.action_type, reason
+                    "AI proposed invalid action '%s': %s", decision.action_type, reason
                 )
                 return None
 
+            # Apply phase transition if the AI suggested advancing
+            if decision.suggested_next_phase:
+                PHASE_ORDER = [
+                    "RECONNAISSANCE", "ENUMERATION", "EXPLOITATION",
+                    "PRIVILEGE_ESCALATION", "PROOF_OF_COMPROMISE", "COMPLETED",
+                ]
+                current_p = state.current_phase.upper()
+                next_p = decision.suggested_next_phase.upper()
+                if (next_p in PHASE_ORDER and current_p in PHASE_ORDER
+                        and PHASE_ORDER.index(next_p) > PHASE_ORDER.index(current_p)):
+                    state.current_phase = next_p
+                    logger.info(
+                        "DecisionEngine (agent): phase advanced %s → %s. Reason: %s",
+                        current_p, next_p, decision.phase_reason,
+                    )
+
             return ActionProposal(
                 name=decision.action_type,
-                description=decision.rationale or "AI generated decision",
+                description=(decision.rationale or "AI generated decision"),
                 parameters=decision.parameters,
                 score=1.0,
             )
@@ -208,12 +255,15 @@ class DecisionEngine:
         if raw_history:
             last_item = raw_history[-1]
             success = (last_item.get('status') == 'COMPLETED')
-            output_text = last_item.get('result', '')
-            
+            output_text = last_item.get('result', '') or ''
+            # Truncate raw output to keep prompt tokens bounded
+            raw_out = output_text[:1500] if output_text else None
+
             last_result = ActionResultSummary(
                 success=success,
-                output_summary=output_text if success else None,
-                error=output_text if not success else None
+                output_summary=output_text[:300] if success else None,
+                error=output_text if not success else None,
+                raw_output=raw_out,
             )
 
         return DecisionInput(

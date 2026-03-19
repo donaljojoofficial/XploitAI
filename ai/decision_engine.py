@@ -423,36 +423,38 @@ class DecisionEngine:
         decision = self.llm_adapter.get_recommendation(decision_input, next_step_hint=next_step_hint)
         
         if decision:
-            action = Action(
-                attack_state=state,
-                name=decision.action_type,
-                description=decision.rationale or "AI generated action",
-                reasoning=decision.rationale or "AI decision",
-                parameters=decision.parameters,
-                status="PENDING"
-            )
+            PHASE_ORDER = [
+                "RECONNAISSANCE", "ENUMERATION", "EXPLOITATION",
+                "PRIVILEGE_ESCALATION", "PROOF_OF_COMPROMISE", "COMPLETED",
+            ]
 
-            # NEW: store phase suggestion in action reasoning so it surfaces
-            # in the dashboard, and apply phase transition if suggested.
+            # Apply phase transition BEFORE building the Action so the Action
+            # reflects the correct post-transition state in its description.
+            phase_note = ""
             if decision.suggested_next_phase:
                 next_p = decision.suggested_next_phase.upper()
                 current_p = state.current_phase.upper()
-                phase_note = f" | Phase: {decision.phase_reason or 'advance suggested'}"
-                action.reasoning = (action.reasoning or "") + phase_note
-
-                # Only advance — never go backwards
-                PHASE_ORDER = [
-                    "RECONNAISSANCE", "ENUMERATION", "EXPLOITATION",
-                    "PRIVILEGE_ESCALATION", "PROOF_OF_COMPROMISE", "COMPLETED"
-                ]
                 if (next_p in PHASE_ORDER and current_p in PHASE_ORDER
                         and PHASE_ORDER.index(next_p) > PHASE_ORDER.index(current_p)):
                     state.current_phase = next_p
                     state.save(update_fields=["current_phase"])
+                    phase_note = f" [Phase → {next_p}: {decision.phase_reason or 'advance suggested'}]"
                     logger.info(
-                        f"DecisionEngine: phase advanced {current_p} → {next_p}. "
-                        f"Reason: {decision.phase_reason}"
+                        "DecisionEngine: phase advanced %s → %s. Reason: %s",
+                        current_p, next_p, decision.phase_reason,
                     )
+                elif decision.phase_reason:
+                    phase_note = f" [Stay {current_p}: {decision.phase_reason}]"
 
+            rationale = (decision.rationale or "AI generated action") + phase_note
+
+            action = Action(
+                attack_state=state,
+                name=decision.action_type,
+                description=rationale,
+                reasoning=rationale,
+                parameters=decision.parameters,
+                status="PENDING"
+            )
             return action
         return None

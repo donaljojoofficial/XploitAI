@@ -56,18 +56,30 @@ class ExecutionService:
                 self.stop_assessment(f"Maximum runtime exceeded ({self.max_time_seconds}s).")
                 return
 
-            logger.info(f"Execution loop step {step + 1}/{self.max_steps} for AttackState {self.attack_state_id} (elapsed {elapsed:.1f}s)")
+            logger.info(
+                f"Execution loop step {step + 1}/{self.max_steps} for "
+                f"AttackState {self.attack_state_id} (elapsed {elapsed:.1f}s)"
+            )
 
             current_state = self.state_manager.get_current_state_for_planner()
-            available_commands = list(self.state_manager.get_available_commands(current_state.get("current_phase")))
+            current_phase = current_state.get("current_phase", "reconnaissance")
 
-            if not available_commands:
-                self.stop_assessment("No available commands remaining for current phase.")
-                return
-
+            # Let the planner decide the next command AND handle phase advance.
+            # Do NOT stop early because a phase has no remaining commands —
+            # the planner will advance to the next phase and pick from there.
             decision = self.planner.get_next_command(self.state_manager)
+
             if not decision:
-                self.stop_assessment("No command selected by AI planner.")
+                # Planner returned None only when ALL phases are exhausted
+                # or the kill-chain is genuinely complete.
+                attack_state_obj = AttackState.objects.get(id=self.attack_state_id)
+                if attack_state_obj.current_phase.upper() == "COMPLETED":
+                    self.stop_assessment("Kill-chain completed successfully.")
+                else:
+                    self.stop_assessment(
+                        f"No commands available across all remaining phases "
+                        f"(current: {attack_state_obj.current_phase})."
+                    )
                 return
 
             command_id = decision.get("command_id")
@@ -78,7 +90,8 @@ class ExecutionService:
                 self.stop_assessment(f"Selected command_id {command_id} not found.")
                 return
 
-            # Prepare command string using safe placeholders
+            # Re-read current_phase after planner may have advanced it
+            current_state = self.state_manager.get_current_state_for_planner()
             target = current_state.get("target") or ""
             sub_context = {
                 "target": target,
@@ -90,8 +103,12 @@ class ExecutionService:
             try:
                 command = command_obj.command_template.format(**sub_context)
             except KeyError as e:
-                self.stop_assessment(f"Command template for '{command_obj.name}' missing placeholder {e}.")
-                return
+                logger.warning(
+                    f"Command template for '{command_obj.name}' missing placeholder {e}. "
+                    "Marking as failed and continuing."
+                )
+                self.state_manager.add_completed_command(command_id)
+                continue
 
             result = None
             final_status = "FAILED"
@@ -100,7 +117,10 @@ class ExecutionService:
                 if result and result.get("returncode") == 0:
                     final_status = "SUCCESS"
                     break
-                logger.warning(f"Command '{command_obj.name}' (id={command_id}) failed (attempt {attempt + 1}/{self.max_retries + 1}).")
+                logger.warning(
+                    f"Command '{command_obj.name}' (id={command_id}) failed "
+                    f"(attempt {attempt + 1}/{self.max_retries + 1})."
+                )
                 if attempt < self.max_retries:
                     time.sleep(1)
 
@@ -127,23 +147,16 @@ class ExecutionService:
                 findings=findings or {},
             )
 
-            # Track completed command and step counts
+            # Mark command complete — this prevents it from being selected again
             self.state_manager.add_completed_command(command_id)
-            self.phase_command_counts[current_state.get("current_phase")] = (
-                self.phase_command_counts.get(current_state.get("current_phase"), 0) + 1
-            )
-
-            if self.phase_command_counts[current_state.get("current_phase")] >= self.max_commands_per_phase:
-                self.stop_assessment(
-                    f"Maximum commands per phase ({self.max_commands_per_phase}) reached for phase {current_state.get('current_phase')}.")
-                return
 
             if final_status == "FAILED":
-                logger.info(f"Command id {command_id} failed, continuing to next available command.")
+                logger.info(f"Command '{command_obj.name}' failed, moving to next.")
                 continue
 
-            # Optionally, keep Action history for compatibility with existing event models
-            self.state_manager.record_action(command_obj.name, {"target": target}, result, decision_reason)
+            self.state_manager.record_action(
+                command_obj.name, {"target": target}, result, decision_reason
+            )
 
             time.sleep(2)
 

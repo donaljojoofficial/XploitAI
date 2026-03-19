@@ -38,15 +38,23 @@ class StateManager:
         if not isinstance(completed_commands, list):
             completed_commands = []
 
-        # Backward compatibility: if no completed_commands maintained, use completed actions names.
+        # Backward compatibility: if state_data has no completed_commands,
+        # reconstruct from ExecutionResult records which have the command FK.
         if not completed_commands:
-            completed_actions = list(
-                Action.objects.filter(attack_state=state_obj, status="COMPLETED")
-                .order_by("created_at")
-                .values_list("name", flat=True)
+            from core.models import ExecutionResult
+            completed_commands = list(
+                ExecutionResult.objects.filter(
+                    attack_state=state_obj,
+                    status__in=["SUCCESS", "FAILED"],  # both count as done
+                )
+                .exclude(command=None)
+                .values_list("command_id", flat=True)
+                .distinct()
             )
-            # No ID conversion possible here; keep names as placeholders for user-level transparency maybe.
-            completed_commands = []
+            if completed_commands:
+                # Persist back so future calls are fast
+                state_obj.state_data["completed_commands"] = list(completed_commands)
+                state_obj.save(update_fields=["state_data"])
 
         return {
             "target": target_ref,

@@ -67,49 +67,54 @@ class CommandGenerator:
 
         Args:
             use_llm: Whether to attempt using the LLM for generation.
-                     Automatically falls back to rule-based if LLM is unavailable.
-            llm_provider: 'auto', 'gemini', or 'claude'.
+            llm_provider: 'auto', 'gemini', 'claude', 'groq', 'ollama', or 'local'.
         """
-        self.use_llm = use_llm and LLM_AVAILABLE
+        self.use_llm = use_llm
         self.llm_client = None
 
-        if self.use_llm:
-            if llm_provider == "auto":
-                from core.config import get_config
-                llm_provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
-                
-            # Ensure API keys are set for Gemini
-            google_key = os.getenv("GOOGLE_API_KEY")
-            gemini_key = os.getenv("GEMINI_API_KEY")
-            if not google_key and gemini_key:
-                os.environ["GOOGLE_API_KEY"] = gemini_key
-                google_key = gemini_key
+        from core.config import get_config
+        from ai.llm.local_rule_engine import LocalRuleEngine
+        from ai.llm.fallback import FallbackAdapter
 
-            try:
-                if llm_provider == "gemini" and GEMINI_AVAILABLE:
-                    self.llm_client = GeminiAdapter()
-                elif llm_provider == "claude" and ANTHROPIC_AVAILABLE:
-                    self.llm_client = AnthropicAdapter()
-                elif llm_provider == "groq" and GROQ_AVAILABLE:
-                    self.llm_client = GroqAdapter()
-                elif llm_provider == "ollama" and OLLAMA_AVAILABLE:
-                    self.llm_client = OllamaAdapter()
-                else:
-                    if GEMINI_AVAILABLE:
-                        if google_key:
-                            self.llm_client = GeminiAdapter()
-                    elif ANTHROPIC_AVAILABLE:
-                        self.llm_client = AnthropicAdapter()
-                    elif GROQ_AVAILABLE:
-                        self.llm_client = GroqAdapter()
-                    elif OLLAMA_AVAILABLE:
-                        self.llm_client = OllamaAdapter()
+        if llm_provider == "auto":
+            llm_provider = get_config("DEFAULT_LLM_PROVIDER", "gemini")
 
-                if self.llm_client:
-                    logger.info(f"CommandGenerator initialized with LLM support ({self.llm_client.__class__.__name__}).")
-            except Exception as e:
-                logger.warning("Failed to initialize LLM adapter: %s. Reverting to rule-based.", e)
-                self.use_llm = False
+        # Ensure GEMINI_API_KEY is aliased to GOOGLE_API_KEY if needed
+        google_key = os.getenv("GOOGLE_API_KEY")
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if not google_key and gemini_key:
+            os.environ["GOOGLE_API_KEY"] = gemini_key
+
+        adapters = []
+
+        try:
+            if llm_provider in ("gemini", "fallback", "auto") and GEMINI_AVAILABLE:
+                a = GeminiAdapter()
+                if getattr(a, "_client", None):
+                    adapters.append(a)
+            elif llm_provider == "claude" and ANTHROPIC_AVAILABLE:
+                a = AnthropicAdapter()
+                if getattr(a, "_client", None) or getattr(a, "_use_raw_http", False):
+                    adapters.append(a)
+            elif llm_provider == "groq" and GROQ_AVAILABLE:
+                a = GroqAdapter()
+                if getattr(a, "_client", None):
+                    adapters.append(a)
+            elif llm_provider == "ollama" and OLLAMA_AVAILABLE:
+                a = OllamaAdapter()
+                if getattr(a, "_client", None):
+                    adapters.append(a)
+        except Exception as e:
+            logger.warning("CommandGenerator: failed to init primary LLM adapter: %s", e)
+
+        # LocalRuleEngine is always appended — guarantees llm_client is never None
+        adapters.append(LocalRuleEngine())
+
+        self.llm_client = FallbackAdapter(adapters) if len(adapters) > 1 else adapters[0]
+        logger.info(
+            "CommandGenerator initialized with %s (%d adapter(s)).",
+            self.llm_client.__class__.__name__, len(adapters)
+        )
 
     def generate(self, action_name: str, parameters: Mapping[str, Any]) -> GeneratedCommand:
         """

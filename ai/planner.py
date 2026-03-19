@@ -41,24 +41,52 @@ class FallbackPlannerEngine:
         return "COMPLETED"
 
     def get_next_command(self) -> Optional[dict]:
-        from core.models import AttackState
+        from core.models import AttackState, Phase
 
         current_state = self.state_manager.get_current_state_for_planner()
         phase = current_state.get("current_phase", "RECONNAISSANCE")
 
-        # Prefer an available command in the current phase
+        # Try current phase first
         available_commands = list(self.state_manager.get_available_commands(phase))
 
         if not available_commands:
-            # Advance to next phase, save, and try again exactly once
+            # Current phase exhausted — advance through ALL remaining DB phases
+            # until we find one with available commands.
+            # Use actual DB phase order (by id) rather than hardcoded list,
+            # so DB phase names ("discovery", "exploitation") are used correctly.
             attack_state = AttackState.objects.get(id=self.state_manager.attack_state_id)
-            next_phase = self._get_next_phase(attack_state.current_phase)
-            if next_phase != attack_state.current_phase and next_phase != "COMPLETED":
-                attack_state.current_phase = next_phase
-                attack_state.save(update_fields=["current_phase"])
-                available_commands = list(self.state_manager.get_available_commands(next_phase))
+            all_phases = list(Phase.objects.order_by("id").values_list("name", flat=True))
+
+            current_lower = (attack_state.current_phase or "").lower()
+            # Find position of current phase in DB order
+            try:
+                current_idx = next(
+                    i for i, p in enumerate(all_phases)
+                    if p.lower() == current_lower
+                )
+            except StopIteration:
+                current_idx = -1
+
+            # Walk forward through remaining phases
+            for next_phase_name in all_phases[current_idx + 1:]:
+                cmds = list(self.state_manager.get_available_commands(next_phase_name))
+                if cmds:
+                    attack_state.current_phase = next_phase_name
+                    attack_state.save(update_fields=["current_phase"])
+                    logger.info(
+                        f"FallbackPlannerEngine: phase '{phase}' exhausted, "
+                        f"advancing to '{next_phase_name}'."
+                    )
+                    available_commands = cmds
+                    phase = next_phase_name
+                    break
 
         if not available_commands:
+            # Mark as COMPLETED if all phases exhausted
+            attack_state = AttackState.objects.get(id=self.state_manager.attack_state_id)
+            attack_state.current_phase = "COMPLETED"
+            attack_state.save(update_fields=["current_phase"])
+            logger.info("FallbackPlannerEngine: all phases exhausted. Marking COMPLETED.")
             return None
 
         chosen = available_commands[0]
