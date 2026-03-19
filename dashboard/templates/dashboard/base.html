@@ -8,7 +8,7 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -18,27 +18,57 @@
             theme: {
                 extend: {
                     colors: {
-                        gray: {
-                            900: '#0b0f14', // Background
-                            800: '#0f1620', // Panel
-                            700: '#1f2937',
-                            600: '#374151',
-                            500: '#6b7280',
-                            400: '#9ca3af',
-                            300: '#d1d5db',
-                            200: '#e5e7eb', // Text
-                            100: '#f3f4f6',
+                        // Cyberpunk-inspired color palette
+                        cyber: {
+                            primary: '#00f5ff',      // Cyan
+                            secondary: '#7c3aed',    // Purple
+                            accent: '#00ff88',       // Green
+                            warning: '#ffaa00',      // Orange
+                            danger: '#ff3366',       // Pink
+                            info: '#3388ff',         // Blue
                         },
-                        accent: {
-                            DEFAULT: '#22c55e', // Green
-                            hover: '#16a34a',
+                        slate: {
+                            900: '#0f172a', // Deep slate background
+                            800: '#1e293b', // Panel background
+                            700: '#334155',
+                            600: '#475569',
+                            500: '#64748b',
+                            400: '#94a3b8',
+                            300: '#cbd5e1',
+                            200: '#e2e8f0',
+                            100: '#f1f5f9',
                         },
-                        info: '#38bdf8',
-                        warning: '#f59e0b',
-                        error: '#ef4444',
+                        glass: {
+                            DEFAULT: 'rgba(30, 41, 59, 0.8)',
+                            border: 'rgba(148, 163, 184, 0.3)',
+                        }
                     },
                     fontFamily: {
                         mono: ['"JetBrains Mono"', 'monospace'],
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                        'glow': 'glow 2s ease-in-out infinite alternate',
+                        'scanline': 'scanline 8s linear infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-10px)' }
+                        },
+                        glow: {
+                            '0%': { boxShadow: '0 0 5px rgba(0, 245, 255, 0.5)' },
+                            '100%': { boxShadow: '0 0 20px rgba(0, 245, 255, 0.9)' }
+                        },
+                        scanline: {
+                            '0%': { transform: 'translateY(-100%)' },
+                            '100%': { transform: 'translateY(100%)' }
+                        }
+                    },
+                    backdropBlur: {
+                        xs: '2px',
                     }
                 }
             }
@@ -49,88 +79,176 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     <style>
-        body { font-family: 'JetBrains Mono', monospace; background-color: #0b0f14; color: #e5e7eb; }
+        :root {
+            --gradient-bg: linear-gradient(135deg, rgba(0, 245, 255, 0.1), rgba(124, 58, 237, 0.1));
+            --neon-glow: drop-shadow(0 0 10px rgba(0, 245, 255, 0.3));
+        }
+        
+        body { 
+            font-family: 'Inter', system-ui, sans-serif; 
+            background: radial-gradient(1200px 300px at 20% -20%, rgba(0, 245, 255, 0.15), transparent 50%),
+                        radial-gradient(1200px 300px at 120% 120%, rgba(124, 58, 237, 0.15), transparent 50%),
+                        #0f172a;
+            color: #e2e8f0; 
+            background-attachment: fixed;
+        }
+        
+        .neon-text {
+            text-shadow: 0 0 10px rgba(0, 245, 255, 0.3), 0 0 20px rgba(0, 245, 255, 0.2);
+        }
+        
+        .cyber-border {
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 245, 255, 0.1);
+        }
+        
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3), inset 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        .btn-cyber {
+            background: linear-gradient(135deg, rgba(0, 245, 255, 0.1), rgba(124, 58, 237, 0.1));
+            border: 1px solid rgba(0, 245, 255, 0.3);
+            box-shadow: 0 0 15px rgba(0, 245, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-cyber:hover {
+            background: linear-gradient(135deg, rgba(0, 245, 255, 0.2), rgba(124, 58, 237, 0.2));
+            box-shadow: 0 0 25px rgba(0, 245, 255, 0.3), 0 0 30px rgba(124, 58, 237, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .status-running {
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.5);
+            border-color: rgba(0, 255, 136, 0.5);
+        }
+        
+        .status-planning {
+            box-shadow: 0 0 15px rgba(51, 136, 255, 0.5);
+            border-color: rgba(51, 136, 255, 0.5);
+        }
+        
+        .status-warning {
+            box-shadow: 0 0 15px rgba(255, 170, 0, 0.5);
+            border-color: rgba(255, 170, 0, 0.5);
+        }
+        
+        .status-error {
+            box-shadow: 0 0 15px rgba(255, 51, 102, 0.5);
+            border-color: rgba(255, 51, 102, 0.5);
+        }
+        
         [x-cloak] { display: none !important; }
         
         /* Legacy Compatibility for Partials */
-        .list-group-item { border-bottom: 1px solid #1f2937; padding: 0.75rem; background-color: transparent; }
+        .list-group-item { 
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2); 
+            padding: 0.75rem; 
+            background-color: transparent; 
+        }
         .list-group-item:last-child { border-bottom: none; }
+        
+        /* Enhanced scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.5);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.5);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 245, 255, 0.5);
+        }
     </style>
 </head>
-<body class="min-h-screen flex flex-col bg-gray-900 text-gray-200">
+<body class="min-h-screen flex flex-col bg-slate-900 text-slate-200">
     {% block navbar %}
     {% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'register' %}
     <!-- Navbar -->
-    <nav class="border-b border-gray-700 bg-gray-800 px-6 py-4 flex justify-between items-center">
-        <div class="flex items-center gap-8">
+    <nav class="border-b border-slate-700 glass-panel px-6 py-4 flex justify-between items-center sticky top-0 z-40">
+        <div class="flex items-center gap-6">
             <div class="flex items-center gap-3">
-                <div class="w-3 h-3 rounded-full bg-accent animate-pulse"></div>
-                <a href="{% url 'dashboard_index' %}" class="text-xl font-bold tracking-tight text-white hover:text-accent transition-colors">
-                    XPLOIT<span class="text-accent">AI</span>_CONSOLE
+                <div class="w-3 h-3 rounded-full bg-cyber-primary animate-pulse shadow-[0_0_10px_rgba(0,245,255,0.8)]"></div>
+                <a href="{% url 'dashboard_index' %}" class="text-xl font-bold tracking-tight neon-text hover:text-cyber-primary transition-all duration-300">
+                    XPLOIT<span class="text-cyber-primary">AI</span>_CONSOLE
                 </a>
             </div>
 
             <!-- Navigation Links -->
-            <div class="hidden md:flex items-center gap-6 text-sm font-mono">
+            <div class="hidden md:flex items-center gap-4 text-sm">
                 <!-- Targets Dropdown -->
                 <div class="relative" x-data="{ open: false }">
-                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-1 text-gray-400 hover:text-white transition-colors">
-                        TARGETS
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-primary hover:bg-slate-800/50 transition-all duration-300 group">
+                        <span class="w-2 h-2 rounded-full bg-cyber-info group-hover:animate-pulse"></span>
+                        <span class="text-slate-300 group-hover:text-cyber-primary font-medium">TARGETS</span>
+                        <svg class="w-4 h-4 text-slate-400 group-hover:text-cyber-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </button>
-                    <div x-show="open" class="absolute top-full left-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded shadow-xl z-50" x-cloak>
+                    <div x-show="open" class="absolute top-full left-0 mt-2 w-64 glass-panel border border-slate-600/50 rounded-lg shadow-xl z-50" x-cloak>
                         {% for target in targets %}
-                        <div class="px-4 py-2 border-b border-gray-700 last:border-0 text-xs">
-                            <div class="text-white font-bold">{{ target.name }}</div>
-                            <div class="text-gray-500">{{ target.ip_address }}</div>
+                        <div class="px-4 py-3 border-b border-slate-700/50 last:border-0">
+                            <div class="text-white font-semibold">{{ target.name }}</div>
+                            <div class="text-slate-400 text-sm">{{ target.ip_address }}</div>
                         </div>
                         {% empty %}
-                        <div class="px-4 py-2 text-gray-500 text-xs">No targets.</div>
+                        <div class="px-4 py-3 text-slate-500 text-sm">No targets configured.</div>
                         {% endfor %}
-                        <a href="{% url 'target_management' %}" class="block px-4 py-2 text-accent hover:bg-gray-700 text-xs font-bold border-t border-gray-700">MANAGE TARGETS &rarr;</a>
+                        <a href="{% url 'target_management' %}" class="block px-4 py-3 text-cyber-primary hover:bg-slate-700/50 text-sm font-semibold border-t border-slate-700/50">MANAGE TARGETS →</a>
                     </div>
                 </div>
 
                 <!-- Executors Dropdown -->
                 <div class="relative" x-data="{ open: false }">
-                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-1 text-gray-400 hover:text-white transition-colors">
-                        EXECUTORS
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-info hover:bg-slate-800/50 transition-all duration-300 group">
+                        <span class="w-2 h-2 rounded-full bg-cyber-info group-hover:animate-pulse"></span>
+                        <span class="text-slate-300 group-hover:text-cyber-info font-medium">EXECUTORS</span>
+                        <svg class="w-4 h-4 text-slate-400 group-hover:text-cyber-info transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </button>
-                    <div x-show="open" class="absolute top-full left-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded shadow-xl z-50" x-cloak>
+                    <div x-show="open" class="absolute top-full left-0 mt-2 w-72 glass-panel border border-slate-600/50 rounded-lg shadow-xl z-50" x-cloak>
                         {% for executor in executors %}
-                        <div class="px-4 py-2 border-b border-gray-700 last:border-0 text-xs">
-                            <div class="flex justify-between">
-                                <span class="text-white font-bold">{{ executor.name }}</span>
-                                <span class="{% if executor.status == 'CONNECTED' %}text-accent{% else %}text-gray-500{% endif %}">●</span>
+                        <div class="px-4 py-3 border-b border-slate-700/50 last:border-0">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-white font-semibold">{{ executor.name }}</span>
+                                <span class="text-xs px-2 py-1 rounded-full {% if executor.status == 'CONNECTED' %}bg-green-900/30 text-green-400 border border-green-500/50{% else %}bg-slate-700/50 text-slate-400{% endif %}">{{ executor.status }}</span>
                             </div>
-                            <div class="text-gray-500">{{ executor.ip_address }}</div>
+                            <div class="text-slate-400 text-sm">{{ executor.ip_address }}</div>
                         </div>
                         {% empty %}
-                        <div class="px-4 py-2 text-gray-500 text-xs">No executors.</div>
+                        <div class="px-4 py-3 text-slate-500 text-sm">No executors available.</div>
                         {% endfor %}
-                        <a href="{% url 'executor_management' %}" class="block px-4 py-2 text-accent hover:bg-gray-700 text-xs font-bold border-t border-gray-700">MANAGE EXECUTORS &rarr;</a>
+                        <a href="{% url 'executor_management' %}" class="block px-4 py-3 text-cyber-info hover:bg-slate-700/50 text-sm font-semibold border-t border-slate-700/50">MANAGE EXECUTORS →</a>
                     </div>
                 </div>
 
                 <!-- Operations/History Dropdown -->
                 <div class="relative" x-data="{ open: false }">
-                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-1 text-gray-400 hover:text-white transition-colors">
-                        OPERATIONS
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-warning hover:bg-slate-800/50 transition-all duration-300 group">
+                        <span class="w-2 h-2 rounded-full bg-cyber-warning group-hover:animate-pulse"></span>
+                        <span class="text-slate-300 group-hover:text-cyber-warning font-medium">OPERATIONS</span>
+                        <svg class="w-4 h-4 text-slate-400 group-hover:text-cyber-warning transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </button>
-                    <div x-show="open" class="absolute top-full left-0 mt-2 w-64 bg-gray-800 border border-gray-700 rounded shadow-xl z-50" x-cloak>
-                        <div class="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-700">Recent Attacks</div>
+                    <div x-show="open" class="absolute top-full left-0 mt-2 w-80 glass-panel border border-slate-600/50 rounded-lg shadow-xl z-50" x-cloak>
+                        <div class="px-4 py-3 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-700/50">Recent Operations</div>
                         {% for attack in recent_attacks %}
-                        <a href="{% url 'dashboard_attack_detail' attack.pk %}" class="block px-4 py-2 border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="text-white text-xs font-bold truncate w-32">{{ attack.name }}</span>
-                                <span class="text-[10px] px-1.5 py-0.5 rounded {% if attack.autonomy_status == 'RUNNING' %}bg-accent/20 text-accent{% else %}bg-gray-600 text-gray-300{% endif %}">{{ attack.autonomy_status }}</span>
+                        <a href="{% url 'dashboard_attack_detail' attack.pk %}" class="block px-4 py-3 border-b border-slate-700/50 last:border-0 hover:bg-slate-700/50 transition-colors">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-white font-semibold text-sm">{{ attack.name }}</span>
+                                <span class="text-xs px-2 py-1 rounded-full {% if attack.autonomy_status == 'RUNNING' %}bg-green-900/30 text-green-400 border border-green-500/50{% elif attack.autonomy_status == 'PLANNING' %}bg-blue-900/30 text-blue-400 border border-blue-500/50{% else %}bg-slate-700/50 text-slate-400{% endif %}">{{ attack.autonomy_status }}</span>
                             </div>
-                            <div class="text-gray-500 text-[10px]">{{ attack.created_at|timesince }} ago</div>
+                            <div class="text-slate-400 text-xs">{{ attack.created_at|timesince }} ago</div>
                         </a>
                         {% empty %}
-                        <div class="px-4 py-2 text-gray-500 text-xs">No recent attacks.</div>
+                        <div class="px-4 py-3 text-slate-500 text-sm">No recent operations.</div>
                         {% endfor %}
                     </div>
                 </div>
@@ -138,8 +256,12 @@
                 <!-- Settings Link (admin only) -->
                 {% load group_tags %}
                 {% if user.is_superuser or user|in_group:"Admin" %}
-                <a href="{% url 'configuration' %}" class="text-gray-400 hover:text-white transition-colors" title="Settings">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <a href="{% url 'configuration' %}" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-danger hover:bg-slate-800/50 transition-all duration-300 group" title="Settings">
+                    <svg class="w-5 h-5 text-slate-400 group-hover:text-cyber-danger transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    <span class="text-slate-300 group-hover:text-cyber-danger font-medium">SETTINGS</span>
                 </a>
                 {% endif %}
             </div>
@@ -150,28 +272,37 @@
             {% if user.is_authenticated %}
             <!-- User Menu Dropdown -->
             <div class="relative" x-data="{ open: false }">
-                <button @click="open = !open" @click.away="open = false" class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-700 transition-colors">
-                    <svg class="w-4 h-4 text-accent" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12a3 3 0 100-6 3 3 0 000 6zm0 2c-3.314 0-6 1.343-6 3v2h12v-2c0-1.657-2.686-3-6-3z"></path></svg>
-                    <span class="text-sm font-mono text-gray-300">{{ user.username }}</span>
-                    <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                <button @click="open = !open" @click.away="open = false" class="flex items-center gap-3 px-4 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-primary hover:bg-slate-800/50 transition-all duration-300 group">
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-br from-cyber-primary to-cyber-secondary flex items-center justify-center shadow-[0_0_15px_rgba(0,245,255,0.3)]">
+                        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12a3 3 0 100-6 3 3 0 000 6zm0 2c-3.314 0-6 1.343-6 3v2h12v-2c0-1.657-2.686-3-6-3z"></path></svg>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-white font-semibold text-sm">{{ user.username }}</div>
+                        <div class="text-slate-400 text-xs">Authenticated</div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-400 group-hover:text-cyber-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                 </button>
-                <div x-show="open" class="absolute top-full right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded shadow-xl z-50" x-cloak>
-                    <a href="{% url 'profile' %}" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 border-b border-gray-700">Profile Settings</a>
+                <div x-show="open" class="absolute top-full right-0 mt-2 w-48 glass-panel border border-slate-600/50 rounded-lg shadow-xl z-50" x-cloak>
+                    <a href="{% url 'profile' %}" class="block px-4 py-3 text-sm text-slate-300 hover:bg-slate-700/50 border-b border-slate-700/50">Profile Settings</a>
                     <form method="post" action="{% url 'logout' %}" class="block">
                         {% csrf_token %}
-                        <button type="submit" class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700">Logout</button>
+                        <button type="submit" class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-slate-700/50">Logout</button>
                     </form>
                 </div>
             </div>
             {% else %}
             <!-- Login/Register Links -->
-            <div class="flex items-center gap-3 text-sm">
-                <a href="{% url 'login' %}" class="px-3 py-2 text-gray-400 hover:text-accent transition-colors">Sign In</a>
-                <a href="{% url 'register' %}" class="px-3 py-2 bg-accent hover:bg-accent-hover text-black font-bold rounded transition-colors">Sign Up</a>
+            <div class="flex items-center gap-3">
+                <a href="{% url 'login' %}" class="px-4 py-2 text-slate-300 hover:text-cyber-primary transition-colors font-medium">Sign In</a>
+                <a href="{% url 'register' %}" class="px-4 py-2 bg-gradient-to-r from-cyber-primary to-cyber-secondary text-slate-900 font-bold rounded-lg hover:shadow-[0_0_20px_rgba(0,245,255,0.5)] transition-all duration-300 border border-cyber-primary/50">
+                    Sign Up
+                </a>
             </div>
             {% endif %}
 
-            <div class="text-xs text-gray-500 font-mono tracking-widest">SYSTEM_ONLINE</div>
+            <div class="text-xs text-slate-500 font-mono tracking-widest bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-600/50">
+                SYSTEM_ONLINE
+            </div>
         </div>
     </nav>
     {% endif %}

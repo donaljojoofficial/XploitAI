@@ -6,57 +6,80 @@
     <div x-data="{ startModalOpen: false }">
         <!-- Status Overview -->
         <div class="mb-8">
-            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <h4 class="text-2xl font-bold mb-1">System Status: 
+            <div class="glass-panel border border-slate-600/50 rounded-xl p-6 shadow-xl">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                    <div class="flex-1">
+                        <h4 class="text-3xl font-bold mb-2 bg-gradient-to-r from-cyber-primary to-cyber-secondary bg-clip-text text-transparent">
+                            System Status: 
                             {% if attack_state.autonomy_status == 'RUNNING' %}
-                                <span class="text-accent animate-pulse">RUNNING</span>
+                                <span class="status-running px-4 py-2 rounded-lg border border-cyber-accent/50 bg-green-900/20 text-cyber-accent animate-pulse shadow-[0_0_15px_rgba(0,255,136,0.3)]">
+                                    🚀 RUNNING
+                                </span>
                             {% elif attack_state.autonomy_status == 'PLANNING' %}
-                                <span class="text-info flex items-center gap-2">
-                                    <span class="w-4 h-4 border-2 border-info border-t-transparent rounded-full animate-spin"></span>
-                                    PLANNING...
+                                <span class="status-planning px-4 py-2 rounded-lg border border-cyber-info/50 bg-blue-900/20 text-cyber-info shadow-[0_0_15px_rgba(51,136,255,0.3)]">
+                                    🧠 PLANNING...
                                 </span>
                             {% elif waiting_for_approval %}
-                                <span class="text-warning">WAITING FOR APPROVAL</span>
+                                <span class="status-warning px-4 py-2 rounded-lg border border-cyber-warning/50 bg-orange-900/20 text-cyber-warning shadow-[0_0_15px_rgba(255,170,0,0.3)]">
+                                    ⏸️ WAITING FOR APPROVAL
+                                </span>
                             {% else %}
-                                <span class="text-gray-500">{{ attack_state.autonomy_status|default:"IDLE" }}</span>
+                                <span class="px-4 py-2 rounded-lg border border-slate-600/50 bg-slate-800/50 text-slate-400">
+                                    🛑 {{ attack_state.autonomy_status|default:"IDLE" }}
+                                </span>
                             {% endif %}
                         </h4>
-                        <div class="text-sm text-gray-400 font-mono">Phase: {{ attack_state.current_phase|default:"N/A" }}</div>
+                        <div class="text-sm text-slate-400 font-mono mb-4">Phase: {{ attack_state.current_phase|default:"N/A" }}</div>
                         
                         {% if active_context %}
-                            <div class="mt-3 flex items-center gap-2 text-sm bg-gray-900/50 p-2 rounded border border-gray-700 inline-block">
-                                <span class="text-info font-bold">Active Context:</span>
-                                <span class="text-gray-200">{{ active_context.attacker_executor.name }}</span>
-                                <span class="text-gray-500">&rarr;</span>
-                                <span class="text-gray-200">{{ active_context.target.name }}</span>
+                            <div class="flex items-center gap-3 p-4 bg-slate-800/50 rounded-lg border border-slate-600/50">
+                                <div class="w-3 h-3 rounded-full bg-cyber-info animate-pulse"></div>
+                                <div class="text-sm">
+                                    <span class="text-cyber-info font-bold">Active Context:</span>
+                                    <span class="text-white ml-2">{{ active_context.attacker_executor.name }}</span>
+                                    <span class="text-slate-500 mx-2">→</span>
+                                    <span class="text-white">{{ active_context.target.name }}</span>
+                                </div>
                             </div>
                         {% endif %}
 
                         {% if attack_state %}
-                            <div class="mt-4 flex flex-wrap gap-2">
-                                <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="px-3 py-1.5 text-sm border border-accent text-accent hover:bg-accent hover:text-gray-900 rounded transition-colors">View Operation</a>
-                                <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="px-3 py-1.5 text-sm border border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200 rounded transition-colors">View Plan</a>
-                                <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="px-3 py-1.5 text-sm border border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200 rounded transition-colors">Replay</a>
+                            <div class="mt-6 flex flex-wrap gap-3">
+                                <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-primary/50 hover:shadow-[0_0_20px_rgba(0,245,255,0.3)] transition-all">
+                                    📊 View Operation
+                                </a>
+                                <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-info/50 hover:shadow-[0_0_20px_rgba(51,136,255,0.3)] transition-all">
+                                    📋 View Plan
+                                </a>
+                                <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-warning/50 hover:shadow-[0_0_20px_rgba(255,170,0,0.3)] transition-all">
+                                    🔄 Replay
+                                </a>
                                 {% if waiting_for_approval %}
-                                <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="d-inline">
+                                <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="inline-block">
                                     {% csrf_token %}
-                                    <button type="submit" class="px-3 py-1.5 text-sm bg-accent text-gray-900 font-bold rounded hover:bg-green-400">Approve & Resume</button>
+                                    <button type="submit" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-accent/50 bg-green-900/20 text-cyber-accent hover:shadow-[0_0_20px_rgba(0,255,136,0.3)] transition-all">
+                                        ✅ Approve & Resume
+                                    </button>
                                 </form>
                                 {% endif %}
                             </div>
                         {% endif %}
                     </div>
-                    <div>
+                    
+                    <div class="flex-shrink-0">
                         {% if has_active_target %}
-                            <button type="button" @click="startModalOpen = true" class="px-6 py-3 bg-accent text-gray-900 font-bold rounded hover:bg-green-400 shadow-lg shadow-green-900/20 transition-all">
-                                Start Autonomous Attack (Local)
+                            <button type="button" @click="startModalOpen = true" class="group relative px-8 py-4 bg-gradient-to-r from-cyber-primary to-cyber-secondary text-slate-900 font-bold rounded-xl shadow-2xl shadow-cyber-primary/30 hover:shadow-cyber-primary/50 transition-all duration-300 transform hover:scale-105 hover:shadow-[0_0_30px_rgba(0,245,255,0.5)]">
+                                <span class="relative z-10">🚀 Launch Attack</span>
+                                <div class="absolute inset-0 bg-gradient-to-r from-cyber-secondary to-cyber-primary opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
                             </button>
                         {% else %}
-                            <button class="px-6 py-3 bg-gray-700 text-gray-500 font-bold rounded cursor-not-allowed" disabled>System Not Ready</button>
-                            <div class="text-error text-xs mt-2 text-right font-mono">
-                                {% if not has_active_target %}No Active Target.{% endif %}
+                            <div class="text-center">
+                                <button class="px-8 py-4 bg-slate-700/50 text-slate-500 font-bold rounded-xl cursor-not-allowed border border-slate-600/50" disabled>
+                                    🛑 System Not Ready
+                                </button>
+                                <div class="text-cyber-danger text-sm mt-2 font-mono">
+                                    {% if not has_active_target %}No Active Target Configured{% endif %}
+                                </div>
                             </div>
                         {% endif %}
                     </div>
@@ -64,106 +87,165 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <!-- Recent Activity -->
-            <div class="md:col-span-8">
-                <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm mb-4 overflow-hidden">
-                    <div class="bg-gray-700/50 px-4 py-3 border-b border-gray-700">
-                        <h5 class="font-bold text-gray-200">Recent Activity</h5>
+            <div class="lg:col-span-8">
+                <div class="glass-panel border border-slate-600/50 rounded-xl shadow-xl overflow-hidden">
+                    <div class="bg-gradient-to-r from-slate-800/50 to-transparent px-6 py-4 border-b border-slate-600/50">
+                        <h5 class="font-bold text-white text-lg flex items-center gap-3">
+                            <span class="w-3 h-3 rounded-full bg-cyber-info animate-pulse"></span>
+                            Live Activity Feed
+                        </h5>
                     </div>
-                    <div id="activity-list" class="max-h-[400px] overflow-y-auto">
+                    <div id="activity-list" class="max-h-[500px] overflow-y-auto">
                         {% include "dashboard/partials/activity_items.html" %}
                         {% if not actions %}
-                            <div class="p-4 text-center text-gray-500 italic">No recent activity.</div>
+                            <div class="p-8 text-center text-slate-500 italic">
+                                <div class="text-6xl mb-4">📡</div>
+                                <div class="text-lg font-semibold mb-2">No Signal Detected</div>
+                                <div class="text-sm">Awaiting first transmission...</div>
+                            </div>
                         {% endif %}
                     </div>
                     {% if actions|length >= 50 %}
-                    <div class="p-3 text-center border-t border-gray-700 bg-gray-800">
-                        <button id="load-more-btn" class="text-sm text-accent hover:text-white transition-colors" onclick="loadMoreActivity()">[ Load More ]</button>
+                    <div class="p-4 text-center border-t border-slate-600/50 bg-slate-800/50">
+                        <button id="load-more-btn" class="text-sm text-cyber-primary hover:text-white transition-colors font-medium" onclick="loadMoreActivity()">
+                            ⟳ Load More Activity
+                        </button>
                     </div>
                     {% endif %}
                 </div>
             </div>
 
-            <!-- Alerts & Infra -->
-            <div class="md:col-span-4 space-y-6">
-                <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden">
-                    <div class="bg-error/10 px-4 py-3 border-b border-gray-700 flex justify-between items-center">
-                        <h5 class="font-bold text-error">Defender Alerts</h5>
-                        <span class="text-xs bg-error text-white px-2 py-0.5 rounded">{{ alerts.count }}</span>
+            <!-- Alerts & Infrastructure -->
+            <div class="lg:col-span-4 space-y-6">
+                <!-- Defender Alerts -->
+                <div class="glass-panel border border-slate-600/50 rounded-xl shadow-xl overflow-hidden">
+                    <div class="bg-gradient-to-r from-red-900/20 to-transparent px-6 py-4 border-b border-slate-600/50 flex justify-between items-center">
+                        <h5 class="font-bold text-cyber-danger text-lg flex items-center gap-3">
+                            <span class="w-3 h-3 rounded-full bg-cyber-danger animate-pulse"></span>
+                            Security Alerts
+                        </h5>
+                        <span class="text-xs bg-cyber-danger/20 text-cyber-danger px-3 py-1 rounded-full border border-cyber-danger/30">{{ alerts.count }} Active</span>
                     </div>
-                    <div class="divide-y divide-gray-700">
+                    <div class="divide-y divide-slate-700/50">
                         {% for alert in alerts %}
-                        <div class="p-3 hover:bg-gray-700/30 transition-colors">
-                            <div class="flex w-100 justify-between items-start mb-1">
-                                <h6 class="text-sm font-bold text-gray-200">{{ alert.title }}</h6>
-                                <span class="text-xs font-bold text-warning">{{ alert.severity }}</span>
+                        <div class="p-4 hover:bg-slate-700/30 transition-colors group">
+                            <div class="flex justify-between items-start mb-2">
+                                <h6 class="text-white font-semibold group-hover:text-cyber-danger transition-colors">{{ alert.title }}</h6>
+                                <span class="text-xs px-2 py-1 rounded-full bg-red-900/30 text-red-400 border border-red-500/50 font-medium">{{ alert.severity }}</span>
                             </div>
-                            <small class="text-gray-500 block">{{ alert.created_at|timesince }} ago</small>
+                            <div class="text-slate-400 text-sm flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-cyber-danger animate-pulse"></span>
+                                {{ alert.created_at|timesince }} ago
+                            </div>
                         </div>
                         {% empty %}
-                        <div class="p-4 text-center text-gray-500 italic">No active alerts.</div>
+                        <div class="p-6 text-center text-slate-500">
+                            <div class="text-4xl mb-2">🛡️</div>
+                            <div class="font-semibold">All Clear</div>
+                            <div class="text-sm">No security threats detected</div>
+                        </div>
                         {% endfor %}
                     </div>
                 </div>
 
-                <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden">
-                    <div class="bg-gray-700/50 px-4 py-3 border-b border-gray-700">
-                        <h5 class="font-bold text-gray-300">Infrastructure</h5>
+                <!-- Infrastructure Status -->
+                <div class="glass-panel border border-slate-600/50 rounded-xl shadow-xl overflow-hidden">
+                    <div class="bg-gradient-to-r from-slate-800/50 to-transparent px-6 py-4 border-b border-slate-600/50">
+                        <h5 class="font-bold text-white text-lg flex items-center gap-3">
+                            <span class="w-3 h-3 rounded-full bg-cyber-info animate-pulse"></span>
+                            Infrastructure Status
+                        </h5>
                     </div>
-                    <div class="p-4">
-                        <div class="flex justify-between mb-2 text-sm">
-                            <span class="text-gray-400">Executors:</span>
-                            <span class="font-mono text-accent">{{ executors.count }}</span>
+                    <div class="p-6 space-y-6">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="text-center p-4 bg-slate-800/50 rounded-lg border border-slate-600/50">
+                                <div class="text-2xl mb-2">🤖</div>
+                                <div class="text-sm text-slate-400">Executors</div>
+                                <div class="text-2xl font-bold text-cyber-info">{{ executors.count }}</div>
+                            </div>
+                            <div class="text-center p-4 bg-slate-800/50 rounded-lg border border-slate-600/50">
+                                <div class="text-2xl mb-2">🎯</div>
+                                <div class="text-sm text-slate-400">Targets</div>
+                                <div class="text-2xl font-bold text-cyber-primary">{{ targets.count }}</div>
+                            </div>
                         </div>
-                        <div class="flex justify-between mb-4 text-sm">
-                            <span class="text-gray-400">Targets:</span>
-                            <span class="font-mono text-accent">{{ targets.count }}</span>
-                        </div>
-                        <div class="space-y-2">
-                            <a href="{% url 'target_management' %}" class="block w-full text-center px-3 py-1.5 text-sm border border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200 rounded transition-colors">Manage Targets</a>
-                            <a href="{% url 'executor_management' %}" class="block w-full text-center px-3 py-1.5 text-sm border border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200 rounded transition-colors">Manage Executors</a>
+                        
+                        <div class="space-y-3">
+                            <a href="{% url 'target_management' %}" class="btn-cyber w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg border border-cyber-primary/50 hover:shadow-[0_0_20px_rgba(0,245,255,0.3)] transition-all">
+                                <span>🎯</span>
+                                <span>Manage Targets</span>
+                            </a>
+                            <a href="{% url 'executor_management' %}" class="btn-cyber w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg border border-cyber-info/50 hover:shadow-[0_0_20px_rgba(51,136,255,0.3)] transition-all">
+                                <span>🤖</span>
+                                <span>Manage Executors</span>
+                            </a>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-    <!-- Start Attack Modal -->
-    <div x-show="startModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" x-cloak>
-        <div class="bg-gray-800 border border-gray-700 rounded-lg w-full max-w-lg p-6 shadow-2xl" @click.away="startModalOpen = false">
+        <!-- Start Attack Modal -->
+        <div x-show="startModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" x-cloak>
+            <div class="glass-panel border border-slate-600/50 rounded-xl w-full max-w-2xl p-8 shadow-2xl" @click.away="startModalOpen = false">
                 <form action="{% url 'dashboard_start_attack' %}" method="post">
                     {% csrf_token %}
                     <div class="flex justify-between items-center mb-6">
-                        <h5 class="text-xl font-bold text-white">Configure Autonomous Attack</h5>
-                        <button type="button" @click="startModalOpen = false" class="text-gray-500 hover:text-white">&times;</button>
+                        <h5 class="text-2xl font-bold text-white flex items-center gap-3">
+                            <span class="w-4 h-4 rounded-full bg-cyber-primary animate-pulse"></span>
+                            Configure Autonomous Attack
+                        </h5>
+                        <button type="button" @click="startModalOpen = false" class="text-slate-400 hover:text-white text-2xl transition-colors">&times;</button>
                     </div>
-                    <div class="space-y-4">
-                        <div class="mb-3">
-                            <label for="executorSelect" class="block text-sm font-bold text-gray-400 mb-2">Attacker Machine</label>
+                    
+                    <div class="space-y-6">
+                        <!-- Attacker Machine Selection -->
+                        <div>
+                            <label for="executorSelect" class="block text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-cyber-info animate-pulse"></span>
+                                Attacker Machine
+                            </label>
                             {% if connected_executors %}
-                                <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="executorSelect" name="executor_id">
+                                <select class="w-full bg-slate-800/50 border border-slate-600/50 text-white rounded-lg p-3 focus:border-cyber-info focus:ring-1 focus:ring-cyber-info outline-none transition-colors" id="executorSelect" name="executor_id">
                                     <option value="">Local executor (default)</option>
                                     {% for executor in connected_executors %}
-                                        <option value="{{ executor.id }}">{{ executor.name }} ({{ executor.ip_address }})</option>
+                                        <option value="{{ executor.id }}" class="bg-slate-800">{{ executor.name }} ({{ executor.ip_address }})</option>
                                     {% endfor %}
                                 </select>
                             {% else %}
-                                <div class="text-sm text-gray-300 p-2 border border-gray-700 rounded">No external executors available; running in local-only mode.</div>
+                                <div class="bg-slate-800/50 border border-slate-600/50 rounded-lg p-4 text-slate-300">
+                                    <div class="flex items-center gap-3 mb-2">
+                                        <span class="w-3 h-3 rounded-full bg-cyber-warning animate-pulse"></span>
+                                        <span class="font-semibold">Local-only Mode</span>
+                                    </div>
+                                    <div class="text-sm">No external executors available; running in local-only mode.</div>
+                                </div>
                                 <input type="hidden" name="executor_id" value="" />
                             {% endif %}
                         </div>
-                        <div class="mb-3">
-                            <label for="targetSelect" class="block text-sm font-bold text-gray-400 mb-2">Select Target Machine</label>
-                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="targetSelect" name="target_id" required>
+
+                        <!-- Target Selection -->
+                        <div>
+                            <label for="targetSelect" class="block text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-cyber-primary animate-pulse"></span>
+                                Target Machine
+                            </label>
+                            <select class="w-full bg-slate-800/50 border border-slate-600/50 text-white rounded-lg p-3 focus:border-cyber-primary focus:ring-1 focus:ring-cyber-primary outline-none transition-colors" id="targetSelect" name="target_id" required>
                                 {% for target in active_targets %}
-                                    <option value="{{ target.id }}">{{ target.name }} ({{ target.base_url|default:target.ip_address }})</option>
+                                    <option value="{{ target.id }}" class="bg-slate-800">{{ target.name }} ({{ target.base_url|default:target.ip_address }})</option>
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="mb-3">
-                            <label for="llmProviderSelect" class="block text-sm font-bold text-gray-400 mb-2">AI Brain</label>
-                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="llmProviderSelect" name="llm_provider">
+
+                        <!-- AI Brain Selection -->
+                        <div>
+                            <label for="llmProviderSelect" class="block text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-cyber-secondary animate-pulse"></span>
+                                AI Brain
+                            </label>
+                            <select class="w-full bg-slate-800/50 border border-slate-600/50 text-white rounded-lg p-3 focus:border-cyber-secondary focus:ring-1 focus:ring-cyber-secondary outline-none transition-colors" id="llmProviderSelect" name="llm_provider">
                                 <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
                                 <option value="gemini" {% if default_llm_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
                                 <option value="claude" {% if default_llm_provider == 'claude' %}selected{% endif %}>Anthropic Claude</option>
@@ -171,18 +253,31 @@
                                 <option value="ollama" {% if default_llm_provider == 'ollama' %}selected{% endif %}>Ollama (Local)</option>
                             </select>
                         </div>
-                        <div class="p-3 bg-warning/10 border border-warning/20 rounded text-warning text-sm">
-                            <span class="font-bold">WARNING:</span> Starting autonomy will override any existing active sessions.
+
+                        <!-- Warning Notice -->
+                        <div class="p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
+                            <div class="flex items-start gap-3">
+                                <span class="w-3 h-3 rounded-full bg-cyber-danger animate-pulse mt-0.5"></span>
+                                <div>
+                                    <span class="font-bold text-cyber-danger">WARNING:</span>
+                                    <p class="text-slate-300 text-sm mt-1">Starting autonomy will override any existing active sessions. This action cannot be undone.</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="flex justify-end gap-3 mt-6">
-                        <button type="button" class="px-4 py-2 text-gray-400 hover:text-white transition-colors" @click="startModalOpen = false">Cancel</button>
-                        <button type="submit" class="px-4 py-2 bg-error text-white font-bold rounded hover:bg-red-600 transition-colors">Launch Attack</button>
+
+                    <div class="flex justify-end gap-4 mt-8">
+                        <button type="button" class="px-6 py-3 text-slate-300 hover:text-white transition-colors font-medium" @click="startModalOpen = false">
+                            Cancel
+                        </button>
+                        <button type="submit" class="group relative px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold rounded-lg shadow-lg shadow-red-900/30 hover:shadow-red-900/50 transition-all duration-300 transform hover:scale-105">
+                            <span class="relative z-10">🚀 Launch Attack</span>
+                            <div class="absolute inset-0 bg-gradient-to-r from-red-700 to-red-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
+                        </button>
                     </div>
                 </form>
             </div>
         </div>
-    </div>
     </div>
 {% endblock %}
 
