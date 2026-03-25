@@ -9,6 +9,7 @@ from executor.local_executor import run_command
 from parser.output_parser import parse_output
 from state.state_manager import StateManager
 from core.models import AttackState, Command, ExecutionResult
+from services.command_template_utils import normalize_command_template
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,8 @@ class ExecutionService:
                 self.stop_assessment(f"Selected command_id {command_id} not found.")
                 return
 
+            command_template = normalize_command_template(command_obj)
+
             # Re-read current_phase after planner may have advanced it
             current_state = self.state_manager.get_current_state_for_planner()
             target = current_state.get("target") or ""
@@ -101,7 +104,7 @@ class ExecutionService:
             }
 
             try:
-                command = command_obj.command_template.format(**sub_context)
+                command = command_template.format(**sub_context)
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "

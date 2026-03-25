@@ -4,6 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
+from django.db import transaction
 from core.models import AttackerExecutor, ExecutionTask
 
 logger = logging.getLogger(__name__)
@@ -82,30 +83,34 @@ def _resolve_command(action_name, parameters):
 def get_tasks(request):
     """
     Returns pending execution tasks.
-    Output: [ { "id": 1, "action_name": "...", "command": "..." }, ... ]
+    Claims the oldest pending task and returns it as a single-item list.
     """
     try:
-        tasks = ExecutionTask.objects.filter(status="PENDING").values(
-            "id", "action_name", "parameters"
-        )
-        
-        task_list = []
-        for t in tasks:
-            params = t.get("parameters") or {}
-            # Prefer pre-generated command from AI, fallback to resolver
-            cmd = params.get("command")
-            if not cmd:
-                cmd = _resolve_command(t["action_name"], params)
+        with transaction.atomic():
+            task = (
+                ExecutionTask.objects
+                .select_for_update(skip_locked=True)
+                .filter(status="PENDING")
+                .order_by("created_at")
+                .first()
+            )
 
-            task_list.append({
-                "id": t["id"],
-                "action_name": t["action_name"],
-                "command": cmd,
-                "parameters": params,
-                "limits": {}  # Default limits
-            })
-            
-        return JsonResponse(task_list, safe=False)
+            if not task:
+                return JsonResponse([], safe=False)
+
+            params = task.parameters or {}
+            cmd = params.get("command") or _resolve_command(task.action_name, params)
+
+            task.status = "RUNNING"
+            task.save(update_fields=["status", "updated_at"])
+
+        return JsonResponse([{
+            "id": task.id,
+            "action_name": task.action_name,
+            "command": cmd,
+            "parameters": params,
+            "limits": {}
+        }], safe=False)
     except Exception as e:
         logger.error(f"Get tasks error: {e}")
         return JsonResponse({"error": str(e)}, status=500)
@@ -126,13 +131,16 @@ def report_result(request, task_id):
         try:
             task = ExecutionTask.objects.get(id=task_id)
             task.status = data.get("status", "UNKNOWN")
-            task.exit_code = data.get("exit_code")
-            task.stdout = data.get("stdout", "")
-            task.stderr = data.get("stderr", "")
-            task.duration_seconds = data.get("duration_seconds", 0)
-            task.artifacts = data.get("artifacts", [])
-            task.error_message = data.get("error_message", "")
-            task.completed_at = timezone.now()
+            stdout = data.get("stdout", "")
+            stderr = data.get("stderr", "")
+            task.output = {
+                "exit_code": data.get("exit_code"),
+                "stdout": stdout,
+                "stderr": stderr,
+                "duration_seconds": data.get("duration_seconds", 0),
+                "artifacts": data.get("artifacts", []),
+            }
+            task.error_message = data.get("error_message", "") or stderr
             task.save()
             
             return JsonResponse({"status": "recorded"})

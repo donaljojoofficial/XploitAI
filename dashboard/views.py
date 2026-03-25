@@ -36,6 +36,27 @@ from ai.llm.groq_adapter import GroqAdapter
 logger = logging.getLogger(__name__)
 
 
+def _launch_assessment(state: AttackState) -> None:
+    """Start the appropriate assessment service for the state's execution mode."""
+    state_data = state.state_data or {}
+    execution_mode = state_data.get('execution_mode', 'local')
+    llm_provider = state_data.get('llm_provider', 'auto')
+
+    if execution_mode == 'remote':
+        remote_service = RemoteExecutionService(
+            attack_state_id=state.id,
+            llm_provider=llm_provider,
+        )
+        remote_service.start_assessment()
+        return
+
+    execution_service = ExecutionService(
+        attack_state_id=state.id,
+        llm_provider=llm_provider,
+    )
+    execution_service.start_assessment()
+
+
 def _get_unified_events(state: AttackState) -> list[dict]:
     """Helper to aggregate all temporal events for timeline and replay."""
     actions = Action.objects.filter(attack_state=state)
@@ -342,14 +363,11 @@ def start_attack(request: HttpRequest) -> HttpResponse:
 
     # Start execution based on mode
     if use_remote_executor:
-        # For remote execution, we just set the state to RUNNING and let the executor daemon handle tasks
-        state.autonomy_status = "RUNNING"
         state.stop_reason = f"Remote execution started on {selected_executor.name}."
-        state.save(update_fields=['autonomy_status', 'stop_reason'])
+        state.save(update_fields=['stop_reason'])
+        _launch_assessment(state)
     else:
-        # For local execution, use the ExecutionService
-        execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
-        execution_service.start_assessment()
+        _launch_assessment(state)
 
     return redirect('dashboard_index')
 
@@ -370,19 +388,9 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    # Determine execution mode and resume accordingly
-    execution_mode = state.state_data.get('execution_mode', 'local')
-    llm_provider = state.state_data.get('llm_provider', 'auto') if state.state_data else 'auto'
-    
-    if execution_mode == 'remote':
-        # For remote execution, just set status to RUNNING
-        state.autonomy_status = "RUNNING"
-        state.stop_reason = "Plan approved, resuming remote execution."
-        state.save(update_fields=['autonomy_status', 'stop_reason'])
-    else:
-        # For local execution, use the ExecutionService
-        execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
-        execution_service.start_assessment()
+    state.stop_reason = "Plan approved, resuming execution."
+    state.save(update_fields=['stop_reason'])
+    _launch_assessment(state)
 
     return redirect('dashboard_attack_detail', pk=pk)
 
@@ -398,19 +406,9 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
-    # Determine execution mode and resume accordingly
-    execution_mode = state.state_data.get('execution_mode', 'local')
-    llm_provider = state.state_data.get('llm_provider', 'auto') if state.state_data else 'auto'
-    
-    if execution_mode == 'remote':
-        # For remote execution, just set status to RUNNING
-        state.autonomy_status = "RUNNING"
-        state.stop_reason = "Resuming remote execution."
-        state.save(update_fields=['autonomy_status', 'stop_reason'])
-    else:
-        # For local execution, use the ExecutionService
-        execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
-        execution_service.start_assessment()
+    state.stop_reason = "Resuming execution."
+    state.save(update_fields=['stop_reason'])
+    _launch_assessment(state)
     
     return redirect('dashboard_attack_detail', pk=pk)
 

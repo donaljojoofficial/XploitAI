@@ -8,6 +8,7 @@ from ai.planner import AIPlanner
 from core.models import AttackState, Command, ExecutionResult, ExecutionTask, AttackerExecutor
 from state.state_manager import StateManager
 from parser.output_parser import parse_output
+from services.command_template_utils import normalize_command_template
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,8 @@ class RemoteExecutionService:
                 self.stop_assessment(f"Selected command_id {command_id} not found.")
                 return
 
+            command_template = normalize_command_template(command_obj)
+
             # Re-read current_phase after planner may have advanced it
             current_state = self.state_manager.get_current_state_for_planner()
             target = current_state.get("target") or ""
@@ -97,7 +100,7 @@ class RemoteExecutionService:
             }
 
             try:
-                command = command_obj.command_template.format(**sub_context)
+                command = command_template.format(**sub_context)
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "
@@ -130,8 +133,9 @@ class RemoteExecutionService:
 
             # Process the result
             if result.status == "COMPLETED":
-                stdout = result.output or ""
-                stderr = result.error_message or ""
+                output = result.output if isinstance(result.output, dict) else {}
+                stdout = output.get("stdout", "") if output else (result.output or "")
+                stderr = output.get("stderr", "") if output else result.error_message
                 
                 findings = parse_output(command_obj.name, stdout)
                 if findings:
@@ -157,7 +161,22 @@ class RemoteExecutionService:
                 # Mark command complete
                 self.state_manager.add_completed_command(command_id)
             else:
+                output = result.output if isinstance(result.output, dict) else {}
+                stdout = output.get("stdout", "") if output else (result.output or "")
+                stderr = output.get("stderr", "") if output else result.error_message
                 logger.warning(f"Task {task.id} failed: {result.error_message}")
+
+                attack_state = AttackState.objects.get(id=self.attack_state_id)
+                ExecutionResult.objects.create(
+                    command=command_obj,
+                    attack_state=attack_state,
+                    target=target,
+                    status="FAILED",
+                    stdout=stdout,
+                    stderr=stderr or result.error_message or "",
+                    findings={},
+                )
+
                 # Mark command as failed but continue
                 self.state_manager.add_completed_command(command_id)
 
@@ -171,7 +190,7 @@ class RemoteExecutionService:
         
         while time.time() - start_time < timeout:
             task.refresh_from_db()
-            if task.status in ["COMPLETED", "FAILED"]:
+            if task.status in ["COMPLETED", "FAILED", "TIMEOUT"]:
                 return task
             time.sleep(1)
         
