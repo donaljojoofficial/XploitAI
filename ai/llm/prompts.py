@@ -26,6 +26,16 @@ ALLOWED_ACTIONS = [
 ]
 
 
+def _available_action_names(decision_input: DecisionInput) -> List[str]:
+    available = decision_input.available_commands or []
+    names = [
+        str(command.get("name", "")).strip()
+        for command in available
+        if isinstance(command, dict) and str(command.get("name", "")).strip()
+    ]
+    return names or list(ALLOWED_ACTIONS)
+
+
 def _next_phase(phase: str) -> str:
     upper = phase.upper()
     try:
@@ -76,12 +86,11 @@ def _target_block(decision_input: DecisionInput) -> str:
 
 def build_recommendation_prompt(
     decision_input: DecisionInput,
-    allowed_actions: List[str] = None,
     next_step_hint: dict = None,
 ) -> str:
     phase = decision_input.phase or "RECONNAISSANCE"
     next_p = _next_phase(phase)
-    actions = ", ".join(allowed_actions) if allowed_actions else ", ".join(ALLOWED_ACTIONS)
+    actions = ", ".join(_available_action_names(decision_input))
 
     if next_step_hint:
         hint_action = next_step_hint.get("action_type") or next_step_hint.get("action")
@@ -152,7 +161,7 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
         f"- Skip already done: {done}\n"
         f"- Each step rationale must reference actual output or findings.\n\n"
         f"Phases remaining:\n{phase_guide}\n\n"
-        f"Allowed actions: {', '.join(ALLOWED_ACTIONS)}\n\n"
+        f"Allowed actions: {', '.join(_available_action_names(decision_input))}\n\n"
         f"Respond ONLY with this JSON (no markdown):\n{schema}"
     )
 
@@ -199,7 +208,7 @@ def build_step_mapping_prompt(
             "If the step is impossible given the output, choose the closest alternative."
         )
     else:
-        actions = ", ".join(ALLOWED_ACTIONS)
+        actions = ", ".join(_available_action_names(decision_input))
         task_line = (
             f"Based only on the output above, choose the single best next action "
             f"from: {actions}."

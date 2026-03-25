@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from core.models import Command
 
 
@@ -57,6 +59,30 @@ CANONICAL_TEMPLATES: dict[str, str] = {
     ),
 }
 
+PLACEHOLDERS = {
+    "target",
+    "target_url",
+    "target_host",
+    "target_domain",
+}
+
+
+def escape_non_placeholder_braces(template: str) -> str:
+    """
+    Escape braces that belong to inline Python/JSON snippets so str.format()
+    only processes known command placeholders.
+    """
+    if not template or "{" not in template:
+        return template
+
+    def replace(match: re.Match[str]) -> str:
+        token = match.group(1).strip()
+        if token in PLACEHOLDERS:
+            return "{" + token + "}"
+        return "{{" + match.group(1) + "}}"
+
+    return re.sub(r"\{([^{}]+)\}", replace, template)
+
 
 def normalize_command_template(command_obj: Command) -> str:
     """
@@ -66,6 +92,11 @@ def normalize_command_template(command_obj: Command) -> str:
     template = command_obj.command_template or ""
     canonical = CANONICAL_TEMPLATES.get(command_obj.name)
     if not canonical:
+        escaped = escape_non_placeholder_braces(template)
+        if escaped != template:
+            command_obj.command_template = escaped
+            command_obj.save(update_fields=["command_template"])
+            return escaped
         return template
 
     legacy_markers = (
@@ -80,5 +111,11 @@ def normalize_command_template(command_obj: Command) -> str:
         command_obj.command_template = canonical
         command_obj.save(update_fields=["command_template"])
         return canonical
+
+    escaped = escape_non_placeholder_braces(template)
+    if escaped != template:
+        command_obj.command_template = escaped
+        command_obj.save(update_fields=["command_template"])
+        return escaped
 
     return template

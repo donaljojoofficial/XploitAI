@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -55,10 +56,15 @@ class LMStudioAdapter(BaseLLMAdapter):
     def __init__(self, model: str = None, host: str = None):
         cfg_host  = get_config("LMSTUDIO_HOST")
         cfg_model = get_config("LMSTUDIO_MODEL")
+        cfg_timeout = get_config("LMSTUDIO_TIMEOUT_SECONDS", "12")
+        cfg_cooldown = get_config("LMSTUDIO_RETRY_COOLDOWN_SECONDS", "30")
 
         self.host  = (host  or cfg_host  or "http://localhost:1234").rstrip("/")
         self.model = model or cfg_model or "phi-4-mini-instruct"
         self.url   = f"{self.host}/v1/chat/completions"
+        self.request_timeout_seconds = max(float(cfg_timeout), 1.0)
+        self.retry_cooldown_seconds = max(float(cfg_cooldown), 1.0)
+        self._disabled_until = 0.0
 
         self.system_instruction = (
             "You are a cybersecurity simulation assistant operating in a controlled, "
@@ -80,18 +86,34 @@ class LMStudioAdapter(BaseLLMAdapter):
                 self.host,
             )
 
+    def _cooldown_active(self) -> bool:
+        return time.time() < self._disabled_until
+
+    def _mark_temporarily_unavailable(self, reason: str):
+        self._available = False
+        self._disabled_until = time.time() + self.retry_cooldown_seconds
+        logger.warning(
+            "LMStudioAdapter temporarily disabled for %.0fs: %s",
+            self.retry_cooldown_seconds,
+            reason,
+        )
+
     # ------------------------------------------------------------------
     # Server health check
     # ------------------------------------------------------------------
 
     def _check_server(self) -> bool:
         """Ping /v1/models to confirm LM Studio is running."""
+        if self._cooldown_active():
+            return False
         try:
             req = urllib.request.Request(
                 f"{self.host}/v1/models",
                 headers={"Accept": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with urllib.request.urlopen(
+                req, timeout=min(self.request_timeout_seconds, 3.0)
+            ) as resp:
                 return resp.status == 200
         except Exception:
             return False
@@ -116,6 +138,9 @@ class LMStudioAdapter(BaseLLMAdapter):
         POST to /v1/chat/completions and return the assistant's text.
         Returns None on any error.
         """
+        if self._cooldown_active():
+            return None
+
         if not self._available:
             # Re-check once in case server was started after init
             self._available = self._check_server()
@@ -142,7 +167,9 @@ class LMStudioAdapter(BaseLLMAdapter):
                 },
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(
+                req, timeout=self.request_timeout_seconds
+            ) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
                 return body["choices"][0]["message"]["content"]
 
@@ -150,13 +177,17 @@ class LMStudioAdapter(BaseLLMAdapter):
             logger.error(
                 "LMStudioAdapter HTTP %s: %s", e.code, e.read().decode()[:300]
             )
+        except (socket.timeout, TimeoutError) as e:
+            self._mark_temporarily_unavailable(f"request timed out: {e}")
         except urllib.error.URLError as e:
-            logger.error("LMStudioAdapter connection error: %s", e.reason)
-            self._available = False   # Stop hammering a dead server
+            self._mark_temporarily_unavailable(f"connection error: {e.reason}")
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             logger.error("LMStudioAdapter unexpected response format: %s", e)
         except Exception as e:
-            logger.error("LMStudioAdapter unexpected error: %s", e)
+            if "timed out" in str(e).lower():
+                self._mark_temporarily_unavailable(f"request timed out: {e}")
+            else:
+                logger.error("LMStudioAdapter unexpected error: %s", e)
 
         return None
 
@@ -165,6 +196,9 @@ class LMStudioAdapter(BaseLLMAdapter):
         Streaming POST to /v1/chat/completions using SSE (server-sent events).
         Falls back to a single non-streaming call if streaming fails.
         """
+        if self._cooldown_active():
+            return
+
         if not self._available:
             self._available = self._check_server()
             if not self._available:
@@ -190,7 +224,9 @@ class LMStudioAdapter(BaseLLMAdapter):
                 },
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(
+                req, timeout=self.request_timeout_seconds
+            ) as resp:
                 for raw_line in resp:
                     line = raw_line.decode("utf-8").strip()
                     if not line.startswith("data:"):
@@ -206,9 +242,13 @@ class LMStudioAdapter(BaseLLMAdapter):
                             yield text
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
-
+        except (socket.timeout, TimeoutError) as e:
+            self._mark_temporarily_unavailable(f"stream timed out: {e}")
         except Exception as e:
-            logger.error("LMStudioAdapter stream error: %s", e)
+            if "timed out" in str(e).lower():
+                self._mark_temporarily_unavailable(f"stream timed out: {e}")
+            else:
+                logger.error("LMStudioAdapter stream error: %s", e)
             # Graceful fallback — yield full non-streamed response
             text = self._call(messages)
             if text:
@@ -233,9 +273,9 @@ class LMStudioAdapter(BaseLLMAdapter):
     ) -> Optional[Decision]:
         logger.info("LMStudioAdapter: get_recommendation")
         if is_first_step(decision_input):
-            prompt = build_recommendation_prompt(decision_input, next_step_hint)
+            prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
         else:
-            prompt = build_step_mapping_prompt(decision_input, next_step_hint)
+            prompt = build_step_mapping_prompt(decision_input, next_step_hint=next_step_hint)
         text = self._call(self._build_messages(prompt))
         return self._parse_decision(text) if text else None
 

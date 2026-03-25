@@ -77,9 +77,9 @@ class OllamaAdapter(BaseLLMAdapter):
             return None
         
         if is_first_step(decision_input):
-            prompt = build_recommendation_prompt(decision_input, next_step_hint)
+            prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
         else:
-            prompt = build_step_mapping_prompt(decision_input, next_step_hint)
+            prompt = build_step_mapping_prompt(decision_input, next_step_hint=next_step_hint)
         # Force JSON mode for recommendations
         response = self._generate_content(prompt, json_mode=True)
         if response:

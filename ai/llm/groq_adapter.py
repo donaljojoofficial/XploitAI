@@ -81,9 +81,9 @@ class GroqAdapter(BaseLLMAdapter):
             return None
         
         if is_first_step(decision_input):
-            prompt = build_recommendation_prompt(decision_input, next_step_hint)
+            prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
         else:
-            prompt = build_step_mapping_prompt(decision_input, next_step_hint)
+            prompt = build_step_mapping_prompt(decision_input, next_step_hint=next_step_hint)
         response = self.generate(prompt)
         if response:
             return self._parse_decision(response)

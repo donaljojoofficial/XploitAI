@@ -152,9 +152,9 @@ class AnthropicAdapter(BaseLLMAdapter):
     def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
         logger.info("AnthropicAdapter: invoking Claude for recommendation")
         if is_first_step(decision_input):
-            prompt = build_recommendation_prompt(decision_input, next_step_hint)
+            prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
         else:
-            prompt = build_step_mapping_prompt(decision_input, next_step_hint)
+            prompt = build_step_mapping_prompt(decision_input, next_step_hint=next_step_hint)
         text = self._generate_content(prompt)
         if not text:
             return None
