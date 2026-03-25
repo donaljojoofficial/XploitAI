@@ -29,6 +29,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
 from services.execution_service import ExecutionService
+from services.remote_execution_service import RemoteExecutionService
 from core.config import get_config, set_config
 from ai.llm.groq_adapter import GroqAdapter
 
@@ -266,7 +267,7 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
 def start_attack(request: HttpRequest) -> HttpResponse:
     """
     Handles the 'Start Autonomous Attack' trigger from the dashboard.
-    Creates a new AttackState (local execution mode), then starts the execution service.
+    Creates a new AttackState and determines execution mode based on executor selection.
     """
     executor_id = request.POST.get('executor_id')
     target_id = request.POST.get('target_id')
@@ -276,22 +277,48 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         return redirect('dashboard_index')
 
     target = get_object_or_404(AttackTarget, pk=target_id)
-
     target_reference = target.base_url or target.ip_address
 
-    # 1. Create new Attack State with local execution context
-    state = AttackState.objects.create(
-        name=f"Local Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        current_phase="RECONNAISSANCE",
-        autonomy_status="IDLE",
-        state_data={
-            "target": target_reference,
-            "current_phase": "reconnaissance",
-            "completed_actions": [],
-            "findings": {},
-            "llm_provider": llm_provider,
-        },
-    )
+    # Determine execution mode based on executor selection
+    use_remote_executor = False
+    selected_executor = None
+    
+    if executor_id:
+        selected_executor = get_object_or_404(AttackerExecutor, pk=executor_id)
+        # Check if the selected executor is connected
+        if selected_executor.status == AttackerExecutor.Status.CONNECTED:
+            use_remote_executor = True
+
+    # Create new Attack State
+    if use_remote_executor:
+        state = AttackState.objects.create(
+            name=f"Remote Run {selected_executor.name} {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            current_phase="RECONNAISSANCE",
+            autonomy_status="IDLE",
+            state_data={
+                "target": target_reference,
+                "current_phase": "reconnaissance",
+                "completed_actions": [],
+                "findings": {},
+                "llm_provider": llm_provider,
+                "execution_mode": "remote",
+                "executor_id": selected_executor.id,
+            },
+        )
+    else:
+        state = AttackState.objects.create(
+            name=f"Local Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            current_phase="RECONNAISSANCE",
+            autonomy_status="IDLE",
+            state_data={
+                "target": target_reference,
+                "current_phase": "reconnaissance",
+                "completed_actions": [],
+                "findings": {},
+                "llm_provider": llm_provider,
+                "execution_mode": "local",
+            },
+        )
 
     # Persist provider preference
     if not state.state_data:
@@ -299,9 +326,8 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     state.state_data['llm_provider'] = llm_provider
     state.save(update_fields=['state_data'])
 
-    # (Optional) create or update context for UI display; local mode doesn't require remote executor.
-    if executor_id:
-        executor = get_object_or_404(AttackerExecutor, pk=executor_id)
+    # Create or update context for UI display
+    if selected_executor:
         AttackContext.objects.filter(status__in=['READY', 'RUNNING']).update(
             status='STOPPED',
             stop_reason='Superseded by new attack start',
@@ -309,14 +335,21 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         )
 
         AttackContext.objects.create(
-            attacker_executor=executor,
+            attacker_executor=selected_executor,
             target=target,
             status='READY'
         )
 
-    # 2. Initialize Execution Service and start assessment
-    execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
-    execution_service.start_assessment()
+    # Start execution based on mode
+    if use_remote_executor:
+        # For remote execution, we just set the state to RUNNING and let the executor daemon handle tasks
+        state.autonomy_status = "RUNNING"
+        state.stop_reason = f"Remote execution started on {selected_executor.name}."
+        state.save(update_fields=['autonomy_status', 'stop_reason'])
+    else:
+        # For local execution, use the ExecutionService
+        execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
+        execution_service.start_assessment()
 
     return redirect('dashboard_index')
 
@@ -337,9 +370,19 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
+    # Determine execution mode and resume accordingly
+    execution_mode = state.state_data.get('execution_mode', 'local')
     llm_provider = state.state_data.get('llm_provider', 'auto') if state.state_data else 'auto'
-    execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
-    execution_service.start_assessment()
+    
+    if execution_mode == 'remote':
+        # For remote execution, just set status to RUNNING
+        state.autonomy_status = "RUNNING"
+        state.stop_reason = "Plan approved, resuming remote execution."
+        state.save(update_fields=['autonomy_status', 'stop_reason'])
+    else:
+        # For local execution, use the ExecutionService
+        execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
+        execution_service.start_assessment()
 
     return redirect('dashboard_attack_detail', pk=pk)
 
@@ -355,9 +398,20 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
         last_context.status = 'READY'
         last_context.save()
 
+    # Determine execution mode and resume accordingly
+    execution_mode = state.state_data.get('execution_mode', 'local')
     llm_provider = state.state_data.get('llm_provider', 'auto') if state.state_data else 'auto'
-    execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
-    execution_service.start_assessment()
+    
+    if execution_mode == 'remote':
+        # For remote execution, just set status to RUNNING
+        state.autonomy_status = "RUNNING"
+        state.stop_reason = "Resuming remote execution."
+        state.save(update_fields=['autonomy_status', 'stop_reason'])
+    else:
+        # For local execution, use the ExecutionService
+        execution_service = ExecutionService(attack_state_id=state.id, llm_provider=llm_provider)
+        execution_service.start_assessment()
+    
     return redirect('dashboard_attack_detail', pk=pk)
 
 @login_required(login_url='login')

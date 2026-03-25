@@ -15,7 +15,13 @@ from typing import Iterator, Optional
 from core.config import get_config
 from ai.llm.base import BaseLLMAdapter
 from ai.schemas import Decision, DecisionInput, Plan, PlanStep
-from ai.llm.prompts import build_recommendation_prompt, build_plan_prompt, build_narrative_prompt
+from ai.llm.prompts import (
+    build_recommendation_prompt,
+    build_plan_prompt,
+    build_narrative_prompt,
+    build_step_mapping_prompt,
+    is_first_step,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +151,10 @@ class AnthropicAdapter(BaseLLMAdapter):
 
     def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
         logger.info("AnthropicAdapter: invoking Claude for recommendation")
-        prompt = build_recommendation_prompt(decision_input, next_step_hint)
+        if is_first_step(decision_input):
+            prompt = build_recommendation_prompt(decision_input, next_step_hint)
+        else:
+            prompt = build_step_mapping_prompt(decision_input, next_step_hint)
         text = self._generate_content(prompt)
         if not text:
             return None

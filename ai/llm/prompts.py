@@ -157,6 +157,73 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
     )
 
 
+def is_first_step(decision_input: DecisionInput) -> bool:
+    """Return True when no previous action has been executed yet."""
+    return not decision_input.past_actions and decision_input.last_result is None
+
+
+def build_step_mapping_prompt(
+    decision_input: DecisionInput,
+    next_step_hint: dict = None,
+) -> str:
+    """
+    Minimal prompt for non-first steps.
+
+    Instead of resending the full context (findings, history, target, phase
+    description, allowed-action list, etc.) we only send:
+      - the previous command output (already truncated by ActionResultSummary)
+      - the next planned step hint (if any)
+
+    This keeps token usage as low as possible on free-quota APIs while still
+    giving the model enough signal to refine parameters for the next action.
+
+    Returns a JSON schema identical to build_recommendation_prompt so all
+    existing parsers work unchanged.
+    """
+    phase = decision_input.phase or "RECONNAISSANCE"
+    next_p = _next_phase(phase)
+
+    lr = decision_input.last_result
+    status = "SUCCESS" if lr and lr.success else "FAILED"
+    output = (lr.raw_output or lr.output_summary or "(empty)") if lr else "(empty)"
+    error_line = f"\nError: {lr.error}" if lr and lr.error else ""
+
+    if next_step_hint:
+        hint_action = next_step_hint.get("action_type") or next_step_hint.get("action", "")
+        hint_params = next_step_hint.get("parameters") or {}
+        task_line = (
+            f"Map previous output to the next planned step.\n"
+            f"Next step: action='{hint_action}', "
+            f"base_parameters={json.dumps(hint_params, separators=(',', ':'))}.\n"
+            "Refine parameters using values found in the output above (IPs, paths, ports). "
+            "If the step is impossible given the output, choose the closest alternative."
+        )
+    else:
+        actions = ", ".join(ALLOWED_ACTIONS)
+        task_line = (
+            f"Based only on the output above, choose the single best next action "
+            f"from: {actions}."
+        )
+
+    schema = (
+        '{\n'
+        '  "action_type": "<action name>",\n'
+        '  "parameters": {},\n'
+        '  "rationale": "<one sentence referencing the output above>",\n'
+        f'  "suggested_next_phase": "<{phase} or {next_p}>",\n'
+        '  "phase_reason": "<one sentence>"\n'
+        '}'
+    )
+
+    return (
+        f"Phase: {phase}\n"
+        f"Previous result: {status}{error_line}\n"
+        f"Output:\n{output}\n\n"
+        f"Task: {task_line}\n\n"
+        f"Respond ONLY with this JSON (no markdown, no extra text):\n{schema}"
+    )
+
+
 def build_narrative_prompt(decision_input: DecisionInput) -> str:
     phase = decision_input.phase or "RECONNAISSANCE"
     next_p = _next_phase(phase)

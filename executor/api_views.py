@@ -112,9 +112,45 @@ def get_tasks(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def report_result(request):
+def report_result(request, task_id):
     """
-    Receives execution result.
+    Receives execution result for a specific task.
+    Input: { "task_id": <int>, "status": "...", "exit_code": <int>, "stdout": "...", "stderr": "...", "duration_seconds": <float>, "artifacts": [...], "error_message": "..." }
+    """
+    try:
+        data = json.loads(request.body)
+        
+        if not task_id:
+            return JsonResponse({"error": "Missing task_id"}, status=400)
+            
+        try:
+            task = ExecutionTask.objects.get(id=task_id)
+            task.status = data.get("status", "UNKNOWN")
+            task.exit_code = data.get("exit_code")
+            task.stdout = data.get("stdout", "")
+            task.stderr = data.get("stderr", "")
+            task.duration_seconds = data.get("duration_seconds", 0)
+            task.artifacts = data.get("artifacts", [])
+            task.error_message = data.get("error_message", "")
+            task.completed_at = timezone.now()
+            task.save()
+            
+            return JsonResponse({"status": "recorded"})
+            
+        except ExecutionTask.DoesNotExist:
+            return JsonResponse({"error": "Task not found"}, status=404)
+            
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception as e:
+        logger.error(f"Report result error: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def report_result_legacy(request):
+    """
+    Legacy endpoint for receiving execution result.
     Input: { "task_id": <int>, "status": "...", "output": "..." }
     """
     try:

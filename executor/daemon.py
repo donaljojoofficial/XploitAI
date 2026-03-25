@@ -133,20 +133,22 @@ class ExecutorDaemon:
     def fetch_task(self) -> Optional[ExecutionRequest]:
         """Poll the controller for the next task."""
         # Endpoint defined in TODO EXEC-2 (assumed path based on architecture)
-        resp = self.session.get(f"{self.api_url}/api/executor/tasks/next", timeout=10)
+        resp = self.session.get(f"{self.api_url}/api/executor/tasks/", timeout=10)
         
         if resp.status_code == 200:
-            data = resp.json()
-            if not data:
+            tasks = resp.json()
+            if not tasks:
                 return None
 
+            # Take the first task from the list
+            data = tasks[0]
             params = data.get('parameters', {})
             # Support command in parameters (new schema) or top-level (legacy)
             cmd = data.get('command') or params.get('command')
 
             # Deserialize manually since ExecutionRequest doesn't have from_dict yet
             return ExecutionRequest(
-                task_id=data['task_id'],
+                task_id=data['id'],
                 action_name=data['action_name'],
                 command=cmd,
                 parameters=params,
