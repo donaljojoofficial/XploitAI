@@ -8,6 +8,7 @@ from .base import BaseLLMAdapter
 from .gemini import GeminiAdapter
 from .groq_adapter import GroqAdapter
 from .anthropic import AnthropicAdapter
+from .lmstudio_adapter import LMStudioAdapter
 from .local_rule_engine import LocalRuleEngine
 
-__all__ = ["BaseLLMAdapter", "GeminiAdapter", "GroqAdapter", "AnthropicAdapter", "LocalRuleEngine"]
+__all__ = ["BaseLLMAdapter", "GeminiAdapter", "GroqAdapter", "AnthropicAdapter", "LMStudioAdapter", "LocalRuleEngine"]

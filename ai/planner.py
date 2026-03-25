@@ -6,6 +6,7 @@ from django.conf import settings
 
 from ai.llm.base import BaseLLMAdapter
 from ai.llm.fallback import FallbackAdapter
+from ai.llm.lmstudio_adapter import LMStudioAdapter
 from ai.llm.gemini import GeminiAdapter
 from ai.llm.prompts import build_recommendation_prompt
 from ai.schemas import DecisionInput, PastActionSummary
@@ -137,6 +138,11 @@ class AIPlanner:
                 ollama = OllamaAdapter()
                 if ollama._client: return ollama
             except Exception: pass
+        elif provider == "lmstudio":
+            try:
+                lmstudio = LMStudioAdapter()
+                if lmstudio._available: return lmstudio
+            except Exception: pass
 
         # Local provider has no external dependency
         if provider == "local":
@@ -168,6 +174,11 @@ class AIPlanner:
             from ai.llm.ollama_adapter import OllamaAdapter
             ollama = OllamaAdapter()
             if ollama._client: adapters.append(ollama)
+        except Exception: pass
+
+        try:
+            lmstudio = LMStudioAdapter()
+            if lmstudio._available: adapters.append(lmstudio)
         except Exception: pass
 
         from ai.llm.local_rule_engine import LocalRuleEngine
@@ -230,3 +241,4 @@ class AIPlanner:
 
         logger.info("Fallback planner engine engaged after LLM fallback.")
         return FallbackPlannerEngine(state_manager).get_next_command()
+
