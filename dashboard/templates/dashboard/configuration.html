@@ -33,9 +33,11 @@
                         <div class="mb-3">
                             <label for="geminiModel" class="form-label">Gemini Model Version</label>
                             <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="geminiModel" name="gemini_model">
-                                <option value="gemini-2.0-flash" {% if gemini_model == 'gemini-2.0-flash' %}selected{% endif %}>Gemini 2.0 Flash (Default)</option>
-                                <option value="gemini-1.5-flash" {% if gemini_model == 'gemini-1.5-flash' %}selected{% endif %}>Gemini 1.5 Flash</option>
-                                <option value="gemini-1.5-pro" {% if gemini_model == 'gemini-1.5-pro' %}selected{% endif %}>Gemini 1.5 Pro</option>
+                                <option value="gemini-2.0-flash" {% if gemini_model == 'gemini-2.0-flash' %}selected{% endif %}>Gemini 2.0 Flash</option>
+                                <option value="gemini-2.5-flash" {% if gemini_model == 'gemini-2.5-flash' %}selected{% endif %}>Gemini 2.5 Flash</option>
+                                <option value="gemini-2.5-flash-lite" {% if gemini_model == 'gemini-2.5-flash-lite' %}selected{% endif %}>Gemini 2.5 Flash Lite</option>
+                                <option value="gemini-2.5-pro" {% if gemini_model == 'gemini-2.5-pro' %}selected{% endif %}>Gemini 2.5 Pro</option>
+                                <option value="gemini-2.0-flash-lite" {% if gemini_model == 'gemini-2.0-flash-lite' %}selected{% endif %}>Gemini 2.0 Flash Lite</option>
                             </select>
                             <div class="form-text">Select the specific model version to use.</div>
                             <div class="mt-2">
@@ -45,31 +47,26 @@
                         </div>
 
                         <div class="mb-3">
-                            <label for="claudeKey" class="form-label">Anthropic Claude API Key</label>
+                            <label for="openaiKey" class="form-label">OpenAI API Key</label>
                             <div class="flex">
-                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-robot"></i></span>
-                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="claudeKey" name="claude_key" placeholder="{% if has_claude_key %}Current key set (leave blank to keep){% else %}Enter Claude API Key{% endif %}" autocomplete="off">
+                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-cpu"></i></span>
+                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="openaiKey" name="openai_key" placeholder="{% if has_openai_key %}Current key set (leave blank to keep){% else %}Enter OpenAI API Key{% endif %}" autocomplete="off">
                             </div>
-                            <div class="form-text">Required for Anthropic Adapter.</div>
+                            <div class="form-text">Required for OpenAI Adapter.</div>
                         </div>
 
                         <div class="mb-3">
-                            <label for="claudeModel" class="form-label">Claude Model Version</label>
-                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="claudeModel" name="claude_model">
-                                <option value="claude-3-5-sonnet-20240620" {% if claude_model == 'claude-3-5-sonnet-20240620' %}selected{% endif %}>Claude 3.5 Sonnet (Recommended)</option>
-                                <option value="claude-3-opus-20240229" {% if claude_model == 'claude-3-opus-20240229' %}selected{% endif %}>Claude 3 Opus</option>
-                                <option value="claude-3-haiku-20240307" {% if claude_model == 'claude-3-haiku-20240307' %}selected{% endif %}>Claude 3 Haiku</option>
-                                <option value="claude-3-5-sonnet-20240620" {% if claude_model == 'claude-3-5-sonnet-20240620' %}selected{% endif %}>Claude 3.5 Sonnet (Recommended)</option>
-                                <option value="claude-3-opus-20240229" {% if claude_model == 'claude-3-opus-20240229' %}selected{% endif %}>Claude 3 Opus</option>
-                                <option value="claude-3-haiku-20240307" {% if claude_model == 'claude-3-haiku-20240307' %}selected{% endif %}>Claude 3 Haiku</option>
-                                <option value="claude-sonnet-4-5-20250929" {% if claude_model == 'claude-sonnet-4-5-20250929' %}selected{% endif %}>Claude Sonnet 4.5 (Preview)</option>
-                                <option value="claude-opus-4-6-20260204" {% if claude_model == 'claude-opus-4-6-20260204' %}selected{% endif %}>Claude Opus 4.6 (Preview)</option>
-                                <option value="claude-haiku-4-5-20251001" {% if claude_model == 'claude-haiku-4-5-20251001' %}selected{% endif %}>Claude Haiku 4.5 (Preview)</option>
-                            </select>
-                            <div class="form-text">Select the specific model version to use.</div>
+                            <label for="openaiModel" class="form-label">OpenAI Model</label>
+                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="openaiModel" name="openai_model" value="{{ openai_model }}">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="openaiHost" class="form-label">OpenAI Host</label>
+                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="openaiHost" name="openai_host" value="{{ openai_host }}">
+                            <div class="form-text">Use default <code>https://api.openai.com</code> unless using a compatible proxy.</div>
                             <div class="mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('claude')">Test Claude Connection</button>
-                                <span id="claude-status" class="ms-2 small"></span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('openai')">Test OpenAI Connection</button>
+                                <span id="openai-status" class="ms-2 small"></span>
                             </div>
                         </div>
 
@@ -101,11 +98,64 @@
                             <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="defaultProvider" name="default_provider">
                                 <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
                                 <option value="gemini" {% if default_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
-                                <option value="claude" {% if default_provider == 'claude' %}selected{% endif %}>Anthropic Claude</option>
+                                <option value="openai" {% if default_provider == 'openai' %}selected{% endif %}>OpenAI</option>
                                 <option value="groq" {% if default_provider == 'groq' %}selected{% endif %}>Groq</option>
+                                <option value="lmstudio" {% if default_provider == 'lmstudio' %}selected{% endif %}>LM Studio (Local)</option>
                             </select>
                             <div class="form-text">Preferred provider for new attacks.</div>
                         </div>
+
+                        <hr class="my-4">
+                        <h6 class="mb-3">LM Studio (Local) Settings</h6>
+
+                        <div class="mb-3">
+                            <label for="lmstudioHost" class="form-label">LM Studio Host</label>
+                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioHost" name="lmstudio_host" value="{{ lmstudio_host }}">
+                            <div class="form-text">OpenAI-compatible server base URL (usually <code>http://localhost:1234</code>).</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="lmstudioModel" class="form-label">LM Studio Model</label>
+                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioModel" name="lmstudio_model" value="{{ lmstudio_model }}">
+                            <div class="form-text">Must match the loaded model identifier in LM Studio.</div>
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('lmstudio')">Test LM Studio Connection</button>
+                                <span id="lmstudio-status" class="ms-2 small"></span>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="lmstudioTimeoutSeconds" class="form-label">Request Timeout (seconds)</label>
+                                <input type="number" min="5" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioTimeoutSeconds" name="lmstudio_timeout_seconds" value="{{ lmstudio_timeout_seconds }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="lmstudioPlanTimeoutSeconds" class="form-label">Plan Timeout (seconds)</label>
+                                <input type="number" min="10" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioPlanTimeoutSeconds" name="lmstudio_plan_timeout_seconds" value="{{ lmstudio_plan_timeout_seconds }}">
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="lmstudioTimeoutRetries" class="form-label">Timeout Retries</label>
+                                <input type="number" min="0" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioTimeoutRetries" name="lmstudio_timeout_retries" value="{{ lmstudio_timeout_retries }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="lmstudioCooldownSeconds" class="form-label">Connection Error Cooldown (seconds)</label>
+                                <input type="number" min="1" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioCooldownSeconds" name="lmstudio_retry_cooldown_seconds" value="{{ lmstudio_retry_cooldown_seconds }}">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="lmstudioMaxTokensDecision" class="form-label">Max Tokens (Decision)</label>
+                                <input type="number" min="32" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioMaxTokensDecision" name="lmstudio_max_tokens_decision" value="{{ lmstudio_max_tokens_decision }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="lmstudioMaxTokensPlan" class="form-label">Max Tokens (Plan)</label>
+                                <input type="number" min="64" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioMaxTokensPlan" name="lmstudio_max_tokens_plan" value="{{ lmstudio_max_tokens_plan }}">
+                            </div>
+                        </div>
+                        <div class="form-text mb-3">Timeouts no longer trigger cooldown; cooldown applies to connection errors only.</div>
 
                         <button type="submit" class="btn btn-primary">Save Configuration</button>
                     </form>
@@ -123,16 +173,22 @@ function checkStatus(provider) {
     
     let apiKey = '';
     let model = '';
+    let host = '';
     
     if (provider === 'gemini') {
         apiKey = document.getElementById('geminiKey').value;
         model = document.getElementById('geminiModel').value;
-    } else if (provider === 'claude') {
-        apiKey = document.getElementById('claudeKey').value;
-        model = document.getElementById('claudeModel').value;
+    } else if (provider === 'openai') {
+        apiKey = document.getElementById('openaiKey').value;
+        model = document.getElementById('openaiModel').value;
+        host = document.getElementById('openaiHost').value;
     } else if (provider === 'groq') {
         apiKey = document.getElementById('groqKey').value;
         model = document.getElementById('groqModel').value;
+    } else if (provider === 'lmstudio') {
+        apiKey = '';
+        model = document.getElementById('lmstudioModel').value;
+        host = document.getElementById('lmstudioHost').value;
     }
 
     fetch("{% url 'check_llm_status' %}", {
@@ -144,7 +200,8 @@ function checkStatus(provider) {
         body: JSON.stringify({
             provider: provider,
             api_key: apiKey,
-            model: model
+            model: model,
+            host: host
         })
     })
     .then(response => response.json())

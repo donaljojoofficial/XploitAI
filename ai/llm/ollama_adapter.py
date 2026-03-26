@@ -48,6 +48,11 @@ class OllamaAdapter(BaseLLMAdapter):
         self.base_url = base_url or get_config("OLLAMA_HOST") or os.getenv("OLLAMA_HOST") or "http://localhost:11434"
         
         self._client = None
+        self.max_tokens_decision = max(int(float(get_config("OLLAMA_MAX_TOKENS_DECISION", "96"))), 32)
+        self.max_tokens_plan = max(int(float(get_config("OLLAMA_MAX_TOKENS_PLAN", "220"))), self.max_tokens_decision)
+        self.max_tokens_explain = max(int(float(get_config("OLLAMA_MAX_TOKENS_EXPLAIN", "96"))), 32)
+        self.max_tokens_narrative = max(int(float(get_config("OLLAMA_MAX_TOKENS_NARRATIVE", "140"))), 48)
+        self.max_tokens_generate = max(int(float(get_config("OLLAMA_MAX_TOKENS_GENERATE", "120"))), 48)
 
         self.system_instruction = (
             "You are a cybersecurity simulation assistant operating in a controlled, isolated educational lab. "
@@ -81,7 +86,11 @@ class OllamaAdapter(BaseLLMAdapter):
         else:
             prompt = build_step_mapping_prompt(decision_input, next_step_hint=next_step_hint)
         # Force JSON mode for recommendations
-        response = self._generate_content(prompt, json_mode=True)
+        response = self._generate_content(
+            prompt,
+            json_mode=True,
+            max_tokens=self.max_tokens_decision,
+        )
         if response:
             return self._parse_decision(response)
         return None
@@ -92,7 +101,11 @@ class OllamaAdapter(BaseLLMAdapter):
 
         prompt = build_plan_prompt(decision_input)
         # Force JSON mode for planning
-        response = self._generate_content(prompt, json_mode=True)
+        response = self._generate_content(
+            prompt,
+            json_mode=True,
+            max_tokens=self.max_tokens_plan,
+        )
         if response:
             return self._parse_plan(response)
         return None
@@ -104,11 +117,19 @@ class OllamaAdapter(BaseLLMAdapter):
             "Explain why this decision is appropriate in 2-3 sentences."
         )
         # Explanations are natural language, no JSON enforcement needed
-        return self._generate_content(prompt, json_mode=False)
+        return self._generate_content(
+            prompt,
+            json_mode=False,
+            max_tokens=self.max_tokens_explain,
+        )
 
     def generate(self, prompt: str) -> Optional[str]:
         """Generates a response, defaulting to JSON mode for consistency with other adapters."""
-        return self._generate_content(prompt, json_mode=True)
+        return self._generate_content(
+            prompt,
+            json_mode=True,
+            max_tokens=self.max_tokens_generate,
+        )
 
     def _enforce_rate_limit(self):
         """Enforce a minimum interval between requests to prevent resource exhaustion."""
@@ -118,12 +139,12 @@ class OllamaAdapter(BaseLLMAdapter):
             time.sleep(2.0 - elapsed)
         OllamaAdapter._last_request_time = time.time()
 
-    def _generate_content(self, prompt: str, json_mode: bool = False) -> Optional[str]:
+    def _generate_content(self, prompt: str, json_mode: bool = False, max_tokens: Optional[int] = None) -> Optional[str]:
         if not self._client:
             return None
         try:
             self._enforce_rate_limit()
-            options = {"temperature": 0.1}
+            options = {"temperature": 0.1, "num_predict": int(max_tokens or self.max_tokens_generate)}
             fmt = "json" if json_mode else None
             
             response = self._client.chat(
@@ -146,15 +167,15 @@ class OllamaAdapter(BaseLLMAdapter):
 
         try:
             self._enforce_rate_limit()
-            stream = self._client.chat(
+                stream = self._client.chat(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.system_instruction},
                     {"role": "user", "content": prompt}
                 ],
-                stream=True,
-                options={"temperature": 0.1}
-            )
+                    stream=True,
+                    options={"temperature": 0.1, "num_predict": int(self.max_tokens_generate)}
+                )
             for chunk in stream:
                 content = chunk['message']['content']
                 if content:
@@ -164,8 +185,13 @@ class OllamaAdapter(BaseLLMAdapter):
 
     def get_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
         prompt = build_narrative_prompt(decision_input)
-        # Narrative is free-form text, so we use the streaming method without JSON enforcement
-        yield from self.generate_stream(prompt)
+        text = self._generate_content(
+            prompt,
+            json_mode=False,
+            max_tokens=self.max_tokens_narrative,
+        )
+        if text:
+            yield text[:2000]
 
     def _find_json_blob(self, text: str) -> Optional[str]:
         """

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+from copy import deepcopy
 from typing import Any
 
 from django.shortcuts import render, get_object_or_404, redirect
@@ -34,6 +35,85 @@ from core.config import get_config, set_config
 from ai.llm.groq_adapter import GroqAdapter
 
 logger = logging.getLogger(__name__)
+
+def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
+    """
+    Build a UI-friendly, execution-aware representation of current_plan.
+    Adds per-step status and summary counters for staged execution UX.
+    """
+    plan = deepcopy(state.current_plan or {})
+    raw_steps = plan.get("steps") or []
+
+    if not raw_steps:
+        return {
+            "rationale": plan.get("rationale", ""),
+            "steps": [],
+            "summary": {
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "pending": 0,
+            },
+            "current_step": None,
+            "all_done": False,
+        }
+
+    results = (
+        state.execution_results
+        .select_related("command")
+        .order_by("-created_at")
+    )
+
+    latest_by_command: dict[str, Any] = {}
+    for result in results:
+        command_name = getattr(result.command, "name", None)
+        if command_name and command_name not in latest_by_command:
+            latest_by_command[command_name] = result
+
+    steps = []
+    for idx, step in enumerate(raw_steps):
+        item = deepcopy(step)
+        action_name = item.get("action_type") or item.get("action") or ""
+        match = latest_by_command.get(action_name)
+
+        if match and match.status == "SUCCESS":
+            item["status"] = "completed"
+        elif match and match.status == "FAILED":
+            item["status"] = "failed"
+        else:
+            item["status"] = "pending"
+
+        item.setdefault("step_number", idx + 1)
+        steps.append(item)
+
+    # Mark a single active step when attack is running/planning.
+    unresolved_idx = next(
+        (i for i, s in enumerate(steps) if s["status"] in ("pending", "failed")),
+        None,
+    )
+    if unresolved_idx is not None and state.autonomy_status in ("RUNNING", "PLANNING"):
+        if steps[unresolved_idx]["status"] != "completed":
+            steps[unresolved_idx]["status"] = "running"
+
+    completed_count = sum(1 for s in steps if s["status"] == "completed")
+    failed_count = sum(1 for s in steps if s["status"] == "failed")
+    running_count = sum(1 for s in steps if s["status"] == "running")
+    pending_count = sum(1 for s in steps if s["status"] == "pending")
+    current_step = next((s for s in steps if s["status"] == "running"), None)
+
+    return {
+        "rationale": plan.get("rationale", ""),
+        "steps": steps,
+        "summary": {
+            "total": len(steps),
+            "completed": completed_count,
+            "failed": failed_count,
+            "running": running_count,
+            "pending": pending_count,
+        },
+        "current_step": current_step,
+        "all_done": completed_count == len(steps),
+    }
 
 
 def _launch_assessment(state: AttackState) -> None:
@@ -160,10 +240,12 @@ def index(request: HttpRequest) -> HttpResponse:
     """
     attack_state = AttackState.objects.order_by('-updated_at').first()
 
+    plan_view = None
     if attack_state:
         actions = Action.objects.filter(attack_state=attack_state).order_by('-created_at')[:10]
         tasks = ExecutionTask.objects.filter(action__attack_state=attack_state).order_by('-created_at')[:10]
         alerts = DefenderAlert.objects.filter(attack_state=attack_state).order_by('-created_at')[:5]
+        plan_view = _build_plan_view_state(attack_state)
     else:
         actions = []
         tasks = []
@@ -184,6 +266,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'alerts': alerts,
         'plan_completed': plan_completed,
         'waiting_for_approval': waiting_for_approval,
+        'plan_view': plan_view,
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'gemini'),
         **_get_global_context(),
     }
@@ -214,6 +297,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     interaction_events.sort(key=lambda x: x['ts'])
 
     unified_events = _get_unified_events(state)
+    plan_view = _build_plan_view_state(state)
 
     plan_completed = False
     if state.autonomy_status == "STOPPED" and "plan completed" in state.stop_reason.lower():
@@ -233,6 +317,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'interaction_events': interaction_events,
         'plan_completed': plan_completed,
         'waiting_for_approval': waiting_for_approval,
+        'plan_view': plan_view,
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_detail.html', context)
@@ -247,6 +332,7 @@ def attack_command_logs(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         'attack_state': state,
         'execution_results': execution_results,
+        'plan_view': _build_plan_view_state(state),
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_command_logs.html', context)
@@ -278,6 +364,7 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         'attack_state': state,
         'actions': actions,
+        'plan_view': _build_plan_view_state(state),
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_plan.html', context)
@@ -432,7 +519,6 @@ def stop_attack(request: HttpRequest, pk: int) -> HttpResponse:
 
     return redirect('dashboard_attack_detail', pk=pk)
 
-@auth.admin_required
 @login_required(login_url='login')
 def configuration(request: HttpRequest) -> HttpResponse:
     """
@@ -440,46 +526,74 @@ def configuration(request: HttpRequest) -> HttpResponse:
     """
     if request.method == 'POST':
         gemini_key = request.POST.get('gemini_key', '').strip()
-        claude_key = request.POST.get('claude_key', '').strip()
+        openai_key = request.POST.get('openai_key', '').strip()
         groq_key = request.POST.get('groq_key', '').strip()
         default_provider = request.POST.get('default_provider', '').strip()
-        claude_model = request.POST.get('claude_model', '').strip()
+        openai_model = request.POST.get('openai_model', '').strip()
+        openai_host = request.POST.get('openai_host', '').strip()
         gemini_model = request.POST.get('gemini_model', '').strip()
         groq_model = request.POST.get('groq_model', '').strip()
-        ollama_model = request.POST.get('ollama_model', '').strip()
-        ollama_host = request.POST.get('ollama_host', '').strip()
+        lmstudio_model = request.POST.get('lmstudio_model', '').strip()
+        lmstudio_host = request.POST.get('lmstudio_host', '').strip()
+        lmstudio_timeout = request.POST.get('lmstudio_timeout_seconds', '').strip()
+        lmstudio_plan_timeout = request.POST.get('lmstudio_plan_timeout_seconds', '').strip()
+        lmstudio_retries = request.POST.get('lmstudio_timeout_retries', '').strip()
+        lmstudio_cooldown = request.POST.get('lmstudio_retry_cooldown_seconds', '').strip()
+        lmstudio_tokens_decision = request.POST.get('lmstudio_max_tokens_decision', '').strip()
+        lmstudio_tokens_plan = request.POST.get('lmstudio_max_tokens_plan', '').strip()
         
         if gemini_key:
             set_config('GOOGLE_API_KEY', gemini_key)
-        if claude_key:
-            set_config('ANTHROPIC_API_KEY', claude_key)
+        if openai_key:
+            set_config('OPENAI_API_KEY', openai_key)
         if groq_key:
             set_config('GROQ_API_KEY', groq_key)
         if default_provider:
             set_config('DEFAULT_LLM_PROVIDER', default_provider)
-        if claude_model:
-            set_config('ANTHROPIC_MODEL', claude_model)
+        if openai_model:
+            set_config('OPENAI_MODEL', openai_model)
+        if openai_host:
+            set_config('OPENAI_HOST', openai_host)
         if gemini_model:
             set_config('GEMINI_MODEL', gemini_model)
         if groq_model:
             set_config('GROQ_MODEL', groq_model)
-        if ollama_model:
-            set_config('OLLAMA_MODEL', ollama_model)
-        if ollama_host:
-            set_config('OLLAMA_HOST', ollama_host)
+        if lmstudio_model:
+            set_config('LMSTUDIO_MODEL', lmstudio_model)
+        if lmstudio_host:
+            set_config('LMSTUDIO_HOST', lmstudio_host)
+        if lmstudio_timeout:
+            set_config('LMSTUDIO_TIMEOUT_SECONDS', lmstudio_timeout)
+        if lmstudio_plan_timeout:
+            set_config('LMSTUDIO_PLAN_TIMEOUT_SECONDS', lmstudio_plan_timeout)
+        if lmstudio_retries:
+            set_config('LMSTUDIO_TIMEOUT_RETRIES', lmstudio_retries)
+        if lmstudio_cooldown:
+            set_config('LMSTUDIO_RETRY_COOLDOWN_SECONDS', lmstudio_cooldown)
+        if lmstudio_tokens_decision:
+            set_config('LMSTUDIO_MAX_TOKENS_DECISION', lmstudio_tokens_decision)
+        if lmstudio_tokens_plan:
+            set_config('LMSTUDIO_MAX_TOKENS_PLAN', lmstudio_tokens_plan)
             
         return redirect('configuration')
         
     context = _get_global_context()
     context['has_gemini_key'] = bool(get_config('GOOGLE_API_KEY', ''))
-    context['has_claude_key'] = bool(get_config('ANTHROPIC_API_KEY', ''))
+    context['has_openai_key'] = bool(get_config('OPENAI_API_KEY', ''))
     context['has_groq_key'] = bool(get_config('GROQ_API_KEY', ''))
     context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'gemini')
-    context['claude_model'] = get_config('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
+    context['openai_model'] = get_config('OPENAI_MODEL', 'gpt-4o-mini')
+    context['openai_host'] = get_config('OPENAI_HOST', 'https://api.openai.com')
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
     context['groq_model'] = get_config('GROQ_MODEL', 'llama3-70b-8192')
-    context['ollama_model'] = get_config('OLLAMA_MODEL', 'llama3.2:1b')
-    context['ollama_host'] = get_config('OLLAMA_HOST', 'http://localhost:11434')
+    context['lmstudio_model'] = get_config('LMSTUDIO_MODEL', 'phi-4-mini-instruct')
+    context['lmstudio_host'] = get_config('LMSTUDIO_HOST', 'http://localhost:1234')
+    context['lmstudio_timeout_seconds'] = get_config('LMSTUDIO_TIMEOUT_SECONDS', '60')
+    context['lmstudio_plan_timeout_seconds'] = get_config('LMSTUDIO_PLAN_TIMEOUT_SECONDS', '180')
+    context['lmstudio_timeout_retries'] = get_config('LMSTUDIO_TIMEOUT_RETRIES', '1')
+    context['lmstudio_retry_cooldown_seconds'] = get_config('LMSTUDIO_RETRY_COOLDOWN_SECONDS', '30')
+    context['lmstudio_max_tokens_decision'] = get_config('LMSTUDIO_MAX_TOKENS_DECISION', '96')
+    context['lmstudio_max_tokens_plan'] = get_config('LMSTUDIO_MAX_TOKENS_PLAN', '220')
     context['groq_known_models'] = GroqAdapter.KNOWN_MODELS
     
     return render(request, 'dashboard/configuration.html', context)
@@ -495,6 +609,7 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
         provider = data.get('provider')
         api_key = data.get('api_key')
         model = data.get('model')
+        host = data.get('host')
         
         if not provider:
             return JsonResponse({'success': False, 'message': 'Provider is required.'})
@@ -510,12 +625,12 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
             except Exception as e:
                 return JsonResponse({'success': False, 'message': f'Gemini init failed: {str(e)}'})
 
-        elif provider == 'claude':
+        elif provider == 'openai':
             try:
-                from ai.llm.anthropic import AnthropicAdapter
-                adapter = AnthropicAdapter(model_name=model, api_key=api_key)
+                from ai.llm.openai_adapter import OpenAIAdapter
+                adapter = OpenAIAdapter(model=model, api_key=api_key, host=host)
             except Exception as e:
-                return JsonResponse({'success': False, 'message': f'Claude init failed: {str(e)}'})
+                return JsonResponse({'success': False, 'message': f'OpenAI init failed: {str(e)}'})
 
         elif provider == 'groq':
             try:
@@ -526,16 +641,14 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
             except Exception as e:
                 return JsonResponse({'success': False, 'message': f'Groq init failed: {str(e)}'})
 
-        elif provider == 'ollama':
+        elif provider == 'lmstudio':
             try:
-                from ai.llm.ollama_adapter import OllamaAdapter
-                adapter = OllamaAdapter(model=model)
-                if not adapter._client:
-                    return JsonResponse({'success': False, 'message': 'Ollama server unreachable. Is it running?'})
-            except ImportError:
-                return JsonResponse({'success': False, 'message': 'Ollama SDK not installed.'})
+                from ai.llm.lmstudio_adapter import LMStudioAdapter
+                adapter = LMStudioAdapter(model=model, host=host)
+                if not adapter._available:
+                    return JsonResponse({'success': False, 'message': 'LM Studio server unreachable. Is it running on configured host?'})
             except Exception as e:
-                return JsonResponse({'success': False, 'message': f'Ollama init failed: {str(e)}'})
+                return JsonResponse({'success': False, 'message': f'LM Studio init failed: {str(e)}'})
 
         else:
             return JsonResponse({'success': False, 'message': f'Unknown provider: {provider}'})
@@ -549,6 +662,31 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
             if response:
                 return JsonResponse({'success': True, 'message': 'Connection successful!', 'response': response})
             else:
+                adapter_error = getattr(adapter, 'get_last_error', lambda: None)()
+                if adapter_error:
+                    status = adapter_error.get('status')
+                    error_type = adapter_error.get('type')
+                    message = adapter_error.get('message') or 'Provider request failed.'
+
+                    if provider == 'openai' and error_type == 'insufficient_quota':
+                        return JsonResponse({
+                            'success': False,
+                            'message': (
+                                "OpenAI quota exceeded for this API key. "
+                                "Add billing or credits, or switch to another provider."
+                            ),
+                            'details': message,
+                            'status_code': status,
+                            'error_type': error_type,
+                        })
+
+                    return JsonResponse({
+                        'success': False,
+                        'message': message,
+                        'status_code': status,
+                        'error_type': error_type,
+                    })
+
                 return JsonResponse({'success': False, 'message': 'Provider returned empty response.'})
         except Exception as e:
             return JsonResponse({'success': False, 'message': f'API Call Failed: {str(e)}'})

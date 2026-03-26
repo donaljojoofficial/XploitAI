@@ -73,6 +73,24 @@
         </div>
     {% endif %}
 
+    {% if plan_view and plan_view.steps %}
+    <div class="p-4 rounded border border-gray-700 bg-gray-800/80">
+        <div class="flex flex-wrap gap-2 items-center text-xs font-mono">
+            <span class="px-2 py-1 rounded bg-green-900/30 text-accent border border-green-500/30">Completed: {{ plan_view.summary.completed }}</span>
+            {% if plan_view.summary.running %}
+            <span class="px-2 py-1 rounded bg-blue-900/30 text-info border border-blue-500/30">Running: {{ plan_view.summary.running }}</span>
+            {% endif %}
+            {% if plan_view.summary.failed %}
+            <span class="px-2 py-1 rounded bg-red-900/30 text-error border border-red-500/30">Failed: {{ plan_view.summary.failed }}</span>
+            {% endif %}
+            <span class="px-2 py-1 rounded bg-gray-700 text-gray-300 border border-gray-600">Pending: {{ plan_view.summary.pending }}</span>
+            {% if plan_view.current_step %}
+            <span class="ml-2 text-gray-300">Current Step: <strong class="text-white">{{ plan_view.current_step.action_type|default:plan_view.current_step.action }}</strong></span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Main Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Timeline / Events -->
@@ -150,4 +168,13 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const detailStatus = "{{ attack_state.autonomy_status|escapejs }}";
+    if (detailStatus === "RUNNING" || detailStatus === "PLANNING") {
+        setTimeout(() => window.location.reload(), 4000);
+    }
+</script>
 {% endblock %}

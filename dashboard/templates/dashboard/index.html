@@ -30,6 +30,15 @@
                             {% endif %}
                         </h4>
                         <div class="text-sm text-slate-400 font-mono mb-4">Phase: {{ attack_state.current_phase|default:"N/A" }}</div>
+                        {% if plan_view and plan_view.current_step %}
+                        <div class="text-sm text-cyber-info font-mono mb-4">
+                            Current Step: {{ plan_view.current_step.action_type|default:plan_view.current_step.action }}
+                        </div>
+                        {% elif plan_view and plan_view.steps %}
+                        <div class="text-sm text-slate-400 font-mono mb-4">
+                            Plan Progress: {{ plan_view.summary.completed }}/{{ plan_view.summary.total }} completed
+                        </div>
+                        {% endif %}
                         
                         {% if active_context %}
                             <div class="flex items-center gap-3 p-4 bg-slate-800/50 rounded-lg border border-slate-600/50">
@@ -54,6 +63,14 @@
                                 <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-warning/50 hover:shadow-[0_0_20px_rgba(255,170,0,0.3)] transition-all">
                                      Replay
                                 </a>
+                                {% if attack_state.autonomy_status == 'RUNNING' or attack_state.autonomy_status == 'PLANNING' %}
+                                <form action="{% url 'stop_attack' attack_state.pk %}" method="post" class="inline-block">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-danger/50 bg-red-900/20 text-cyber-danger hover:shadow-[0_0_20px_rgba(255,51,102,0.35)] transition-all">
+                                         Stop Autonomy
+                                    </button>
+                                </form>
+                                {% endif %}
                                 {% if waiting_for_approval %}
                                 <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="inline-block">
                                     {% csrf_token %}
@@ -248,9 +265,9 @@
                             <select class="w-full bg-slate-800/50 border border-slate-600/50 text-white rounded-lg p-3 focus:border-cyber-secondary focus:ring-1 focus:ring-cyber-secondary outline-none transition-colors" id="llmProviderSelect" name="llm_provider">
                                 <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
                                 <option value="gemini" {% if default_llm_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
-                                <option value="claude" {% if default_llm_provider == 'claude' %}selected{% endif %}>Anthropic Claude</option>
+                                <option value="openai" {% if default_llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
                                 <option value="groq" {% if default_llm_provider == 'groq' %}selected{% endif %}>Groq</option>
-                                <option value="ollama" {% if default_llm_provider == 'ollama' %}selected{% endif %}>Ollama (Local)</option>
+                                <option value="lmstudio" {% if default_llm_provider == 'lmstudio' %}selected{% endif %}>LM Studio (Local)</option>
                             </select>
                         </div>
 

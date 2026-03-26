@@ -27,10 +27,10 @@ except ImportError:
     GEMINI_AVAILABLE = False
 
 try:
-    from ai.llm.anthropic import AnthropicAdapter
-    ANTHROPIC_AVAILABLE = True
+    from ai.llm.openai_adapter import OpenAIAdapter
+    OPENAI_AVAILABLE = True
 except ImportError:
-    ANTHROPIC_AVAILABLE = False
+    OPENAI_AVAILABLE = False
 
 try:
     from ai.llm.groq_adapter import GroqAdapter
@@ -39,12 +39,12 @@ except ImportError:
     GROQ_AVAILABLE = False
 
 try:
-    from ai.llm.ollama_adapter import OllamaAdapter
-    OLLAMA_AVAILABLE = True
+    from ai.llm.lmstudio_adapter import LMStudioAdapter
+    LMSTUDIO_AVAILABLE = True
 except ImportError:
-    OLLAMA_AVAILABLE = False
+    LMSTUDIO_AVAILABLE = False
 
-LLM_AVAILABLE = GEMINI_AVAILABLE or ANTHROPIC_AVAILABLE or GROQ_AVAILABLE or OLLAMA_AVAILABLE
+LLM_AVAILABLE = GEMINI_AVAILABLE or OPENAI_AVAILABLE or GROQ_AVAILABLE or LMSTUDIO_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class CommandGenerator:
 
         Args:
             use_llm: Whether to attempt using the LLM for generation.
-            llm_provider: 'auto', 'gemini', 'claude', 'groq', 'ollama', or 'local'.
+            llm_provider: 'auto', 'gemini', 'openai', 'groq', 'lmstudio', or 'local'.
         """
         self.use_llm = use_llm
         self.llm_client = None
@@ -92,17 +92,17 @@ class CommandGenerator:
                 a = GeminiAdapter()
                 if getattr(a, "_client", None):
                     adapters.append(a)
-            elif llm_provider == "claude" and ANTHROPIC_AVAILABLE:
-                a = AnthropicAdapter()
-                if getattr(a, "_client", None) or getattr(a, "_use_raw_http", False):
+            elif llm_provider == "openai" and OPENAI_AVAILABLE:
+                a = OpenAIAdapter()
+                if getattr(a, "_available", False):
                     adapters.append(a)
             elif llm_provider == "groq" and GROQ_AVAILABLE:
                 a = GroqAdapter()
                 if getattr(a, "_client", None):
                     adapters.append(a)
-            elif llm_provider == "ollama" and OLLAMA_AVAILABLE:
-                a = OllamaAdapter()
-                if getattr(a, "_client", None):
+            elif llm_provider == "lmstudio" and LMSTUDIO_AVAILABLE:
+                a = LMStudioAdapter()
+                if getattr(a, "_available", False):
                     adapters.append(a)
         except Exception as e:
             logger.warning("CommandGenerator: failed to init primary LLM adapter: %s", e)

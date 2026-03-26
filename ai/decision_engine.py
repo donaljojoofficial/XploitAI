@@ -15,10 +15,10 @@ except ImportError:
     GEMINI_AVAILABLE = False
 
 try:
-    from ai.llm.anthropic import AnthropicAdapter
-    ANTHROPIC_AVAILABLE = True
+    from ai.llm.openai_adapter import OpenAIAdapter
+    OPENAI_AVAILABLE = True
 except ImportError:
-    ANTHROPIC_AVAILABLE = False
+    OPENAI_AVAILABLE = False
 
 try:
     from ai.llm.groq_adapter import GroqAdapter
@@ -27,10 +27,10 @@ except ImportError:
     GROQ_AVAILABLE = False
 
 try:
-    from ai.llm.ollama_adapter import OllamaAdapter
-    OLLAMA_AVAILABLE = True
+    from ai.llm.lmstudio_adapter import LMStudioAdapter
+    LMSTUDIO_AVAILABLE = True
 except ImportError:
-    OLLAMA_AVAILABLE = False
+    LMSTUDIO_AVAILABLE = False
 
 from ai.llm.fallback import FallbackAdapter
 
@@ -78,14 +78,14 @@ class DecisionEngine:
                     logger.error(f"Failed to initialize GeminiAdapter: {e}")
             return None
 
-        def _init_anthropic():
-            if ANTHROPIC_AVAILABLE:
+        def _init_openai():
+            if OPENAI_AVAILABLE:
                 try:
-                    anthropic = AnthropicAdapter()
-                    if anthropic._client or anthropic._use_raw_http:
-                        return anthropic
+                    openai = OpenAIAdapter()
+                    if openai._available:
+                        return openai
                 except Exception as e:
-                    logger.error(f"Failed to initialize AnthropicAdapter: {e}")
+                    logger.error(f"Failed to initialize OpenAIAdapter: {e}")
             return None
 
         def _init_groq():
@@ -98,42 +98,42 @@ class DecisionEngine:
                     logger.error(f"Failed to initialize GroqAdapter: {e}")
             return None
 
-        def _init_ollama():
-            if OLLAMA_AVAILABLE:
+        def _init_lmstudio():
+            if LMSTUDIO_AVAILABLE:
                 try:
-                    ollama_inst = OllamaAdapter()
-                    if ollama_inst._client:
-                        return ollama_inst
+                    lmstudio = LMStudioAdapter()
+                    if lmstudio._available:
+                        return lmstudio
                 except Exception as e:
-                    logger.error(f"Failed to initialize OllamaAdapter: {e}")
+                    logger.error(f"Failed to initialize LMStudioAdapter: {e}")
             return None
 
         if provider == "gemini":
             adapter = _init_gemini()
             if adapter:
                 adapters.append(adapter)
-        elif provider == "claude":
-            adapter = _init_anthropic()
+        elif provider == "openai":
+            adapter = _init_openai()
             if adapter:
                 adapters.append(adapter)
         elif provider == "groq":
             adapter = _init_groq()
             if adapter:
                 adapters.append(adapter)
-        elif provider == "ollama":
-            adapter = _init_ollama()
+        elif provider == "lmstudio":
+            adapter = _init_lmstudio()
             if adapter:
                 adapters.append(adapter)
         else:
             # Auto / Fallback mode
             g = _init_gemini()
             if g: adapters.append(g)
-            a = _init_anthropic()
+            a = _init_openai()
             if a: adapters.append(a)
             gr = _init_groq()
             if gr: adapters.append(gr)
-            ol = _init_ollama()
-            if ol: adapters.append(ol)
+            lm = _init_lmstudio()
+            if lm: adapters.append(lm)
 
         from ai.llm.local_rule_engine import LocalRuleEngine
         adapters.append(LocalRuleEngine())

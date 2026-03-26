@@ -4,28 +4,40 @@
             <h5 class="card-title text-dark fw-bold mb-0">
                 <i class="bi bi-diagram-3-fill text-primary me-2"></i>Strategic Plan
             </h5>
-            {% if attack_state.current_plan and attack_state.current_plan.steps %}
+            {% if plan_view and plan_view.steps %}
             <span class="badge bg-primary-subtle text-primary rounded-pill px-3">
-                {{ attack_state.current_plan.steps|length }} Steps
+                {{ plan_view.summary.total }} Steps
             </span>
             {% endif %}
         </div>
     </div>
     <div class="card-body px-0 pt-0">
-        {% if attack_state.current_plan.rationale %}
+        {% if plan_view and plan_view.rationale %}
         <div class="px-4 pb-4">
             <div class="p-3 bg-light rounded-3 border-start border-4 border-info">
                 <h6 class="fw-bold text-uppercase text-muted small mb-2" style="letter-spacing: 0.5px;">
                     <i class="bi bi-lightbulb me-2"></i>Strategy
                 </h6>
-                <p class="mb-0 text-secondary small">{{ attack_state.current_plan.rationale }}</p>
+                <p class="mb-0 text-secondary small">{{ plan_view.rationale }}</p>
             </div>
         </div>
         {% endif %}
 
-        {% if attack_state and attack_state.current_plan and attack_state.current_plan.steps %}
+        {% if plan_view and plan_view.steps %}
+        <div class="px-4 pb-3">
+            <div class="d-flex flex-wrap gap-2">
+                <span class="badge bg-success-subtle text-success">Completed: {{ plan_view.summary.completed }}</span>
+                {% if plan_view.summary.running %}
+                <span class="badge bg-primary-subtle text-primary">Running: {{ plan_view.summary.running }}</span>
+                {% endif %}
+                {% if plan_view.summary.failed %}
+                <span class="badge bg-danger-subtle text-danger">Failed: {{ plan_view.summary.failed }}</span>
+                {% endif %}
+                <span class="badge bg-secondary-subtle text-secondary">Pending: {{ plan_view.summary.pending }}</span>
+            </div>
+        </div>
         <div class="px-4">
-            {% for step in attack_state.current_plan.steps %}
+            {% for step in plan_view.steps %}
             <div class="d-flex">
                 <div class="d-flex flex-column align-items-center" style="min-width: 40px;">
                     <div class="rounded-circle d-flex align-items-center justify-content-center border border-2 {% if step.status == 'completed' %}border-success bg-success text-white{% elif step.status == 'running' %}border-primary bg-white text-primary{% elif step.status == 'failed' %}border-danger bg-danger text-white{% else %}border-secondary-subtle bg-light text-secondary{% endif %}" 

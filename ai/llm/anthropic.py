@@ -55,6 +55,11 @@ class AnthropicAdapter(BaseLLMAdapter):
         self.api_key = api_key or get_config("ANTHROPIC_API_KEY")
         self._client = None
         self._use_raw_http = False
+        self.max_tokens_decision = max(int(float(get_config("ANTHROPIC_MAX_TOKENS_DECISION", "96"))), 32)
+        self.max_tokens_plan = max(int(float(get_config("ANTHROPIC_MAX_TOKENS_PLAN", "220"))), self.max_tokens_decision)
+        self.max_tokens_explain = max(int(float(get_config("ANTHROPIC_MAX_TOKENS_EXPLAIN", "96"))), 32)
+        self.max_tokens_narrative = max(int(float(get_config("ANTHROPIC_MAX_TOKENS_NARRATIVE", "140"))), 48)
+        self.max_tokens_generate = max(int(float(get_config("ANTHROPIC_MAX_TOKENS_GENERATE", "120"))), 48)
 
         # System prompt for consistent, structured, and concise behavior
         self.system_instruction = (
@@ -83,14 +88,15 @@ class AnthropicAdapter(BaseLLMAdapter):
             time.sleep(4.0 - elapsed)
         AnthropicAdapter._last_request_time = time.time()
 
-    def _generate_content(self, prompt: str) -> Optional[str]:
+    def _generate_content(self, prompt: str, max_tokens: Optional[int] = None) -> Optional[str]:
+        max_tokens = max_tokens or self.max_tokens_generate
         models = [self.model_name] + self.fallback_models
         for i, model in enumerate(models):
             if not self._client and not self._use_raw_http:
                 return None
                 
             if self._use_raw_http:
-                result = self._generate_content_raw(prompt, model)
+                result = self._generate_content_raw(prompt, model, max_tokens=max_tokens)
                 if result:
                     return result
                 continue
@@ -99,7 +105,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                 self._enforce_rate_limit()
                 message = self._client.messages.create(
                     model=model,
-                    max_tokens=4096,
+                    max_tokens=max_tokens,
                     system=self.system_instruction,
                     messages=[
                         {"role": "user", "content": prompt}
@@ -119,8 +125,9 @@ class AnthropicAdapter(BaseLLMAdapter):
         
         return None
 
-    def _generate_content_raw(self, prompt: str, model: str = None) -> Optional[str]:
+    def _generate_content_raw(self, prompt: str, model: str = None, max_tokens: Optional[int] = None) -> Optional[str]:
         target_model = model or self.model_name
+        max_tokens = max_tokens or self.max_tokens_generate
         url = "https://api.anthropic.com/v1/messages"
         headers = {
             "x-api-key": self.api_key,
@@ -129,7 +136,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         }
         data = {
             "model": target_model,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
             "system": self.system_instruction,
             "messages": [{"role": "user", "content": prompt}]
         }
@@ -155,7 +162,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
         else:
             prompt = build_step_mapping_prompt(decision_input, next_step_hint=next_step_hint)
-        text = self._generate_content(prompt)
+        text = self._generate_content(prompt, max_tokens=self.max_tokens_decision)
         if not text:
             return None
         return self._parse_decision(text)
@@ -163,7 +170,7 @@ class AnthropicAdapter(BaseLLMAdapter):
     def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
         logger.info("AnthropicAdapter: invoking Claude for plan")
         prompt = build_plan_prompt(decision_input)
-        text = self._generate_content(prompt)
+        text = self._generate_content(prompt, max_tokens=self.max_tokens_plan)
         if not text:
             return None
         return self._parse_plan(text)
@@ -175,10 +182,10 @@ class AnthropicAdapter(BaseLLMAdapter):
             f"Decision: {decision}\n"
             "Explain why this decision is appropriate in 2-3 sentences."
         )
-        return self._generate_content(prompt)
+        return self._generate_content(prompt, max_tokens=self.max_tokens_explain)
 
     def generate(self, prompt: str) -> Optional[str]:
-        return self._generate_content(prompt)
+        return self._generate_content(prompt, max_tokens=self.max_tokens_generate)
 
     def generate_stream(self, prompt: str) -> Iterator[str]:
         models = [self.model_name] + self.fallback_models
@@ -188,7 +195,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                 
             if self._use_raw_http:
                 # Raw HTTP fallback does not support streaming yet, yield full text
-                text = self._generate_content_raw(prompt, model)
+                text = self._generate_content_raw(prompt, model, max_tokens=self.max_tokens_generate)
                 if text:
                     yield text
                     return
@@ -197,7 +204,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             try:
                 self._enforce_rate_limit()
                 with self._client.messages.stream(
-                    max_tokens=4096,
+                    max_tokens=self.max_tokens_generate,
                     system=self.system_instruction,
                     messages=[{"role": "user", "content": prompt}],
                     model=model,
@@ -211,7 +218,9 @@ class AnthropicAdapter(BaseLLMAdapter):
 
     def get_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
         prompt = build_narrative_prompt(decision_input)
-        yield from self.generate_stream(prompt)
+        text = self._generate_content(prompt, max_tokens=self.max_tokens_narrative)
+        if text:
+            yield text[:2000]
 
     def _parse_decision(self, text: str) -> Optional[Decision]:
         try:

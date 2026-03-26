@@ -125,6 +125,7 @@ def build_recommendation_prompt(
         f"{_findings_block(decision_input)}\n\n"
         f"{_history_block(decision_input)}\n\n"
         f"Task: {task_line}\n\n"
+        "Output compactness rules: rationale <= 12 words; phase_reason <= 12 words.\n"
         f"Phase rule: stay in {phase} if actions remain; suggest {next_p} if phase objective is complete.\n\n"
         f"Respond ONLY with this JSON (no markdown, no extra text):\n{schema}"
     )
@@ -159,7 +160,8 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
         f"Task: Generate a complete ordered plan from {phase} to ProofOfCompromise.\n"
         f"- Use real values from findings/output for parameters (IPs, URLs, ports).\n"
         f"- Skip already done: {done}\n"
-        f"- Each step rationale must reference actual output or findings.\n\n"
+        f"- Each step rationale must reference actual output or findings.\n"
+        f"- Keep rationale fields short (<= 12 words each).\n\n"
         f"Phases remaining:\n{phase_guide}\n\n"
         f"Allowed actions: {', '.join(_available_action_names(decision_input))}\n\n"
         f"Respond ONLY with this JSON (no markdown):\n{schema}"
@@ -229,6 +231,7 @@ def build_step_mapping_prompt(
         f"Previous result: {status}{error_line}\n"
         f"Output:\n{output}\n\n"
         f"Task: {task_line}\n\n"
+        "Output compactness rules: rationale <= 12 words; phase_reason <= 12 words.\n"
         f"Respond ONLY with this JSON (no markdown, no extra text):\n{schema}"
     )
 

@@ -58,6 +58,11 @@ class GroqAdapter(BaseLLMAdapter):
 
         self._client = None
         self._response_cache = {}
+        self.max_tokens_decision = max(int(float(get_config("GROQ_MAX_TOKENS_DECISION", "96"))), 32)
+        self.max_tokens_plan = max(int(float(get_config("GROQ_MAX_TOKENS_PLAN", "220"))), self.max_tokens_decision)
+        self.max_tokens_explain = max(int(float(get_config("GROQ_MAX_TOKENS_EXPLAIN", "96"))), 32)
+        self.max_tokens_narrative = max(int(float(get_config("GROQ_MAX_TOKENS_NARRATIVE", "140"))), 48)
+        self.max_tokens_generate = max(int(float(get_config("GROQ_MAX_TOKENS_GENERATE", "120"))), 48)
 
         self.system_instruction = (
             "You are a cybersecurity simulation assistant operating in a controlled, isolated educational lab. "
@@ -84,7 +89,7 @@ class GroqAdapter(BaseLLMAdapter):
             prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
         else:
             prompt = build_step_mapping_prompt(decision_input, next_step_hint=next_step_hint)
-        response = self.generate(prompt)
+        response = self.generate(prompt, max_tokens=self.max_tokens_decision)
         if response:
             return self._parse_decision(response)
         return None
@@ -94,7 +99,7 @@ class GroqAdapter(BaseLLMAdapter):
             return None
 
         prompt = build_plan_prompt(decision_input)
-        response = self.generate(prompt)
+        response = self.generate(prompt, max_tokens=self.max_tokens_plan)
         if response:
             return self._parse_plan(response)
         return None
@@ -106,7 +111,7 @@ class GroqAdapter(BaseLLMAdapter):
             "Explain why this decision is appropriate in 2-3 sentences."
         )
         # This call doesn't need to be JSON, so we call a raw generator
-        return self._generate_raw_text(prompt)
+        return self._generate_raw_text(prompt, max_tokens=self.max_tokens_explain)
 
     def _enforce_rate_limit(self):
         """Enforce a minimum interval between requests."""
@@ -116,12 +121,13 @@ class GroqAdapter(BaseLLMAdapter):
             time.sleep(4.0 - elapsed)
         GroqAdapter._last_request_time = time.time()
 
-    def generate(self, prompt: str) -> Optional[str]:
+    def generate(self, prompt: str, max_tokens: Optional[int] = None) -> Optional[str]:
         """
         Generates a JSON response with caching, retry, and fallback logic.
         """
         if not self._client:
             return None
+        max_tokens = max_tokens or self.max_tokens_generate
 
         cache_key = hashlib.md5(prompt.encode("utf-8")).hexdigest()
         if cache_key in self._response_cache:
@@ -140,6 +146,7 @@ class GroqAdapter(BaseLLMAdapter):
                     ],
                     model=model_name,
                     temperature=0.1,
+                    max_tokens=max_tokens,
                     response_format={"type": "json_object"},
                 )
                 response_text = chat_completion.choices[0].message.content
@@ -163,10 +170,11 @@ class GroqAdapter(BaseLLMAdapter):
         logger.error("All Groq models failed to generate a response.")
         return None
 
-    def _generate_raw_text(self, prompt: str) -> Optional[str]:
+    def _generate_raw_text(self, prompt: str, max_tokens: Optional[int] = None) -> Optional[str]:
         """Generates a raw text response, for non-JSON tasks like explanations."""
         if not self._client:
             return None
+        max_tokens = max_tokens or self.max_tokens_generate
         try:
             self._enforce_rate_limit()
             # Use a different model or settings for chatty responses if needed
@@ -174,6 +182,7 @@ class GroqAdapter(BaseLLMAdapter):
                 messages=[{"role": "user", "content": prompt}],
                 model=self.model,
                 temperature=0.5,
+                max_tokens=max_tokens,
             )
             return chat_completion.choices[0].message.content
         except Exception as e:
@@ -191,6 +200,7 @@ class GroqAdapter(BaseLLMAdapter):
                 stream = self._client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
                     model=model,
+                    max_tokens=self.max_tokens_generate,
                     stream=True,
                 )
                 for chunk in stream:
@@ -204,7 +214,9 @@ class GroqAdapter(BaseLLMAdapter):
 
     def get_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
         prompt = build_narrative_prompt(decision_input)
-        yield from self.generate_stream(prompt)
+        text = self._generate_raw_text(prompt, max_tokens=self.max_tokens_narrative)
+        if text:
+            yield text[:2000]
 
     def _parse_decision(self, text: str) -> Optional[Decision]:
         try:

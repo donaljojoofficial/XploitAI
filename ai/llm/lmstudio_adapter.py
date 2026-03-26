@@ -56,14 +56,28 @@ class LMStudioAdapter(BaseLLMAdapter):
     def __init__(self, model: str = None, host: str = None):
         cfg_host  = get_config("LMSTUDIO_HOST")
         cfg_model = get_config("LMSTUDIO_MODEL")
-        cfg_timeout = get_config("LMSTUDIO_TIMEOUT_SECONDS", "12")
+        cfg_timeout = get_config("LMSTUDIO_TIMEOUT_SECONDS", "60")
+        cfg_plan_timeout = get_config("LMSTUDIO_PLAN_TIMEOUT_SECONDS", "180")
+        cfg_retries = get_config("LMSTUDIO_TIMEOUT_RETRIES", "1")
         cfg_cooldown = get_config("LMSTUDIO_RETRY_COOLDOWN_SECONDS", "30")
+        cfg_decision_tokens = get_config("LMSTUDIO_MAX_TOKENS_DECISION", "96")
+        cfg_plan_tokens = get_config("LMSTUDIO_MAX_TOKENS_PLAN", "220")
+        cfg_explain_tokens = get_config("LMSTUDIO_MAX_TOKENS_EXPLAIN", "96")
+        cfg_narrative_tokens = get_config("LMSTUDIO_MAX_TOKENS_NARRATIVE", "140")
+        cfg_generate_tokens = get_config("LMSTUDIO_MAX_TOKENS_GENERATE", "120")
 
         self.host  = (host  or cfg_host  or "http://localhost:1234").rstrip("/")
         self.model = model or cfg_model or "phi-4-mini-instruct"
         self.url   = f"{self.host}/v1/chat/completions"
         self.request_timeout_seconds = max(float(cfg_timeout), 1.0)
+        self.plan_timeout_seconds = max(float(cfg_plan_timeout), self.request_timeout_seconds)
+        self.timeout_retries = max(int(float(cfg_retries)), 0)
         self.retry_cooldown_seconds = max(float(cfg_cooldown), 1.0)
+        self.max_tokens_decision = max(int(float(cfg_decision_tokens)), 32)
+        self.max_tokens_plan = max(int(float(cfg_plan_tokens)), self.max_tokens_decision)
+        self.max_tokens_explain = max(int(float(cfg_explain_tokens)), 32)
+        self.max_tokens_narrative = max(int(float(cfg_narrative_tokens)), 48)
+        self.max_tokens_generate = max(int(float(cfg_generate_tokens)), 48)
         self._disabled_until = 0.0
 
         self.system_instruction = (
@@ -132,8 +146,15 @@ class LMStudioAdapter(BaseLLMAdapter):
     # Core HTTP call
     # ------------------------------------------------------------------
 
-    def _call(self, messages: list, max_tokens: int = 1024,
-               temperature: float = 0.1, stream: bool = False) -> Optional[str]:
+    def _call(
+        self,
+        messages: list,
+        max_tokens: int = 1024,
+        temperature: float = 0.1,
+        stream: bool = False,
+        timeout_seconds: Optional[float] = None,
+        timeout_retries: Optional[int] = None,
+    ) -> Optional[str]:
         """
         POST to /v1/chat/completions and return the assistant's text.
         Returns None on any error.
@@ -147,6 +168,9 @@ class LMStudioAdapter(BaseLLMAdapter):
             if not self._available:
                 return None
 
+        base_timeout_seconds = max(float(timeout_seconds or self.request_timeout_seconds), 1.0)
+        retries = self.timeout_retries if timeout_retries is None else max(int(timeout_retries), 0)
+
         payload = {
             "model": self.model,
             "messages": messages,
@@ -155,39 +179,76 @@ class LMStudioAdapter(BaseLLMAdapter):
             "stream": False,
         }
 
-        try:
-            self._enforce_rate_limit()
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                self.url,
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(
-                req, timeout=self.request_timeout_seconds
-            ) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-                return body["choices"][0]["message"]["content"]
+        for attempt in range(retries + 1):
+            attempt_timeout = min(base_timeout_seconds * (1.0 + 0.5 * attempt), 300.0)
+            try:
+                self._enforce_rate_limit()
+                data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    self.url,
+                    data=data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(
+                    req, timeout=attempt_timeout
+                ) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                    self._available = True
+                    return body["choices"][0]["message"]["content"]
 
-        except urllib.error.HTTPError as e:
-            logger.error(
-                "LMStudioAdapter HTTP %s: %s", e.code, e.read().decode()[:300]
-            )
-        except (socket.timeout, TimeoutError) as e:
-            self._mark_temporarily_unavailable(f"request timed out: {e}")
-        except urllib.error.URLError as e:
-            self._mark_temporarily_unavailable(f"connection error: {e.reason}")
-        except (KeyError, IndexError, json.JSONDecodeError) as e:
-            logger.error("LMStudioAdapter unexpected response format: %s", e)
-        except Exception as e:
-            if "timed out" in str(e).lower():
-                self._mark_temporarily_unavailable(f"request timed out: {e}")
-            else:
+            except urllib.error.HTTPError as e:
+                logger.error(
+                    "LMStudioAdapter HTTP %s: %s", e.code, e.read().decode()[:300]
+                )
+                break
+            except (socket.timeout, TimeoutError) as e:
+                # Timeout usually means model is still thinking; don't mark server unavailable.
+                if attempt < retries:
+                    backoff = min(2.0 * (attempt + 1), 6.0)
+                    logger.warning(
+                        "LMStudioAdapter timeout after %.1fs (attempt %d/%d). Retrying in %.1fs.",
+                        attempt_timeout,
+                        attempt + 1,
+                        retries + 1,
+                        backoff,
+                    )
+                    time.sleep(backoff)
+                    continue
+                logger.warning(
+                    "LMStudioAdapter request timed out after %.1fs (no cooldown).",
+                    attempt_timeout,
+                )
+                return None
+            except urllib.error.URLError as e:
+                self._mark_temporarily_unavailable(f"connection error: {e.reason}")
+                break
+            except (KeyError, IndexError, json.JSONDecodeError) as e:
+                logger.error("LMStudioAdapter unexpected response format: %s", e)
+                break
+            except Exception as e:
+                if "timed out" in str(e).lower():
+                    if attempt < retries:
+                        backoff = min(2.0 * (attempt + 1), 6.0)
+                        logger.warning(
+                            "LMStudioAdapter timeout after %.1fs (attempt %d/%d). Retrying in %.1fs.",
+                            attempt_timeout,
+                            attempt + 1,
+                            retries + 1,
+                            backoff,
+                        )
+                        time.sleep(backoff)
+                        continue
+                    logger.warning(
+                        "LMStudioAdapter request timed out after %.1fs (no cooldown).",
+                        attempt_timeout,
+                    )
+                    return None
                 logger.error("LMStudioAdapter unexpected error: %s", e)
+                break
 
         return None
 
@@ -242,15 +303,32 @@ class LMStudioAdapter(BaseLLMAdapter):
                             yield text
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
-        except (socket.timeout, TimeoutError) as e:
-            self._mark_temporarily_unavailable(f"stream timed out: {e}")
+        except (socket.timeout, TimeoutError):
+            logger.warning(
+                "LMStudioAdapter stream timed out after %.1fs (no cooldown).",
+                self.request_timeout_seconds,
+            )
+            text = self._call(
+                messages,
+                timeout_seconds=self.request_timeout_seconds,
+                timeout_retries=max(self.timeout_retries, 1),
+            )
+            if text:
+                yield text
         except Exception as e:
             if "timed out" in str(e).lower():
-                self._mark_temporarily_unavailable(f"stream timed out: {e}")
+                logger.warning(
+                    "LMStudioAdapter stream timed out after %.1fs (no cooldown).",
+                    self.request_timeout_seconds,
+                )
             else:
                 logger.error("LMStudioAdapter stream error: %s", e)
             # Graceful fallback — yield full non-streamed response
-            text = self._call(messages)
+            text = self._call(
+                messages,
+                timeout_seconds=self.request_timeout_seconds,
+                timeout_retries=max(self.timeout_retries, 1),
+            )
             if text:
                 yield text
 
@@ -276,13 +354,21 @@ class LMStudioAdapter(BaseLLMAdapter):
             prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
         else:
             prompt = build_step_mapping_prompt(decision_input, next_step_hint=next_step_hint)
-        text = self._call(self._build_messages(prompt))
+        text = self._call(
+            self._build_messages(prompt),
+            max_tokens=self.max_tokens_decision,
+        )
         return self._parse_decision(text) if text else None
 
     def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
         logger.info("LMStudioAdapter: get_plan")
         prompt = build_plan_prompt(decision_input)
-        text = self._call(self._build_messages(prompt))
+        text = self._call(
+            self._build_messages(prompt),
+            max_tokens=self.max_tokens_plan,
+            timeout_seconds=self.plan_timeout_seconds,
+            timeout_retries=max(self.timeout_retries, 2),
+        )
         return self._parse_plan(text) if text else None
 
     def explain_decision(
@@ -293,17 +379,31 @@ class LMStudioAdapter(BaseLLMAdapter):
             f"Decision: {decision}\n"
             "Explain why this decision is appropriate in 2-3 sentences."
         )
-        return self._call(self._build_messages(prompt))
+        return self._call(
+            self._build_messages(prompt),
+            max_tokens=self.max_tokens_explain,
+        )
 
     def generate(self, prompt: str) -> Optional[str]:
-        return self._call(self._build_messages(prompt))
+        return self._call(
+            self._build_messages(prompt),
+            max_tokens=self.max_tokens_generate,
+        )
 
     def generate_stream(self, prompt: str) -> Iterator[str]:
         yield from self._call_stream(self._build_messages(prompt))
 
     def get_attack_narrative(self, decision_input: DecisionInput) -> Iterator[str]:
         prompt = build_narrative_prompt(decision_input)
-        yield from self._call_stream(self._build_messages(prompt))
+        # Narratives are informational; keep compact for local models.
+        text = self._call(
+            self._build_messages(prompt),
+            max_tokens=self.max_tokens_narrative,
+            timeout_seconds=self.request_timeout_seconds,
+            timeout_retries=max(self.timeout_retries, 1),
+        )
+        if text:
+            yield text
 
     # ------------------------------------------------------------------
     # Parsers  (identical pattern to all other adapters)

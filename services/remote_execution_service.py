@@ -8,7 +8,7 @@ from ai.planner import AIPlanner
 from core.models import AttackState, Command, ExecutionResult, ExecutionTask, AttackerExecutor
 from state.state_manager import StateManager
 from parser.output_parser import parse_output
-from services.command_template_utils import normalize_command_template
+from services.command_template_utils import normalize_command_template, render_command_template
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class RemoteExecutionService:
             }
 
             try:
-                command = command_template.format(**sub_context)
+                command = render_command_template(command_template, sub_context)
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "

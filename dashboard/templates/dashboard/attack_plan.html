@@ -14,8 +14,22 @@
 
     <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden">
         <div class="p-6">
+            {% if plan_view and plan_view.current_step %}
+            <div class="mb-4 px-4 py-3 rounded border border-blue-500/40 bg-blue-900/20 text-blue-200 text-sm">
+                Current Step: <strong>{{ plan_view.current_step.action_type|default:plan_view.current_step.action }}</strong>
+            </div>
+            {% endif %}
             {% include 'dashboard/partials/plan_steps.html' %}
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const planStatus = "{{ attack_state.autonomy_status|escapejs }}";
+    if (planStatus === "RUNNING" || planStatus === "PLANNING") {
+        setTimeout(() => window.location.reload(), 4000);
+    }
+</script>
 {% endblock %}

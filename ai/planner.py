@@ -1,15 +1,9 @@
-import json
 import logging
-from typing import List, Optional
-
-from django.conf import settings
+from typing import Dict, List, Optional
 
 from ai.llm.base import BaseLLMAdapter
-from ai.llm.fallback import FallbackAdapter
 from ai.llm.lmstudio_adapter import LMStudioAdapter
-from ai.llm.gemini import GeminiAdapter
-from ai.llm.prompts import build_recommendation_prompt
-from ai.schemas import DecisionInput, PastActionSummary
+from ai.schemas import ActionResultSummary, DecisionInput, KnownService, PastActionSummary
 from state.state_manager import StateManager
 
 logger = logging.getLogger(__name__)
@@ -120,23 +114,17 @@ class AIPlanner:
                 gemini = GeminiAdapter()
                 if gemini._client: return gemini
             except Exception: pass
-        elif provider == "claude":
+        elif provider == "openai":
             try:
-                from ai.llm.anthropic import AnthropicAdapter
-                claude = AnthropicAdapter()
-                if claude._client or claude._use_raw_http: return claude
+                from ai.llm.openai_adapter import OpenAIAdapter
+                openai = OpenAIAdapter()
+                if openai._available: return openai
             except Exception: pass
         elif provider == "groq":
             try:
                 from ai.llm.groq_adapter import GroqAdapter
                 groq = GroqAdapter()
                 if groq._client: return groq
-            except Exception: pass
-        elif provider == "ollama":
-            try:
-                from ai.llm.ollama_adapter import OllamaAdapter
-                ollama = OllamaAdapter()
-                if ollama._client: return ollama
             except Exception: pass
         elif provider == "lmstudio":
             try:
@@ -159,9 +147,9 @@ class AIPlanner:
         except Exception: pass
         
         try:
-            from ai.llm.anthropic import AnthropicAdapter
-            claude = AnthropicAdapter()
-            if claude._client or claude._use_raw_http: adapters.append(claude)
+            from ai.llm.openai_adapter import OpenAIAdapter
+            openai = OpenAIAdapter()
+            if openai._available: adapters.append(openai)
         except Exception: pass
 
         try:
@@ -170,12 +158,6 @@ class AIPlanner:
             if groq._client: adapters.append(groq)
         except Exception: pass
         
-        try:
-            from ai.llm.ollama_adapter import OllamaAdapter
-            ollama = OllamaAdapter()
-            if ollama._client: adapters.append(ollama)
-        except Exception: pass
-
         try:
             lmstudio = LMStudioAdapter()
             if lmstudio._available: adapters.append(lmstudio)
@@ -188,13 +170,13 @@ class AIPlanner:
         return FallbackAdapter(adapters)
 
     def get_next_command(self, state_manager: StateManager) -> Optional[dict]:
-        """Determines the next command ID to execute. AI sees only metadata, not templates."""
+        """Determines the next command ID to execute one step at a time."""
 
         if not self.adapter:
             logger.info("No LLM provider active; using fallback planner engine.")
             return FallbackPlannerEngine(state_manager).get_next_command()
 
-        from core.models import Command
+        from core.models import AttackTarget, Command, ExecutionResult
 
         current_state = state_manager.get_current_state_for_planner()
         phase = current_state.get("current_phase")
@@ -209,21 +191,78 @@ class AIPlanner:
             for c in available_commands
         ]
 
-        # Build a structured DecisionInput for the policy engine / LLM.
+        attack_state = state_manager.get_attack_state()
+
+        # Create plan once, then execute iteratively step-by-step from it.
+        self._ensure_plan(attack_state, phase, available_command_metadata)
+        next_step_hint = self._next_step_hint(attack_state)
+
+        # Build a structured DecisionInput with last execution feedback so the
+        # model can derive the next command from previous output.
+        known_services: List[KnownService] = []
+        active_target = AttackTarget.objects.filter(is_active=True).first()
+        if active_target:
+            target_ep = active_target.base_url or active_target.ip_address
+            if target_ep:
+                known_services.append(
+                    KnownService(
+                        name=active_target.name,
+                        endpoint=target_ep,
+                        protocol="http" if "http" in str(target_ep) else "tcp",
+                    )
+                )
+
+        completed_actions = current_state.get("completed_actions", []) or []
+        if not completed_actions:
+            completed_actions = list(
+                ExecutionResult.objects.filter(
+                    attack_state=attack_state,
+                    status="SUCCESS",
+                )
+                .exclude(command=None)
+                .values_list("command__name", flat=True)
+            )
+
+        past_actions = [
+            PastActionSummary(action_type=str(action_name), parameters={})
+            for action_name in completed_actions[-5:]
+        ]
+
+        last_exec = (
+            ExecutionResult.objects.filter(attack_state=attack_state)
+            .order_by("-created_at")
+            .first()
+        )
+        last_result = None
+        if last_exec:
+            raw_output = (last_exec.stdout or "")[:1500]
+            stderr = (last_exec.stderr or "").strip()
+            output_summary = (last_exec.stdout or stderr or "")[:300]
+            if output_summary and (len(last_exec.stdout or "") > 300):
+                output_summary += "... (truncated)"
+
+            last_result = ActionResultSummary(
+                success=(last_exec.status == "SUCCESS"),
+                output_summary=output_summary or "No output.",
+                raw_output=raw_output or None,
+                error=stderr or None,
+            )
+
         decision_input = DecisionInput(
-            phase=phase,
-            known_services=[],
-            past_actions=[
-                PastActionSummary(action_type=str(ac), parameters={})
-                for ac in current_state.get("completed_commands", [])
-            ],
+            phase=phase or attack_state.current_phase,
+            known_services=known_services,
+            past_actions=past_actions,
             available_commands=available_command_metadata,
+            last_result=last_result,
             findings=current_state.get("findings"),
         )
 
         proposal = None
         try:
-            proposal = self.adapter.get_recommendation(decision_input)
+            proposal = self.adapter.get_recommendation(
+                decision_input,
+                next_step_hint=next_step_hint,
+            )
         except Exception as e:
             logger.warning(f"LLM recommendation failed: {e}")
 
@@ -241,4 +280,96 @@ class AIPlanner:
 
         logger.info("Fallback planner engine engaged after LLM fallback.")
         return FallbackPlannerEngine(state_manager).get_next_command()
+
+    def _ensure_plan(
+        self,
+        attack_state,
+        phase: str,
+        available_command_metadata: List[Dict[str, str]],
+    ) -> None:
+        """Generate and persist an initial strategic plan once per attack run."""
+        if attack_state.current_plan and attack_state.current_plan.get("steps"):
+            return
+
+        known_services: List[KnownService] = []
+        target = (attack_state.state_data or {}).get("target")
+        if target:
+            known_services.append(
+                KnownService(
+                    name="target",
+                    endpoint=str(target),
+                    protocol="http" if "http" in str(target) else "tcp",
+                )
+            )
+
+        decision_input = DecisionInput(
+            phase=phase or attack_state.current_phase,
+            known_services=known_services,
+            past_actions=[],
+            available_commands=available_command_metadata,
+            findings=(attack_state.state_data or {}).get("findings", {}),
+        )
+
+        plan = None
+        try:
+            plan = self.adapter.get_plan(decision_input)
+        except Exception as e:
+            logger.warning(f"Plan generation failed in AIPlanner: {e}")
+            return
+
+        if not plan or not plan.steps:
+            return
+
+        attack_state.current_plan = {
+            "rationale": plan.rationale or "Plan generated by AIPlanner.",
+            "steps": [
+                {
+                    "step_number": s.step_number,
+                    "action_type": s.action_type,
+                    "parameters": s.parameters,
+                    "rationale": s.rationale,
+                }
+                for s in plan.steps
+            ],
+        }
+        attack_state.save(update_fields=["current_plan"])
+        logger.info(
+            "AIPlanner generated initial plan with %d step(s).",
+            len(plan.steps),
+        )
+
+    def _next_step_hint(self, attack_state) -> Optional[dict]:
+        """
+        Return the first not-yet-successful plan step so recommendation stays
+        incremental instead of generating the full command sequence at once.
+        """
+        steps = (attack_state.current_plan or {}).get("steps") or []
+        if not steps:
+            return None
+
+        from core.models import ExecutionResult
+
+        succeeded_names = list(
+            ExecutionResult.objects.filter(
+                attack_state=attack_state,
+                status="SUCCESS",
+            )
+            .exclude(command=None)
+            .values_list("command__name", flat=True)
+        )
+
+        remaining = list(succeeded_names)
+        for step in steps:
+            step_action = step.get("action_type") or step.get("action")
+            if not step_action:
+                continue
+            if step_action in remaining:
+                remaining.remove(step_action)
+                continue
+            return {
+                "action_type": step_action,
+                "parameters": step.get("parameters", {}) or {},
+            }
+
+        return None
 

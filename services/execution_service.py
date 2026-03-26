@@ -9,7 +9,7 @@ from executor.local_executor import run_command
 from parser.output_parser import parse_output
 from state.state_manager import StateManager
 from core.models import AttackState, Command, ExecutionResult
-from services.command_template_utils import normalize_command_template
+from services.command_template_utils import normalize_command_template, render_command_template
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ class ExecutionService:
             }
 
             try:
-                command = command_template.format(**sub_context)
+                command = render_command_template(command_template, sub_context)
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "
@@ -134,10 +134,12 @@ class ExecutionService:
             stdout = result.get("stdout", "")
             stderr = result.get("stderr", "")
 
-            findings = parse_output(command_obj.name, stdout)
-            if findings:
-                logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
-                self.state_manager.update_state_with_findings(findings)
+            findings = {}
+            if final_status == "SUCCESS":
+                findings = parse_output(command_obj.name, stdout) or {}
+                if findings:
+                    logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
+                    self.state_manager.update_state_with_findings(findings)
 
             attack_state = AttackState.objects.get(id=self.attack_state_id)
             ExecutionResult.objects.create(
@@ -147,7 +149,7 @@ class ExecutionService:
                 status=final_status,
                 stdout=stdout,
                 stderr=stderr,
-                findings=findings or {},
+                findings=findings,
             )
 
             # Mark command complete — this prevents it from being selected again

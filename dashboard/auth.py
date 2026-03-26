@@ -334,7 +334,16 @@ def group_required(group_name: str):
     return user_passes_test(in_group, login_url='login')
 
 def admin_required(view_func):
-    return user_passes_test(lambda u: u.is_superuser or u.groups.filter(name='Admin').exists(), login_url='login')(view_func)
+    return user_passes_test(
+        lambda u: (
+            u.is_authenticated and (
+                u.is_superuser
+                or u.is_staff
+                or u.groups.filter(name='Admin').exists()
+            )
+        ),
+        login_url='login'
+    )(view_func)
 
 
 @login_required(login_url='login')

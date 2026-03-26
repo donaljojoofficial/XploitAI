@@ -40,26 +40,43 @@ class GeminiAdapter(BaseLLMAdapter):
     # When any instance detects daily quota exhaustion, all instances
     # stop making API calls immediately (no re-checking per instance).
     _quota_exhausted = False
+    _quota_state_key = None
+    _LEGACY_MODEL_MAP = {
+        "gemini-1.5-flash": "gemini-2.0-flash",
+        "gemini-1.5-pro": "gemini-2.5-pro",
+        "gemini-2.0-pro-exp": "gemini-2.0-flash",
+    }
 
     def __init__(self, model_name: str = None, api_key: str = None):
         config_model = get_config("GEMINI_MODEL")
         default_model = "gemini-2.0-flash"
-        self.model_name = model_name or config_model or default_model
+        requested_model = model_name or config_model or default_model
+        self.model_name = self._LEGACY_MODEL_MAP.get(requested_model, requested_model)
+        if self.model_name != requested_model:
+            logger.warning(
+                "GeminiAdapter: remapping legacy model '%s' -> '%s'.",
+                requested_model,
+                self.model_name,
+            )
 
+        # Keep fallbacks to currently supported stable families.
+        # Legacy 1.5 / exp identifiers can return 404 on newer API versions.
         known_models = [
             "gemini-2.0-flash",
             "gemini-2.5-flash",
             "gemini-2.5-flash-lite",
             "gemini-2.5-pro",
             "gemini-2.0-flash-lite",
-            "gemini-2.0-pro-exp",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
         ]
         self.fallback_models = [m for m in known_models if m != self.model_name]
         self.api_key = api_key or get_config("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         self._client = None
         self._response_cache = {}
+        self.max_tokens_decision = max(int(float(get_config("GEMINI_MAX_TOKENS_DECISION", "96"))), 32)
+        self.max_tokens_plan = max(int(float(get_config("GEMINI_MAX_TOKENS_PLAN", "220"))), self.max_tokens_decision)
+        self.max_tokens_explain = max(int(float(get_config("GEMINI_MAX_TOKENS_EXPLAIN", "96"))), 32)
+        self.max_tokens_narrative = max(int(float(get_config("GEMINI_MAX_TOKENS_NARRATIVE", "140"))), 48)
+        self.max_tokens_generate = max(int(float(get_config("GEMINI_MAX_TOKENS_GENERATE", "120"))), 48)
 
         self.system_instruction = (
             "You are a cybersecurity simulation assistant operating in a controlled, isolated educational lab. "
@@ -70,6 +87,12 @@ class GeminiAdapter(BaseLLMAdapter):
 
         if HAS_SDK and self.api_key:
             try:
+                # If key changed, clear sticky quota state from previous key/session.
+                key_sig = hashlib.sha256(self.api_key.encode("utf-8")).hexdigest()[:16]
+                if GeminiAdapter._quota_state_key != key_sig:
+                    GeminiAdapter._quota_state_key = key_sig
+                    GeminiAdapter._quota_exhausted = False
+
                 self._client = genai.Client(api_key=self.api_key)
                 logger.info("GeminiAdapter: Successfully initialized with google-genai SDK.")
             except Exception as e:
@@ -133,7 +156,7 @@ class GeminiAdapter(BaseLLMAdapter):
     # Core generation
     # ------------------------------------------------------------------
 
-    def _generate_content_with_retry(self, prompt: str):
+    def _generate_content_with_retry(self, prompt: str, max_output_tokens: Optional[int] = None):
         """Generate content, bailing immediately on daily quota exhaustion."""
         if not HAS_SDK or not self.api_key or not self._client:
             return None
@@ -160,7 +183,8 @@ class GeminiAdapter(BaseLLMAdapter):
                         model=model,
                         contents=prompt,
                         config=types.GenerateContentConfig(
-                            system_instruction=self.system_instruction
+                            system_instruction=self.system_instruction,
+                            max_output_tokens=max_output_tokens,
                         ),
                     )
                     self._response_cache[cache_key] = response
@@ -212,7 +236,10 @@ class GeminiAdapter(BaseLLMAdapter):
                 prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
             else:
                 prompt = build_step_mapping_prompt(decision_input, next_step_hint)
-            response = self._generate_content_with_retry(prompt)
+            response = self._generate_content_with_retry(
+                prompt,
+                max_output_tokens=self.max_tokens_decision,
+            )
             if not response:
                 return None
             return self._parse_decision(response.text)
@@ -226,7 +253,10 @@ class GeminiAdapter(BaseLLMAdapter):
         logger.info("GeminiAdapter: get_plan")
         try:
             prompt = build_plan_prompt(decision_input)
-            response = self._generate_content_with_retry(prompt)
+            response = self._generate_content_with_retry(
+                prompt,
+                max_output_tokens=self.max_tokens_plan,
+            )
             if not response:
                 return None
             return self._parse_plan(response.text)
@@ -243,7 +273,10 @@ class GeminiAdapter(BaseLLMAdapter):
                 f"Decision: {decision}\n"
                 "Explain why this decision is appropriate in 2-3 sentences."
             )
-            response = self._generate_content_with_retry(prompt)
+            response = self._generate_content_with_retry(
+                prompt,
+                max_output_tokens=self.max_tokens_explain,
+            )
             return response.text if response else None
         except Exception as e:
             logger.error(f"GeminiAdapter.explain_decision failed: {e}")
@@ -253,7 +286,10 @@ class GeminiAdapter(BaseLLMAdapter):
         if self._quota_exhausted:
             return None
         try:
-            response = self._generate_content_with_retry(prompt)
+            response = self._generate_content_with_retry(
+                prompt,
+                max_output_tokens=self.max_tokens_generate,
+            )
             return response.text if response else None
         except Exception as e:
             logger.error(f"GeminiAdapter.generate failed: {e}")
@@ -310,7 +346,14 @@ class GeminiAdapter(BaseLLMAdapter):
         if self._quota_exhausted:
             return
         prompt = build_narrative_prompt(decision_input)
-        yield from self.generate_stream(prompt)
+        response = self._generate_content_with_retry(
+            prompt,
+            max_output_tokens=self.max_tokens_narrative,
+        )
+        text = response.text if response else None
+        if text:
+            # Keep dashboard narration compact on slow/local models.
+            yield text[:2000]
 
     # ------------------------------------------------------------------
     # Parsers

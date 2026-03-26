@@ -66,6 +66,10 @@ PLACEHOLDERS = {
     "target_domain",
 }
 
+_KNOWN_PLACEHOLDER_RE = re.compile(
+    r"\{(" + "|".join(sorted(PLACEHOLDERS)) + r")\}"
+)
+
 
 def escape_non_placeholder_braces(template: str) -> str:
     """
@@ -86,28 +90,12 @@ def escape_non_placeholder_braces(template: str) -> str:
 
 def normalize_command_template(command_obj: Command) -> str:
     """
-    Replace legacy external-tool templates with built-in safe equivalents.
-    Persists the repaired template so old DB rows self-heal over time.
+    Normalize command templates for safe rendering while preserving DB intent.
+    Only falls back to canonical template when DB template is empty.
     """
     template = command_obj.command_template or ""
     canonical = CANONICAL_TEMPLATES.get(command_obj.name)
-    if not canonical:
-        escaped = escape_non_placeholder_braces(template)
-        if escaped != template:
-            command_obj.command_template = escaped
-            command_obj.save(update_fields=["command_template"])
-            return escaped
-        return template
-
-    legacy_markers = (
-        "python dirsearch.py",
-        "python paramspider.py",
-        "whatweb ",
-        "grep -iE 'generator|wordpress|joomla|drupal|php'",
-    )
-    if template == canonical:
-        return template
-    if any(marker in template for marker in legacy_markers):
+    if not template and canonical:
         command_obj.command_template = canonical
         command_obj.save(update_fields=["command_template"])
         return canonical
@@ -119,3 +107,24 @@ def normalize_command_template(command_obj: Command) -> str:
         return escaped
 
     return template
+
+
+def render_command_template(template: str, context: dict[str, str]) -> str:
+    """
+    Render command templates safely by replacing only known placeholders.
+
+    This avoids Python str.format interpreting literal braces in inline
+    Python/JSON snippets (e.g., {'User-Agent': '...'}, {'WordPress': ...}).
+    """
+    if not template:
+        return template
+
+    def replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in context:
+            raise KeyError(key)
+        return str(context[key])
+
+    rendered = _KNOWN_PLACEHOLDER_RE.sub(replace, template)
+    # Backward compatibility for templates previously escaped for str.format().
+    return rendered.replace("{{", "{").replace("}}", "}")
