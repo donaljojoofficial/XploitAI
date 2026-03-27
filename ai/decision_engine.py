@@ -32,7 +32,7 @@ try:
 except ImportError:
     LMSTUDIO_AVAILABLE = False
 
-from ai.llm.fallback import FallbackAdapter
+from ai.llm.task_router import TaskRouterAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ class DecisionEngine:
         self.llm_adapter = None
         
         adapters = []
+        adapters_by_name = {}
         
         if provider == "auto":
             from core.config import get_config
@@ -112,35 +113,49 @@ class DecisionEngine:
             adapter = _init_gemini()
             if adapter:
                 adapters.append(adapter)
+                adapters_by_name["gemini"] = adapter
         elif provider == "openai":
             adapter = _init_openai()
             if adapter:
                 adapters.append(adapter)
+                adapters_by_name["openai"] = adapter
         elif provider == "groq":
             adapter = _init_groq()
             if adapter:
                 adapters.append(adapter)
+                adapters_by_name["groq"] = adapter
         elif provider == "lmstudio":
             adapter = _init_lmstudio()
             if adapter:
                 adapters.append(adapter)
+                adapters_by_name["lmstudio"] = adapter
         else:
             # Auto / Fallback mode
             g = _init_gemini()
-            if g: adapters.append(g)
+            if g:
+                adapters.append(g)
+                adapters_by_name["gemini"] = g
             a = _init_openai()
-            if a: adapters.append(a)
+            if a:
+                adapters.append(a)
+                adapters_by_name["openai"] = a
             gr = _init_groq()
-            if gr: adapters.append(gr)
+            if gr:
+                adapters.append(gr)
+                adapters_by_name["groq"] = gr
             lm = _init_lmstudio()
-            if lm: adapters.append(lm)
+            if lm:
+                adapters.append(lm)
+                adapters_by_name["lmstudio"] = lm
 
         from ai.llm.local_rule_engine import LocalRuleEngine
-        adapters.append(LocalRuleEngine())
+        local_adapter = LocalRuleEngine()
+        adapters.append(local_adapter)
+        adapters_by_name["local"] = local_adapter
 
         if len(adapters) > 1:
-            self.llm_adapter = FallbackAdapter(adapters)
-            logger.info(f"DecisionEngine initialized with FallbackAdapter ({len(adapters)} providers).")
+            self.llm_adapter = TaskRouterAdapter(adapters_by_name)
+            logger.info(f"DecisionEngine initialized with TaskRouterAdapter ({len(adapters)} providers).")
         elif len(adapters) == 1:
             self.llm_adapter = adapters[0]
             logger.info(f"DecisionEngine initialized with {adapters[0].__class__.__name__}.")

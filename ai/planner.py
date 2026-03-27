@@ -1,4 +1,6 @@
+import json
 import logging
+import time
 from typing import Dict, List, Optional
 
 from ai.llm.base import BaseLLMAdapter
@@ -100,6 +102,8 @@ class AIPlanner:
 
     def __init__(self, provider: str = "auto"):
         self.adapter = self._get_adapter(provider)
+        self._decision_cache: dict[str, dict] = {}
+        self._decision_cache_ttl_seconds = 15.0
 
     def _get_adapter(self, provider: str) -> BaseLLMAdapter:
         from core.config import get_config
@@ -138,36 +142,40 @@ class AIPlanner:
             return LocalRuleEngine()
 
         # If specific provider failed or "fallback" was selected, initialize all available
-        adapters = []
+        adapters_by_name = {}
         
         try:
             from ai.llm.gemini import GeminiAdapter
             gemini = GeminiAdapter()
-            if gemini._client: adapters.append(gemini)
+            if gemini._client:
+                adapters_by_name["gemini"] = gemini
         except Exception: pass
         
         try:
             from ai.llm.openai_adapter import OpenAIAdapter
             openai = OpenAIAdapter()
-            if openai._available: adapters.append(openai)
+            if openai._available:
+                adapters_by_name["openai"] = openai
         except Exception: pass
 
         try:
             from ai.llm.groq_adapter import GroqAdapter
             groq = GroqAdapter()
-            if groq._client: adapters.append(groq)
+            if groq._client:
+                adapters_by_name["groq"] = groq
         except Exception: pass
         
         try:
             lmstudio = LMStudioAdapter()
-            if lmstudio._available: adapters.append(lmstudio)
+            if lmstudio._available:
+                adapters_by_name["lmstudio"] = lmstudio
         except Exception: pass
 
         from ai.llm.local_rule_engine import LocalRuleEngine
-        adapters.append(LocalRuleEngine())
+        adapters_by_name["local"] = LocalRuleEngine()
 
-        from ai.llm.fallback import FallbackAdapter
-        return FallbackAdapter(adapters)
+        from ai.llm.task_router import TaskRouterAdapter
+        return TaskRouterAdapter(adapters_by_name)
 
     def get_next_command(self, state_manager: StateManager) -> Optional[dict]:
         """Determines the next command ID to execute one step at a time."""
@@ -257,6 +265,22 @@ class AIPlanner:
             findings=current_state.get("findings"),
         )
 
+        cache_key = self._build_decision_cache_key(
+            attack_state,
+            decision_input,
+            next_step_hint,
+            available_command_metadata,
+            completed_actions,
+            last_exec,
+        )
+        cached = self._get_cached_decision(cache_key)
+        if cached is not None:
+            logger.info(
+                "AIPlanner reusing cached recommendation for AttackState %s.",
+                attack_state.id,
+            )
+            return cached
+
         proposal = None
         try:
             proposal = self.adapter.get_recommendation(
@@ -270,16 +294,70 @@ class AIPlanner:
             chosen_name = proposal.action_type
             chosen = next((c for c in available_commands if c.name == chosen_name), None)
             if chosen:
-                return {
+                result = {
                     "command_id": chosen.id,
                     "command_name": chosen.name,
                     "reason": proposal.rationale or "Chosen by AI recommendation.",
                 }
+                self._set_cached_decision(cache_key, result)
+                return result
             else:
                 logger.warning(f"LLM proposed unknown command: {chosen_name}")
 
         logger.info("Fallback planner engine engaged after LLM fallback.")
         return FallbackPlannerEngine(state_manager).get_next_command()
+
+    def _build_decision_cache_key(
+        self,
+        attack_state,
+        decision_input: DecisionInput,
+        next_step_hint: Optional[dict],
+        available_command_metadata: List[Dict[str, str]],
+        completed_actions: List[str],
+        last_exec,
+    ) -> str:
+        payload = {
+            "attack_state_id": attack_state.id,
+            "phase": decision_input.phase,
+            "known_services": [
+                {
+                    "name": svc.name,
+                    "endpoint": svc.endpoint,
+                    "protocol": svc.protocol,
+                }
+                for svc in (decision_input.known_services or [])
+            ],
+            "available_commands": available_command_metadata,
+            "completed_actions": completed_actions,
+            "next_step_hint": next_step_hint or {},
+            "findings": decision_input.findings or {},
+            "last_result": {
+                "success": getattr(decision_input.last_result, "success", None),
+                "output_summary": getattr(decision_input.last_result, "output_summary", None),
+                "error": getattr(decision_input.last_result, "error", None),
+            } if decision_input.last_result else None,
+            "last_exec_id": getattr(last_exec, "id", None),
+            "current_plan": attack_state.current_plan,
+        }
+        return json.dumps(payload, sort_keys=True, default=str)
+
+    def _get_cached_decision(self, cache_key: str) -> Optional[dict]:
+        entry = self._decision_cache.get(cache_key)
+        if not entry:
+            return None
+
+        age = time.time() - entry["timestamp"]
+        if age > self._decision_cache_ttl_seconds:
+            self._decision_cache.pop(cache_key, None)
+            return None
+
+        return dict(entry["decision"])
+
+    def _set_cached_decision(self, cache_key: str, decision: dict) -> None:
+        self._decision_cache[cache_key] = {
+            "timestamp": time.time(),
+            "decision": dict(decision),
+        }
 
     def _ensure_plan(
         self,

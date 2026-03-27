@@ -10,5 +10,6 @@ from .groq_adapter import GroqAdapter
 from .openai_adapter import OpenAIAdapter
 from .lmstudio_adapter import LMStudioAdapter
 from .local_rule_engine import LocalRuleEngine
+from .task_router import TaskRouterAdapter
 
-__all__ = ["BaseLLMAdapter", "GeminiAdapter", "GroqAdapter", "OpenAIAdapter", "LMStudioAdapter", "LocalRuleEngine"]
+__all__ = ["BaseLLMAdapter", "GeminiAdapter", "GroqAdapter", "OpenAIAdapter", "LMStudioAdapter", "LocalRuleEngine", "TaskRouterAdapter"]

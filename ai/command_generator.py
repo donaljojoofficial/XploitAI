@@ -74,7 +74,7 @@ class CommandGenerator:
 
         from core.config import get_config
         from ai.llm.local_rule_engine import LocalRuleEngine
-        from ai.llm.fallback import FallbackAdapter
+        from ai.llm.task_router import TaskRouterAdapter
 
         if llm_provider == "auto":
             llm_provider = get_config("DEFAULT_LLM_PROVIDER", "gemini")
@@ -86,31 +86,57 @@ class CommandGenerator:
             os.environ["GOOGLE_API_KEY"] = gemini_key
 
         adapters = []
+        adapters_by_name = {}
+
+        def _register(name: str, adapter) -> None:
+            if adapter is None:
+                return
+            adapters.append(adapter)
+            adapters_by_name[name] = adapter
 
         try:
-            if llm_provider in ("gemini", "fallback", "auto") and GEMINI_AVAILABLE:
+            if llm_provider in ("fallback", "auto"):
+                if GEMINI_AVAILABLE:
+                    a = GeminiAdapter()
+                    if getattr(a, "_client", None):
+                        _register("gemini", a)
+                if OPENAI_AVAILABLE:
+                    a = OpenAIAdapter()
+                    if getattr(a, "_available", False):
+                        _register("openai", a)
+                if GROQ_AVAILABLE:
+                    a = GroqAdapter()
+                    if getattr(a, "_client", None):
+                        _register("groq", a)
+                if LMSTUDIO_AVAILABLE:
+                    a = LMStudioAdapter()
+                    if getattr(a, "_available", False):
+                        _register("lmstudio", a)
+            elif llm_provider == "gemini" and GEMINI_AVAILABLE:
                 a = GeminiAdapter()
                 if getattr(a, "_client", None):
-                    adapters.append(a)
+                    _register("gemini", a)
             elif llm_provider == "openai" and OPENAI_AVAILABLE:
                 a = OpenAIAdapter()
                 if getattr(a, "_available", False):
-                    adapters.append(a)
+                    _register("openai", a)
             elif llm_provider == "groq" and GROQ_AVAILABLE:
                 a = GroqAdapter()
                 if getattr(a, "_client", None):
-                    adapters.append(a)
+                    _register("groq", a)
             elif llm_provider == "lmstudio" and LMSTUDIO_AVAILABLE:
                 a = LMStudioAdapter()
                 if getattr(a, "_available", False):
-                    adapters.append(a)
+                    _register("lmstudio", a)
         except Exception as e:
-            logger.warning("CommandGenerator: failed to init primary LLM adapter: %s", e)
+            logger.warning("CommandGenerator: failed to init LLM adapter(s): %s", e)
 
         # LocalRuleEngine is always appended — guarantees llm_client is never None
-        adapters.append(LocalRuleEngine())
+        local_adapter = LocalRuleEngine()
+        adapters.append(local_adapter)
+        adapters_by_name["local"] = local_adapter
 
-        self.llm_client = FallbackAdapter(adapters) if len(adapters) > 1 else adapters[0]
+        self.llm_client = TaskRouterAdapter(adapters_by_name) if len(adapters) > 1 else adapters[0]
         logger.info(
             "CommandGenerator initialized with %s (%d adapter(s)).",
             self.llm_client.__class__.__name__, len(adapters)
