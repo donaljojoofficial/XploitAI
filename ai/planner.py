@@ -289,17 +289,27 @@ class AIPlanner:
         # Build a structured DecisionInput with last execution feedback so the
         # model can derive the next command from previous output.
         known_services: List[KnownService] = []
-        active_target = AttackTarget.objects.filter(is_active=True).first()
-        if active_target:
-            target_ep = active_target.base_url or active_target.ip_address
-            if target_ep:
-                known_services.append(
-                    KnownService(
-                        name=active_target.name,
-                        endpoint=target_ep,
-                        protocol="http" if "http" in str(target_ep) else "tcp",
-                    )
+        target_ep = current_state.get("target")
+        if target_ep:
+            known_services.append(
+                KnownService(
+                    name="target",
+                    endpoint=str(target_ep),
+                    protocol="http" if "http" in str(target_ep) else "tcp",
                 )
+            )
+        else:
+            active_target = AttackTarget.objects.filter(is_active=True).first()
+            if active_target:
+                target_ep = active_target.base_url or active_target.ip_address
+                if target_ep:
+                    known_services.append(
+                        KnownService(
+                            name=active_target.name,
+                            endpoint=target_ep,
+                            protocol="http" if "http" in str(target_ep) else "tcp",
+                        )
+                    )
 
         completed_actions = current_state.get("completed_actions", []) or []
         if not completed_actions:

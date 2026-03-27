@@ -34,7 +34,7 @@ class NvidiaAdapter(BaseLLMAdapter):
         self.api_key = api_key or os.getenv(self.model_key_env_var) or get_config("NVIDIA_API_KEY") or os.getenv("NVIDIA_API_KEY")
 
         self.max_tokens_decision = max(int(float(get_config("NVIDIA_MAX_TOKENS_DECISION", "160"))), 32)
-        self.max_tokens_plan = max(int(float(get_config("NVIDIA_MAX_TOKENS_PLAN", "640"))), self.max_tokens_decision)
+        self.max_tokens_plan = max(int(float(get_config("NVIDIA_MAX_TOKENS_PLAN", "1200"))), self.max_tokens_decision)
         self.max_tokens_explain = max(int(float(get_config("NVIDIA_MAX_TOKENS_EXPLAIN", "120"))), 32)
         self.max_tokens_narrative = max(int(float(get_config("NVIDIA_MAX_TOKENS_NARRATIVE", "180"))), 48)
         self.max_tokens_generate = max(int(float(get_config("NVIDIA_MAX_TOKENS_GENERATE", "180"))), 48)
@@ -143,11 +143,79 @@ class NvidiaAdapter(BaseLLMAdapter):
         )
         return self._call(
             repair_prompt,
-            max_tokens=max(self.max_tokens_plan, 640),
+            max_tokens=max(self.max_tokens_plan, 1200),
             json_mode=True,
             temperature=0.0,
             timeout_seconds=self.plan_timeout_seconds,
         )
+
+    def _extract_balanced_objects(self, text: str) -> list[str]:
+        objects: list[str] = []
+        depth = 0
+        start_idx = -1
+        in_string = False
+        escape = False
+
+        for idx, char in enumerate(text):
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+                continue
+
+            if char == "{":
+                if depth == 0:
+                    start_idx = idx
+                depth += 1
+            elif char == "}":
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0 and start_idx >= 0:
+                        objects.append(text[start_idx:idx + 1])
+                        start_idx = -1
+
+        return objects
+
+    def _salvage_partial_plan(self, text: str) -> Optional[Plan]:
+        clean = (text or "").replace("```json", "").replace("```", "").strip()
+        if not clean:
+            return None
+
+        rationale_match = re.search(r'"rationale"\s*:\s*"([^"]*)"', clean)
+        rationale = rationale_match.group(1) if rationale_match else "Recovered partial plan."
+
+        steps_start = clean.find('"steps"')
+        if steps_start < 0:
+            return None
+
+        array_start = clean.find("[", steps_start)
+        if array_start < 0:
+            return None
+
+        step_objects = []
+        for raw_obj in self._extract_balanced_objects(clean[array_start:]):
+            try:
+                step_objects.append(json.loads(raw_obj))
+            except Exception:
+                continue
+
+        normalized = self._normalize_plan_payload({"rationale": rationale, "steps": step_objects})
+        if not normalized["steps"]:
+            return None
+
+        try:
+            normalized["steps"] = [PlanStep(**step) for step in normalized["steps"]]
+            logger.warning("NvidiaAdapter salvaged %d complete step(s) from a partial plan response.", len(normalized["steps"]))
+            return Plan(**normalized)
+        except Exception:
+            return None
 
     def _request_payload(
         self,
@@ -384,4 +452,4 @@ class NvidiaAdapter(BaseLLMAdapter):
             return Plan(**normalized)
         except Exception as exc:
             logger.error("NvidiaAdapter: failed to parse plan: %s\nRaw: %s", exc, (text or "")[:500])
-            return None
+            return self._salvage_partial_plan(text)
