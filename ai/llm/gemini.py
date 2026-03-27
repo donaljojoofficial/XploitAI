@@ -227,7 +227,12 @@ class GeminiAdapter(BaseLLMAdapter):
     # BaseLLMAdapter interface
     # ------------------------------------------------------------------
 
-    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
+    def get_recommendation(
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
+    ) -> Optional[Decision]:
         if self._quota_exhausted:
             return None
         logger.info("GeminiAdapter: get_recommendation")
@@ -247,7 +252,11 @@ class GeminiAdapter(BaseLLMAdapter):
             logger.error(f"GeminiAdapter.get_recommendation failed: {e}")
             return None
 
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
         if self._quota_exhausted:
             return None
         logger.info("GeminiAdapter: get_plan")

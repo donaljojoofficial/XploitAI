@@ -1,27 +1,155 @@
 {% extends 'dashboard/base.html' %}
 
-{% block content %}
-<div class="space-y-6">
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-gray-700">
-        <h1 class="text-2xl font-bold text-white mb-4 sm:mb-0">
-            Attack Plan: <span class="text-accent">{{ attack_state.name }}</span>
-        </h1>
-        <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-bold rounded transition-colors flex items-center gap-2">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
-            Back to Detail
-        </a>
-    </div>
+{% block title %}Attack Plan - XploitAI{% endblock %}
 
-    <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-sm overflow-hidden">
-        <div class="p-6">
-            {% if plan_view and plan_view.current_step %}
-            <div class="mb-4 px-4 py-3 rounded border border-blue-500/40 bg-blue-900/20 text-blue-200 text-sm">
-                Current Step: <strong>{{ plan_view.current_step.action_type|default:plan_view.current_step.action }}</strong>
+{% block content %}
+<div class="space-y-8">
+    <section class="glass-panel rounded-2xl overflow-hidden border border-slate-600/50 shadow-2xl">
+        <div class="relative p-8 md:p-10 bg-[radial-gradient(circle_at_top_left,rgba(0,245,255,0.16),transparent_32%),radial-gradient(circle_at_top_right,rgba(0,255,136,0.12),transparent_24%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,41,59,0.88))]">
+            <div class="absolute inset-0 opacity-30 pointer-events-none">
+                <div class="h-full w-full bg-[linear-gradient(to_right,rgba(148,163,184,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.08)_1px,transparent_1px)] bg-[size:32px_32px]"></div>
             </div>
-            {% endif %}
-            {% include 'dashboard/partials/plan_steps.html' %}
+
+            <div class="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                <div class="max-w-4xl">
+                    <div class="inline-flex items-center gap-2 rounded-full border border-cyber-primary/30 bg-cyber-primary/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-cyber-primary">
+                        Strategic Kill Chain
+                    </div>
+                    <h1 class="mt-4 text-3xl font-bold text-white md:text-4xl">
+                        {{ attack_state.name }}
+                    </h1>
+                    <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                        {% if plan_view and plan_view.rationale %}
+                            {{ plan_view.rationale }}
+                        {% else %}
+                            Waiting for NVIDIA/Mistral to produce a full multi-stage attack plan.
+                        {% endif %}
+                    </p>
+                </div>
+
+                <div class="flex flex-wrap gap-3 lg:max-w-sm lg:justify-end">
+                    <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Phase</div>
+                        <div class="mt-1 font-mono text-sm text-white">{{ attack_state.current_phase }}</div>
+                    </div>
+                    <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Status</div>
+                        <div class="mt-1 font-mono text-sm text-white">{{ attack_state.autonomy_status }}</div>
+                    </div>
+                    <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Steps</div>
+                        <div class="mt-1 font-mono text-sm text-white">{{ plan_view.summary.total|default:0 }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="relative mt-8 grid gap-4 md:grid-cols-4">
+                <div class="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-emerald-300/80">Completed</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ plan_view.summary.completed|default:0 }}</div>
+                </div>
+                <div class="rounded-2xl border border-cyber-info/25 bg-cyber-info/10 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-cyber-info/80">Running</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ plan_view.summary.running|default:0 }}</div>
+                </div>
+                <div class="rounded-2xl border border-rose-500/25 bg-rose-500/10 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-rose-300/80">Failed</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ plan_view.summary.failed|default:0 }}</div>
+                </div>
+                <div class="rounded-2xl border border-slate-500/25 bg-slate-500/10 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-slate-400">Pending</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ plan_view.summary.pending|default:0 }}</div>
+                </div>
+            </div>
         </div>
-    </div>
+    </section>
+
+    {% if plan_view and plan_view.current_step %}
+    <section class="rounded-2xl border border-cyber-warning/30 bg-cyber-warning/10 px-5 py-4 text-sm text-cyber-warning shadow-[0_0_20px_rgba(255,170,0,0.08)]">
+        Current execution focus:
+        <strong class="text-white">
+            {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}Unknown Step{% endif %}
+        </strong>
+    </section>
+    {% endif %}
+
+    {% if plan_view and plan_view.steps %}
+    <section class="grid gap-5">
+        {% for step in plan_view.steps %}
+        <article class="glass-panel rounded-2xl border {% if step.status == 'completed' %}border-emerald-500/30{% elif step.status == 'running' %}border-cyber-info/40{% elif step.status == 'failed' %}border-rose-500/40{% else %}border-slate-600/50{% endif %} overflow-hidden">
+            <div class="grid gap-0 lg:grid-cols-[120px_1fr]">
+                <div class="flex items-center justify-center border-b border-slate-700/50 bg-slate-950/60 px-6 py-6 lg:border-b-0 lg:border-r lg:border-slate-700/50">
+                    <div class="text-center">
+                        <div class="text-[11px] uppercase tracking-[0.25em] text-slate-500">Step</div>
+                        <div class="mt-3 text-4xl font-bold text-white">{{ step.step_number|default:forloop.counter }}</div>
+                        <div class="mt-3 inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] {% if step.status == 'completed' %}bg-emerald-500/15 text-emerald-300{% elif step.status == 'running' %}bg-cyber-info/15 text-cyber-info{% elif step.status == 'failed' %}bg-rose-500/15 text-rose-300{% else %}bg-slate-600/20 text-slate-400{% endif %}">
+                            {{ step.status|default:"pending" }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-6 md:p-7">
+                    <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            <h2 class="text-xl font-semibold text-white">
+                                {% if step.action_type %}{{ step.action_type }}{% elif step.action %}{{ step.action }}{% else %}Unknown Step{% endif %}
+                            </h2>
+                            {% if step.rationale %}
+                            <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
+                                {{ step.rationale }}
+                            </p>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
+                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Intent</div>
+                            <div class="mt-3 text-sm leading-7 text-slate-300">
+                                {% if step.status == 'completed' %}
+                                    This stage has completed successfully and fed evidence into the next branch of the kill chain.
+                                {% elif step.status == 'running' %}
+                                    This stage is currently being executed and may refine later steps with fresh output.
+                                {% elif step.status == 'failed' %}
+                                    This stage failed and should be reviewed before the next aggressive action continues.
+                                {% else %}
+                                    This stage is queued in the strategy and will execute once earlier evidence is confirmed.
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Parameters</div>
+                            {% if step.parameters %}
+                            <div class="mt-3 space-y-2">
+                                {% for key, value in step.parameters.items %}
+                                <div class="flex items-start justify-between gap-4 rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2">
+                                    <div class="font-mono text-xs uppercase tracking-[0.15em] text-slate-400">{{ key }}</div>
+                                    <div class="max-w-[70%] break-all text-right font-mono text-xs text-cyber-primary">{{ value }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="mt-3 text-sm text-slate-500">No explicit parameters set for this step yet.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </article>
+        {% endfor %}
+    </section>
+    {% else %}
+    <section class="glass-panel rounded-2xl border border-slate-600/50 p-10 text-center">
+        <div class="mx-auto max-w-xl">
+            <div class="text-sm uppercase tracking-[0.3em] text-slate-500">No Plan Yet</div>
+            <h2 class="mt-4 text-2xl font-semibold text-white">The kill chain has not been generated.</h2>
+            <p class="mt-3 text-sm leading-7 text-slate-400">
+                Start a run with the NVIDIA-powered reasoning flow and this page will populate with a full multi-stage strategy.
+            </p>
+        </div>
+    </section>
+    {% endif %}
 </div>
 {% endblock %}
 

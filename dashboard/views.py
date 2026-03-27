@@ -267,7 +267,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'plan_completed': plan_completed,
         'waiting_for_approval': waiting_for_approval,
         'plan_view': plan_view,
-        'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'gemini'),
+        'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
         **_get_global_context(),
     }
     return render(request, 'dashboard/index.html', context)
@@ -528,11 +528,14 @@ def configuration(request: HttpRequest) -> HttpResponse:
         gemini_key = request.POST.get('gemini_key', '').strip()
         openai_key = request.POST.get('openai_key', '').strip()
         groq_key = request.POST.get('groq_key', '').strip()
+        nvidia_key = request.POST.get('nvidia_key', '').strip()
         default_provider = request.POST.get('default_provider', '').strip()
         openai_model = request.POST.get('openai_model', '').strip()
         openai_host = request.POST.get('openai_host', '').strip()
         gemini_model = request.POST.get('gemini_model', '').strip()
         groq_model = request.POST.get('groq_model', '').strip()
+        nvidia_model = request.POST.get('nvidia_model', '').strip()
+        nvidia_host = request.POST.get('nvidia_host', '').strip()
         lmstudio_model = request.POST.get('lmstudio_model', '').strip()
         lmstudio_host = request.POST.get('lmstudio_host', '').strip()
         lmstudio_timeout = request.POST.get('lmstudio_timeout_seconds', '').strip()
@@ -548,6 +551,8 @@ def configuration(request: HttpRequest) -> HttpResponse:
             set_config('OPENAI_API_KEY', openai_key)
         if groq_key:
             set_config('GROQ_API_KEY', groq_key)
+        if nvidia_key:
+            set_config('NVIDIA_API_KEY', nvidia_key)
         if default_provider:
             set_config('DEFAULT_LLM_PROVIDER', default_provider)
         if openai_model:
@@ -558,6 +563,10 @@ def configuration(request: HttpRequest) -> HttpResponse:
             set_config('GEMINI_MODEL', gemini_model)
         if groq_model:
             set_config('GROQ_MODEL', groq_model)
+        if nvidia_model:
+            set_config('NVIDIA_MODEL', nvidia_model)
+        if nvidia_host:
+            set_config('NVIDIA_HOST', nvidia_host)
         if lmstudio_model:
             set_config('LMSTUDIO_MODEL', lmstudio_model)
         if lmstudio_host:
@@ -581,11 +590,14 @@ def configuration(request: HttpRequest) -> HttpResponse:
     context['has_gemini_key'] = bool(get_config('GOOGLE_API_KEY', ''))
     context['has_openai_key'] = bool(get_config('OPENAI_API_KEY', ''))
     context['has_groq_key'] = bool(get_config('GROQ_API_KEY', ''))
-    context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'gemini')
+    context['has_nvidia_key'] = bool(get_config('NVIDIA_API_KEY', ''))
+    context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'auto')
     context['openai_model'] = get_config('OPENAI_MODEL', 'gpt-4o-mini')
     context['openai_host'] = get_config('OPENAI_HOST', 'https://api.openai.com')
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
     context['groq_model'] = get_config('GROQ_MODEL', 'llama3-70b-8192')
+    context['nvidia_model'] = get_config('NVIDIA_MODEL', 'mistralai/mistral-small-4-119b-2603')
+    context['nvidia_host'] = get_config('NVIDIA_HOST', 'https://integrate.api.nvidia.com')
     context['lmstudio_model'] = get_config('LMSTUDIO_MODEL', 'phi-4-mini-instruct')
     context['lmstudio_host'] = get_config('LMSTUDIO_HOST', 'http://localhost:1234')
     context['lmstudio_timeout_seconds'] = get_config('LMSTUDIO_TIMEOUT_SECONDS', '60')
@@ -640,6 +652,13 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
                 return JsonResponse({'success': False, 'message': 'Groq SDK not installed.'})
             except Exception as e:
                 return JsonResponse({'success': False, 'message': f'Groq init failed: {str(e)}'})
+
+        elif provider == 'nvidia':
+            try:
+                from ai.llm.nvidia_adapter import NvidiaAdapter
+                adapter = NvidiaAdapter(model=model, api_key=api_key, host=host)
+            except Exception as e:
+                return JsonResponse({'success': False, 'message': f'NVIDIA init failed: {str(e)}'})
 
         elif provider == 'lmstudio':
             try:

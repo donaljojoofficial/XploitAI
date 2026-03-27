@@ -6,9 +6,17 @@ import json
 import os
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - dotenv is declared in requirements
+    load_dotenv = None
+
 # Define base directory
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_FILE = BASE_DIR / 'ai_config.json'
+
+if load_dotenv:
+    load_dotenv(BASE_DIR / '.env')
 
 def get_config(key: str, default: str = None) -> str:
     """

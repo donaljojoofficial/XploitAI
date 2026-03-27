@@ -94,15 +94,49 @@
                         </div>
 
                         <div class="mb-3">
+                            <label for="nvidiaKey" class="form-label">NVIDIA API Key</label>
+                            <div class="flex">
+                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-nvidia"></i></span>
+                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="nvidiaKey" name="nvidia_key" placeholder="{% if has_nvidia_key %}Current key set (leave blank to keep){% else %}Enter NVIDIA API Key{% endif %}" autocomplete="off">
+                            </div>
+                            <div class="form-text">Default key for the NVIDIA adapter.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="nvidiaModel" class="form-label">NVIDIA Model</label>
+                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="nvidiaModel" name="nvidia_model" value="{{ nvidia_model }}">
+                            <div class="form-text">Example: <code>mistralai/mistral-small-4-119b-2603</code>.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="nvidiaHost" class="form-label">NVIDIA Host</label>
+                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="nvidiaHost" name="nvidia_host" value="{{ nvidia_host }}">
+                            <div class="form-text">Usually <code>https://integrate.api.nvidia.com</code>.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="form-text">Per-model keys should be added in <code>.env</code> using the model name as the env suffix.</div>
+                            <div class="form-text">Example for <code>mistralai/mistral-small-4-119b-2603</code>:
+                                <code>NVIDIA_API_KEY_MISTRALAI_MISTRAL_SMALL_4_119B_2603=nvapi-...</code>
+                            </div>
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('nvidia')">Test NVIDIA Connection</button>
+                                <span id="nvidia-status" class="ms-2 small"></span>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
                             <label for="defaultProvider" class="form-label">Default AI Brain</label>
                             <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="defaultProvider" name="default_provider">
-                                <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
+                                <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Multi-Adapter Router (Recommended)</option>
                                 <option value="gemini" {% if default_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
                                 <option value="openai" {% if default_provider == 'openai' %}selected{% endif %}>OpenAI</option>
                                 <option value="groq" {% if default_provider == 'groq' %}selected{% endif %}>Groq</option>
-                                <option value="lmstudio" {% if default_provider == 'lmstudio' %}selected{% endif %}>LM Studio (Local)</option>
+                                <option value="nvidia" {% if default_provider == 'nvidia' %}selected{% endif %}>NVIDIA</option>
+                                <option value="hybrid" {% if default_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq</option>
+                                <option value="lmstudio" {% if default_provider == 'lmstudio' %}selected{% endif %}>LM Studio Only (Slow Local)</option>
                             </select>
-                            <div class="form-text">Preferred provider for new attacks.</div>
+                            <div class="form-text">Recommended for new attacks: Multi-Adapter Router. LM Studio remains available as an explicit local-only choice.</div>
                         </div>
 
                         <hr class="my-4">
@@ -185,6 +219,10 @@ function checkStatus(provider) {
     } else if (provider === 'groq') {
         apiKey = document.getElementById('groqKey').value;
         model = document.getElementById('groqModel').value;
+    } else if (provider === 'nvidia') {
+        apiKey = document.getElementById('nvidiaKey').value;
+        model = document.getElementById('nvidiaModel').value;
+        host = document.getElementById('nvidiaHost').value;
     } else if (provider === 'lmstudio') {
         apiKey = '';
         model = document.getElementById('lmstudioModel').value;

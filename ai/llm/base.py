@@ -35,7 +35,12 @@ class BaseLLMAdapter(ABC):
     """
 
     @abstractmethod
-    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
+    def get_recommendation(
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
+    ) -> Optional[Decision]:
         """
         Request a single atomic action recommendation from the LLM.
 
@@ -48,6 +53,7 @@ class BaseLLMAdapter(ABC):
         Args:
             decision_input: Structured observation of the current attack state.
             next_step_hint: Optional dictionary containing the next required plan step to guide the AI.
+            task_key: Optional routing key for phase-aware multi-provider selection.
 
         Returns:
             A valid Decision object or None.
@@ -55,12 +61,17 @@ class BaseLLMAdapter(ABC):
         ...
 
     @abstractmethod
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
         """
         Request a multi-step attack plan from the LLM.
 
         Args:
             decision_input: Structured observation of the current attack state.
+            task_key: Optional routing key for phase-aware multi-provider selection.
 
         Returns:
             A valid Plan object or None.

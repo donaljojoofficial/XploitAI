@@ -14,17 +14,23 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
+OPENAI_AVAILABLE = False
 try:
     from ai.llm.openai_adapter import OpenAIAdapter
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
-
 try:
     from ai.llm.groq_adapter import GroqAdapter
     GROQ_AVAILABLE = True
 except ImportError:
     GROQ_AVAILABLE = False
+
+try:
+    from ai.llm.nvidia_adapter import NvidiaAdapter
+    NVIDIA_AVAILABLE = True
+except ImportError:
+    NVIDIA_AVAILABLE = False
 
 try:
     from ai.llm.lmstudio_adapter import LMStudioAdapter
@@ -79,16 +85,6 @@ class DecisionEngine:
                     logger.error(f"Failed to initialize GeminiAdapter: {e}")
             return None
 
-        def _init_openai():
-            if OPENAI_AVAILABLE:
-                try:
-                    openai = OpenAIAdapter()
-                    if openai._available:
-                        return openai
-                except Exception as e:
-                    logger.error(f"Failed to initialize OpenAIAdapter: {e}")
-            return None
-
         def _init_groq():
             if GROQ_AVAILABLE:
                 try:
@@ -99,6 +95,16 @@ class DecisionEngine:
                     logger.error(f"Failed to initialize GroqAdapter: {e}")
             return None
 
+        def _init_openai():
+            if OPENAI_AVAILABLE:
+                try:
+                    openai = OpenAIAdapter()
+                    if openai._available:
+                        return openai
+                except Exception as e:
+                    logger.error(f"Failed to initialize OpenAIAdapter: {e}")
+            return None
+
         def _init_lmstudio():
             if LMSTUDIO_AVAILABLE:
                 try:
@@ -107,6 +113,16 @@ class DecisionEngine:
                         return lmstudio
                 except Exception as e:
                     logger.error(f"Failed to initialize LMStudioAdapter: {e}")
+            return None
+
+        def _init_nvidia():
+            if NVIDIA_AVAILABLE:
+                try:
+                    nvidia = NvidiaAdapter()
+                    if nvidia._available:
+                        return nvidia
+                except Exception as e:
+                    logger.error(f"Failed to initialize NvidiaAdapter: {e}")
             return None
 
         if provider == "gemini":
@@ -124,6 +140,11 @@ class DecisionEngine:
             if adapter:
                 adapters.append(adapter)
                 adapters_by_name["groq"] = adapter
+        elif provider == "nvidia":
+            adapter = _init_nvidia()
+            if adapter:
+                adapters.append(adapter)
+                adapters_by_name["nvidia"] = adapter
         elif provider == "lmstudio":
             adapter = _init_lmstudio()
             if adapter:
@@ -143,6 +164,10 @@ class DecisionEngine:
             if gr:
                 adapters.append(gr)
                 adapters_by_name["groq"] = gr
+            nv = _init_nvidia()
+            if nv:
+                adapters.append(nv)
+                adapters_by_name["nvidia"] = nv
             lm = _init_lmstudio()
             if lm:
                 adapters.append(lm)

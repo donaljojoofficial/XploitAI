@@ -7,7 +7,7 @@
             <h1 class="text-2xl font-bold text-white">Command Execution Log for {{ attack_state.name }}</h1>
             <p class="text-gray-400 text-sm">Phase: {{ attack_state.current_phase }}, Autonomy status: {{ attack_state.autonomy_status }}</p>
             {% if plan_view and plan_view.current_step %}
-            <p class="text-blue-300 text-sm mt-1">Current planned step: {{ plan_view.current_step.action_type|default:plan_view.current_step.action }}</p>
+            <p class="text-blue-300 text-sm mt-1">Current planned step: {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}Unknown Step{% endif %}</p>
             {% endif %}
         </div>
         <div class="flex gap-2">

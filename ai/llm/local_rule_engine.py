@@ -191,7 +191,12 @@ class LocalRuleEngine(BaseLLMAdapter):
             f"{len(remaining)} action(s) still pending in {current_phase}."
         )
 
-    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
+    def get_recommendation(
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
+    ) -> Optional[Decision]:
         phase = _normalize_phase(decision_input.phase)
 
         if next_step_hint:
@@ -206,7 +211,14 @@ class LocalRuleEngine(BaseLLMAdapter):
             rationale = f"Executing next_step_hint action '{selected}'."
 
         else:
-            candidates = PHASE_KILL_CHAIN.get(phase, []) or PHASE_KILL_CHAIN.get(phase.lower(), [])
+            available = decision_input.available_commands or []
+            candidates = [
+                str(command.get("name", "")).strip()
+                for command in available
+                if isinstance(command, dict) and str(command.get("name", "")).strip()
+            ]
+            if not candidates:
+                candidates = PHASE_KILL_CHAIN.get(phase, []) or PHASE_KILL_CHAIN.get(phase.lower(), [])
             if not candidates:
                 candidates = list(ACTION_GRAPH.keys())
 
@@ -236,7 +248,29 @@ class LocalRuleEngine(BaseLLMAdapter):
             phase_reason=reason,
         )
 
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
+        available = decision_input.available_commands or []
+        available_names = [
+            str(command.get("name", "")).strip()
+            for command in available
+            if isinstance(command, dict) and str(command.get("name", "")).strip()
+        ]
+        if available_names:
+            steps = [
+                PlanStep(
+                    step_number=index + 1,
+                    action_type=action_name,
+                    parameters=_infer_parameters(action_name, decision_input),
+                    rationale=f"Local fallback selected available command {action_name}.",
+                )
+                for index, action_name in enumerate(available_names)
+            ]
+            return Plan(steps=steps, rationale="Local rule engine used available commands for the current phase.")
+
         phase = _normalize_phase(decision_input.phase)
         if phase not in PHASE_ORDER:
             phase = "RECONNAISSANCE"

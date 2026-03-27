@@ -347,7 +347,10 @@ class LMStudioAdapter(BaseLLMAdapter):
     # ------------------------------------------------------------------
 
     def get_recommendation(
-        self, decision_input: DecisionInput, next_step_hint: dict = None
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
     ) -> Optional[Decision]:
         logger.info("LMStudioAdapter: get_recommendation")
         if is_first_step(decision_input):
@@ -360,7 +363,11 @@ class LMStudioAdapter(BaseLLMAdapter):
         )
         return self._parse_decision(text) if text else None
 
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
         logger.info("LMStudioAdapter: get_plan")
         prompt = build_plan_prompt(decision_input)
         text = self._call(

@@ -92,6 +92,10 @@ def normalize_command_template(command_obj: Command) -> str:
     """
     Normalize command templates for safe rendering while preserving DB intent.
     Only falls back to canonical template when DB template is empty.
+
+    Important: escaped templates must not be persisted back to the database.
+    Persisting the brace-escaped form causes repeated re-escaping across runs,
+    which eventually produces commands containing '{{{{...}}}}'.
     """
     template = command_obj.command_template or ""
     canonical = CANONICAL_TEMPLATES.get(command_obj.name)
@@ -100,13 +104,7 @@ def normalize_command_template(command_obj: Command) -> str:
         command_obj.save(update_fields=["command_template"])
         return canonical
 
-    escaped = escape_non_placeholder_braces(template)
-    if escaped != template:
-        command_obj.command_template = escaped
-        command_obj.save(update_fields=["command_template"])
-        return escaped
-
-    return template
+    return escape_non_placeholder_braces(template)
 
 
 def render_command_template(template: str, context: dict[str, str]) -> str:

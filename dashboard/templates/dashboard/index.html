@@ -32,7 +32,7 @@
                         <div class="text-sm text-slate-400 font-mono mb-4">Phase: {{ attack_state.current_phase|default:"N/A" }}</div>
                         {% if plan_view and plan_view.current_step %}
                         <div class="text-sm text-cyber-info font-mono mb-4">
-                            Current Step: {{ plan_view.current_step.action_type|default:plan_view.current_step.action }}
+                            Current Step: {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}Unknown Step{% endif %}
                         </div>
                         {% elif plan_view and plan_view.steps %}
                         <div class="text-sm text-slate-400 font-mono mb-4">
@@ -263,12 +263,17 @@
                                 AI Brain
                             </label>
                             <select class="w-full bg-slate-800/50 border border-slate-600/50 text-white rounded-lg p-3 focus:border-cyber-secondary focus:ring-1 focus:ring-cyber-secondary outline-none transition-colors" id="llmProviderSelect" name="llm_provider">
-                                <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Auto (Fallback)</option>
+                                <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Multi-Adapter Router (Recommended)</option>
                                 <option value="gemini" {% if default_llm_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
                                 <option value="openai" {% if default_llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
                                 <option value="groq" {% if default_llm_provider == 'groq' %}selected{% endif %}>Groq</option>
-                                <option value="lmstudio" {% if default_llm_provider == 'lmstudio' %}selected{% endif %}>LM Studio (Local)</option>
+                                <option value="nvidia" {% if default_llm_provider == 'nvidia' %}selected{% endif %}>NVIDIA</option>
+                                <option value="hybrid" {% if default_llm_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq</option>
+                                <option value="lmstudio" {% if default_llm_provider == 'lmstudio' %}selected{% endif %}>LM Studio Only (Slow Local)</option>
                             </select>
+                            <p class="text-xs text-slate-400 mt-2">
+                                Multi-Adapter Router uses the available cloud adapters first for planning and attack steps, then falls back safely. Choose LM Studio only if you want a local-only run.
+                            </p>
                         </div>
 
                         <!-- Warning Notice -->

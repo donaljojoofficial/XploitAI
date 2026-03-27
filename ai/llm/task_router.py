@@ -16,11 +16,23 @@ class TaskRouterAdapter(BaseLLMAdapter):
     """
 
     DEFAULT_ROUTES = {
-        "recommendation": ["groq", "openai", "gemini", "lmstudio", "local"],
-        "plan": ["openai", "gemini", "groq", "lmstudio", "local"],
-        "explain": ["lmstudio", "openai", "groq", "gemini", "local"],
-        "generate": ["lmstudio", "groq", "openai", "gemini", "local"],
-        "narrative": ["lmstudio", "openai", "groq", "gemini", "local"],
+        "recommendation": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
+        "recommendation.reconnaissance": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
+        "recommendation.enumeration": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
+        "recommendation.exploitation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "recommendation.privilege_escalation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "recommendation.proof_of_compromise": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
+        "recommendation.retry_failed_step": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
+        "plan": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "plan.initial": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "plan.reconnaissance": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "plan.enumeration": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "plan.exploitation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "plan.privilege_escalation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "plan.proof_of_compromise": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
+        "explain": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
+        "generate": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
+        "narrative": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
     }
 
     def __init__(
@@ -62,19 +74,49 @@ class TaskRouterAdapter(BaseLLMAdapter):
         adapters = [self.adapters_by_name[name] for name in ordered_names]
         return FallbackAdapter(adapters)
 
-    def _pipeline(self, task_name: str) -> FallbackAdapter:
-        return self._pipelines.get(task_name, self._default_pipeline)
+    def _resolve_task_names(self, task_name: Optional[str]) -> List[str]:
+        if not task_name:
+            return []
+
+        candidates: List[str] = [task_name]
+        if "." in task_name:
+            family = task_name.split(".", 1)[0]
+            if family not in candidates:
+                candidates.append(family)
+        return candidates
+
+    def _pipeline(self, task_name: Optional[str]) -> FallbackAdapter:
+        for candidate in self._resolve_task_names(task_name):
+            pipeline = self._pipelines.get(candidate)
+            if pipeline is not None:
+                return pipeline
+        return self._default_pipeline
 
     def get_recommendation(
-        self, decision_input: DecisionInput, next_step_hint: dict = None
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
     ) -> Optional[Decision]:
-        return self._pipeline("recommendation").get_recommendation(
+        resolved_task_key = task_key or "recommendation"
+        logger.info("TaskRouterAdapter routing recommendation task '%s'.", resolved_task_key)
+        return self._pipeline(resolved_task_key).get_recommendation(
             decision_input,
             next_step_hint=next_step_hint,
+            task_key=resolved_task_key,
         )
 
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
-        return self._pipeline("plan").get_plan(decision_input)
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
+        resolved_task_key = task_key or "plan"
+        logger.info("TaskRouterAdapter routing plan task '%s'.", resolved_task_key)
+        return self._pipeline(resolved_task_key).get_plan(
+            decision_input,
+            task_key=resolved_task_key,
+        )
 
     def explain_decision(
         self, decision: Decision, decision_input: DecisionInput

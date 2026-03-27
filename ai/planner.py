@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from ai.llm.base import BaseLLMAdapter
 from ai.llm.lmstudio_adapter import LMStudioAdapter
-from ai.schemas import ActionResultSummary, DecisionInput, KnownService, PastActionSummary
+from ai.schemas import ActionResultSummary, Decision, DecisionInput, KnownService, PastActionSummary
 from state.state_manager import StateManager
 
 logger = logging.getLogger(__name__)
@@ -101,81 +101,162 @@ class AIPlanner:
     """
 
     def __init__(self, provider: str = "auto"):
+        self.provider = (provider or "auto").lower()
         self.adapter = self._get_adapter(provider)
+        self.plan_adapter = self._get_plan_adapter(provider)
+        self.review_adapter = self._get_review_adapter(provider)
         self._decision_cache: dict[str, dict] = {}
         self._decision_cache_ttl_seconds = 15.0
 
     def _get_adapter(self, provider: str) -> BaseLLMAdapter:
-        from core.config import get_config
-        if provider == "auto":
-            # Fallback to a default if not specified in settings
-            provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
+        requested_provider = (provider or "auto").lower()
 
-        # Try specific provider first to avoid initializing others unnecessarily
-        if provider == "gemini":
-            try:
-                from ai.llm.gemini import GeminiAdapter
-                gemini = GeminiAdapter()
-                if gemini._client: return gemini
-            except Exception: pass
-        elif provider == "openai":
-            try:
-                from ai.llm.openai_adapter import OpenAIAdapter
-                openai = OpenAIAdapter()
-                if openai._available: return openai
-            except Exception: pass
-        elif provider == "groq":
-            try:
-                from ai.llm.groq_adapter import GroqAdapter
-                groq = GroqAdapter()
-                if groq._client: return groq
-            except Exception: pass
-        elif provider == "lmstudio":
-            try:
-                lmstudio = LMStudioAdapter()
-                if lmstudio._available: return lmstudio
-            except Exception: pass
+        if requested_provider == "hybrid":
+            adapters_by_name = self._discover_adapters()
+            if "groq" in adapters_by_name:
+                return adapters_by_name["groq"]
+            if "nvidia" in adapters_by_name:
+                return adapters_by_name["nvidia"]
+            return adapters_by_name["local"]
 
-        # Local provider has no external dependency
-        if provider == "local":
+        if requested_provider == "local":
             from ai.llm.local_rule_engine import LocalRuleEngine
             return LocalRuleEngine()
 
-        # If specific provider failed or "fallback" was selected, initialize all available
-        adapters_by_name = {}
-        
+        adapters_by_name = self._discover_adapters()
+
+        if requested_provider not in {"auto", "fallback"} and requested_provider in adapters_by_name:
+            from ai.llm.task_router import TaskRouterAdapter
+            return TaskRouterAdapter(
+                adapters_by_name,
+                task_routes=self._preferred_routes(requested_provider),
+            )
+
+        from ai.llm.task_router import TaskRouterAdapter
+        return TaskRouterAdapter(adapters_by_name)
+
+    def _get_plan_adapter(self, provider: str) -> BaseLLMAdapter:
+        requested_provider = (provider or "auto").lower()
+        adapters_by_name = self._discover_adapters()
+
+        if requested_provider == "hybrid":
+            return adapters_by_name.get("nvidia") or adapters_by_name.get("groq") or adapters_by_name["local"]
+
+        return self.adapter
+
+    def _get_review_adapter(self, provider: str) -> BaseLLMAdapter:
+        requested_provider = (provider or "auto").lower()
+        adapters_by_name = self._discover_adapters()
+
+        if requested_provider == "hybrid":
+            return adapters_by_name.get("nvidia") or adapters_by_name["local"]
+
+        return self.adapter
+
+    def _discover_adapters(self) -> Dict[str, BaseLLMAdapter]:
+        adapters_by_name: Dict[str, BaseLLMAdapter] = {}
+
         try:
             from ai.llm.gemini import GeminiAdapter
+
             gemini = GeminiAdapter()
             if gemini._client:
                 adapters_by_name["gemini"] = gemini
-        except Exception: pass
-        
-        try:
-            from ai.llm.openai_adapter import OpenAIAdapter
-            openai = OpenAIAdapter()
-            if openai._available:
-                adapters_by_name["openai"] = openai
-        except Exception: pass
+        except Exception:
+            pass
 
         try:
             from ai.llm.groq_adapter import GroqAdapter
+
             groq = GroqAdapter()
             if groq._client:
                 adapters_by_name["groq"] = groq
-        except Exception: pass
-        
+        except Exception:
+            pass
+
+        try:
+            from ai.llm.nvidia_adapter import NvidiaAdapter
+
+            nvidia = NvidiaAdapter()
+            if nvidia._available:
+                adapters_by_name["nvidia"] = nvidia
+        except Exception:
+            pass
+
         try:
             lmstudio = LMStudioAdapter()
             if lmstudio._available:
                 adapters_by_name["lmstudio"] = lmstudio
-        except Exception: pass
+        except Exception:
+            pass
 
         from ai.llm.local_rule_engine import LocalRuleEngine
-        adapters_by_name["local"] = LocalRuleEngine()
 
+        adapters_by_name["local"] = LocalRuleEngine()
+        return adapters_by_name
+
+    def _preferred_routes(self, preferred_provider: str) -> Dict[str, List[str]]:
         from ai.llm.task_router import TaskRouterAdapter
-        return TaskRouterAdapter(adapters_by_name)
+
+        routes: Dict[str, List[str]] = {}
+        for task_name, route in TaskRouterAdapter.DEFAULT_ROUTES.items():
+            ordered = [name for name in route if name != preferred_provider]
+            routes[task_name] = [preferred_provider] + ordered
+        return routes
+
+    def _normalize_phase_key(self, phase: Optional[str]) -> str:
+        phase_name = (phase or "").strip().lower().replace(" ", "_")
+        return phase_name or "reconnaissance"
+
+    def _recommendation_task_key(self, decision_input: DecisionInput) -> str:
+        if decision_input.last_result and not decision_input.last_result.success:
+            return "recommendation.retry_failed_step"
+        return f"recommendation.{self._normalize_phase_key(decision_input.phase)}"
+
+    def _plan_task_key(self, phase: Optional[str], existing_plan: Optional[dict]) -> str:
+        if not existing_plan or not existing_plan.get("steps"):
+            return "plan.initial"
+        return f"plan.{self._normalize_phase_key(phase)}"
+
+    def _resolve_proposed_command_name(
+        self,
+        proposed_name: Optional[str],
+        available_commands,
+    ) -> Optional[str]:
+        if not proposed_name:
+            return None
+
+        normalized_lookup = {
+            self._normalize_command_name(command.name): command.name
+            for command in available_commands
+        }
+        normalized_proposed = self._normalize_command_name(proposed_name)
+        direct_match = normalized_lookup.get(normalized_proposed)
+        if direct_match:
+            return direct_match
+
+        alias_map = {
+            "passiverecon": ["HTTPHeaderFetch", "TechnologyFingerprint", "RobotsAndSitemap"],
+            "serviceenumeration": ["EndpointDiscovery", "EndpointProbe", "ParameterDiscovery"],
+            "servicediscovery": ["EndpointDiscovery", "EndpointProbe", "ParameterDiscovery"],
+            "servicescan": ["EndpointDiscovery", "EndpointProbe", "ParameterDiscovery"],
+            "vulnerabilityanalysis": ["VulnerabilityScanning", "SQLInjectionProbe"],
+            "privilegeescalation": ["ProofOfCompromise"],
+            "proofofcompromise": ["ProofOfCompromise"],
+        }
+        for alias_target in alias_map.get(normalized_proposed, []):
+            resolved = normalized_lookup.get(self._normalize_command_name(alias_target))
+            if resolved:
+                return resolved
+
+        for normalized_name, actual_name in normalized_lookup.items():
+            if normalized_proposed in normalized_name or normalized_name in normalized_proposed:
+                return actual_name
+
+        return None
+
+    def _normalize_command_name(self, command_name: str) -> str:
+        return "".join(ch for ch in str(command_name).lower() if ch.isalnum())
 
     def get_next_command(self, state_manager: StateManager) -> Optional[dict]:
         """Determines the next command ID to execute one step at a time."""
@@ -264,6 +345,7 @@ class AIPlanner:
             last_result=last_result,
             findings=current_state.get("findings"),
         )
+        recommendation_task_key = self._recommendation_task_key(decision_input)
 
         cache_key = self._build_decision_cache_key(
             attack_state,
@@ -286,23 +368,33 @@ class AIPlanner:
             proposal = self.adapter.get_recommendation(
                 decision_input,
                 next_step_hint=next_step_hint,
+                task_key=recommendation_task_key,
             )
         except Exception as e:
             logger.warning(f"LLM recommendation failed: {e}")
 
         if proposal is not None:
-            chosen_name = proposal.action_type
+            chosen_name = self._resolve_proposed_command_name(
+                proposal.action_type,
+                available_commands,
+            )
+            if not chosen_name and next_step_hint:
+                chosen_name = self._resolve_proposed_command_name(
+                    next_step_hint.get("action_type") or next_step_hint.get("action"),
+                    available_commands,
+                )
             chosen = next((c for c in available_commands if c.name == chosen_name), None)
             if chosen:
                 result = {
                     "command_id": chosen.id,
                     "command_name": chosen.name,
                     "reason": proposal.rationale or "Chosen by AI recommendation.",
+                    "parameters": proposal.parameters or ((next_step_hint or {}).get("parameters") or {}),
                 }
                 self._set_cached_decision(cache_key, result)
                 return result
             else:
-                logger.warning(f"LLM proposed unknown command: {chosen_name}")
+                logger.warning(f"LLM proposed unknown command: {proposal.action_type}")
 
         logger.info("Fallback planner engine engaged after LLM fallback.")
         return FallbackPlannerEngine(state_manager).get_next_command()
@@ -364,10 +456,10 @@ class AIPlanner:
         attack_state,
         phase: str,
         available_command_metadata: List[Dict[str, str]],
-    ) -> None:
+    ) -> bool:
         """Generate and persist an initial strategic plan once per attack run."""
         if attack_state.current_plan and attack_state.current_plan.get("steps"):
-            return
+            return True
 
         known_services: List[KnownService] = []
         target = (attack_state.state_data or {}).get("target")
@@ -387,16 +479,20 @@ class AIPlanner:
             available_commands=available_command_metadata,
             findings=(attack_state.state_data or {}).get("findings", {}),
         )
+        plan_task_key = self._plan_task_key(
+            phase=phase or attack_state.current_phase,
+            existing_plan=attack_state.current_plan,
+        )
 
         plan = None
         try:
-            plan = self.adapter.get_plan(decision_input)
+            plan = self.plan_adapter.get_plan(decision_input, task_key=plan_task_key)
         except Exception as e:
             logger.warning(f"Plan generation failed in AIPlanner: {e}")
-            return
+            return False
 
         if not plan or not plan.steps:
-            return
+            return False
 
         attack_state.current_plan = {
             "rationale": plan.rationale or "Plan generated by AIPlanner.",
@@ -415,6 +511,94 @@ class AIPlanner:
             "AIPlanner generated initial plan with %d step(s).",
             len(plan.steps),
         )
+        return True
+
+    def ensure_initial_plan(self, state_manager: StateManager) -> bool:
+        from core.models import Command, Phase
+
+        attack_state = state_manager.get_attack_state()
+        current_state = state_manager.get_current_state_for_planner()
+        phase = current_state.get("current_phase")
+        available_commands = list(state_manager.get_available_commands(phase))
+
+        # For the initial strategy, expose commands across the remaining kill chain
+        # so the reasoning model can build a full multi-phase plan instead of a
+        # single-step local phase plan.
+        phase_names = list(Phase.objects.order_by("id").values_list("name", flat=True))
+        current_lower = (phase or attack_state.current_phase or "").lower()
+        try:
+            current_idx = next(i for i, name in enumerate(phase_names) if name.lower() == current_lower)
+        except StopIteration:
+            current_idx = 0
+
+        remaining_phase_names = phase_names[current_idx:]
+        if remaining_phase_names:
+            available_commands = list(
+                Command.objects.filter(phase__name__in=remaining_phase_names)
+                .select_related("phase")
+                .order_by("phase__id", "id")
+            )
+
+        available_command_metadata = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "description": c.description,
+                "phase": getattr(c.phase, "name", None),
+            }
+            for c in available_commands
+        ]
+        return self._ensure_plan(attack_state, phase, available_command_metadata)
+
+    def review_execution(
+        self,
+        state_manager: StateManager,
+        action_name: str,
+        parameters: dict,
+        success: bool,
+        stdout: str,
+        stderr: str,
+    ) -> Optional[str]:
+        if not self.review_adapter:
+            return None
+
+        current_state = state_manager.get_current_state_for_planner()
+        known_services: List[KnownService] = []
+        target = current_state.get("target")
+        if target:
+            known_services.append(
+                KnownService(
+                    name="target",
+                    endpoint=str(target),
+                    protocol="http" if "http" in str(target) else "tcp",
+                )
+            )
+
+        decision_input = DecisionInput(
+            phase=current_state.get("current_phase") or "RECONNAISSANCE",
+            known_services=known_services,
+            past_actions=[],
+            findings=current_state.get("findings", {}),
+            last_result=ActionResultSummary(
+                success=success,
+                output_summary=(stdout or stderr or "")[:300] or "No output.",
+                raw_output=(stdout or stderr or "")[:1500] or None,
+                error=stderr or None,
+            ),
+        )
+
+        try:
+            return self.review_adapter.explain_decision(
+                Decision(
+                    action_type=action_name,
+                    parameters=parameters or {},
+                    rationale=f"Execution {'succeeded' if success else 'failed'}.",
+                ),
+                decision_input,
+            )
+        except Exception as exc:
+            logger.warning("Execution review failed in AIPlanner: %s", exc)
+            return None
 
     def _next_step_hint(self, attack_state) -> Optional[dict]:
         """

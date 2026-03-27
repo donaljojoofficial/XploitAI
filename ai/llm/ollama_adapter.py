@@ -77,7 +77,12 @@ class OllamaAdapter(BaseLLMAdapter):
         else:
             logger.warning("Ollama SDK not installed. Install with `pip install ollama`.")
 
-    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
+    def get_recommendation(
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
+    ) -> Optional[Decision]:
         if not self._client:
             return None
         
@@ -95,7 +100,11 @@ class OllamaAdapter(BaseLLMAdapter):
             return self._parse_decision(response)
         return None
 
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
         if not self._client:
             return None
 
@@ -167,15 +176,15 @@ class OllamaAdapter(BaseLLMAdapter):
 
         try:
             self._enforce_rate_limit()
-                stream = self._client.chat(
+            stream = self._client.chat(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.system_instruction},
                     {"role": "user", "content": prompt}
                 ],
-                    stream=True,
-                    options={"temperature": 0.1, "num_predict": int(self.max_tokens_generate)}
-                )
+                stream=True,
+                options={"temperature": 0.1, "num_predict": int(self.max_tokens_generate)}
+            )
             for chunk in stream:
                 content = chunk['message']['content']
                 if content:

@@ -156,7 +156,12 @@ class AnthropicAdapter(BaseLLMAdapter):
             logger.error(f"Anthropic raw HTTP request failed: {e}")
         return None
 
-    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
+    def get_recommendation(
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
+    ) -> Optional[Decision]:
         logger.info("AnthropicAdapter: invoking Claude for recommendation")
         if is_first_step(decision_input):
             prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
@@ -167,7 +172,11 @@ class AnthropicAdapter(BaseLLMAdapter):
             return None
         return self._parse_decision(text)
 
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
         logger.info("AnthropicAdapter: invoking Claude for plan")
         prompt = build_plan_prompt(decision_input)
         text = self._generate_content(prompt, max_tokens=self.max_tokens_plan)

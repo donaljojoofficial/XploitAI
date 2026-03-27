@@ -135,7 +135,12 @@ class OpenAIAdapter(BaseLLMAdapter):
             "message": self.last_error_message,
         }
 
-    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
+    def get_recommendation(
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
+    ) -> Optional[Decision]:
         if is_first_step(decision_input):
             prompt = build_recommendation_prompt(decision_input, next_step_hint=next_step_hint)
         else:
@@ -143,7 +148,11 @@ class OpenAIAdapter(BaseLLMAdapter):
         text = self._call(prompt, max_tokens=self.max_tokens_decision, json_mode=True)
         return self._parse_decision(text) if text else None
 
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
         prompt = build_plan_prompt(decision_input)
         text = self._call(prompt, max_tokens=self.max_tokens_plan, json_mode=True)
         return self._parse_plan(text) if text else None

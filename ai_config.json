@@ -1,5 +1,5 @@
 {
-    "DEFAULT_LLM_PROVIDER": "lmstudio",
+    "DEFAULT_LLM_PROVIDER": "auto",
     "LMSTUDIO_HOST": "http://localhost:1234",
     "LMSTUDIO_MODEL": "phi-4-mini-instruct",
     "LMSTUDIO_TIMEOUT_SECONDS": "12",

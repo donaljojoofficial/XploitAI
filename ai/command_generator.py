@@ -26,12 +26,12 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
+OPENAI_AVAILABLE = False
 try:
     from ai.llm.openai_adapter import OpenAIAdapter
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
-
 try:
     from ai.llm.groq_adapter import GroqAdapter
     GROQ_AVAILABLE = True
@@ -39,12 +39,18 @@ except ImportError:
     GROQ_AVAILABLE = False
 
 try:
+    from ai.llm.nvidia_adapter import NvidiaAdapter
+    NVIDIA_AVAILABLE = True
+except ImportError:
+    NVIDIA_AVAILABLE = False
+
+try:
     from ai.llm.lmstudio_adapter import LMStudioAdapter
     LMSTUDIO_AVAILABLE = True
 except ImportError:
     LMSTUDIO_AVAILABLE = False
 
-LLM_AVAILABLE = GEMINI_AVAILABLE or OPENAI_AVAILABLE or GROQ_AVAILABLE or LMSTUDIO_AVAILABLE
+LLM_AVAILABLE = GEMINI_AVAILABLE or OPENAI_AVAILABLE or GROQ_AVAILABLE or NVIDIA_AVAILABLE or LMSTUDIO_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +73,7 @@ class CommandGenerator:
 
         Args:
             use_llm: Whether to attempt using the LLM for generation.
-            llm_provider: 'auto', 'gemini', 'openai', 'groq', 'lmstudio', or 'local'.
+            llm_provider: 'auto', 'gemini', 'openai', 'groq', 'nvidia', 'lmstudio', or 'local'.
         """
         self.use_llm = use_llm
         self.llm_client = None
@@ -108,6 +114,10 @@ class CommandGenerator:
                     a = GroqAdapter()
                     if getattr(a, "_client", None):
                         _register("groq", a)
+                if NVIDIA_AVAILABLE:
+                    a = NvidiaAdapter()
+                    if getattr(a, "_available", False):
+                        _register("nvidia", a)
                 if LMSTUDIO_AVAILABLE:
                     a = LMStudioAdapter()
                     if getattr(a, "_available", False):
@@ -124,6 +134,10 @@ class CommandGenerator:
                 a = GroqAdapter()
                 if getattr(a, "_client", None):
                     _register("groq", a)
+            elif llm_provider == "nvidia" and NVIDIA_AVAILABLE:
+                a = NvidiaAdapter()
+                if getattr(a, "_available", False):
+                    _register("nvidia", a)
             elif llm_provider == "lmstudio" and LMSTUDIO_AVAILABLE:
                 a = LMStudioAdapter()
                 if getattr(a, "_available", False):

@@ -5,6 +5,7 @@ import time
 from typing import Optional
 
 from ai.planner import AIPlanner
+from ai.command_generator import CommandGenerator
 from core.models import AttackState, Command, ExecutionResult, ExecutionTask, AttackerExecutor
 from state.state_manager import StateManager
 from parser.output_parser import parse_output
@@ -35,6 +36,11 @@ class RemoteExecutionService:
         self.max_commands_per_phase = max_commands_per_phase
         self.state_manager = StateManager(attack_state_id=attack_state_id)
         self.planner = AIPlanner(provider=llm_provider)
+        self.llm_provider = (llm_provider or "auto").lower()
+        self.command_generator = CommandGenerator(
+            use_llm=self.llm_provider == "hybrid",
+            llm_provider="groq" if self.llm_provider == "hybrid" else llm_provider,
+        )
         self.phase_command_counts = {}
 
     def start_assessment(self):
@@ -49,6 +55,29 @@ class RemoteExecutionService:
     def _run_loop(self):
         """The main remote execution loop."""
         start_ts = time.time()
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+
+        if not (attack_state.current_plan or {}).get("steps"):
+            AttackState.objects.filter(id=self.attack_state_id).update(
+                autonomy_status="PLANNING",
+                stop_reason="Generating strategic plan...",
+            )
+            plan_ready = self.planner.ensure_initial_plan(self.state_manager)
+            attack_state.refresh_from_db()
+            if not plan_ready or not (attack_state.current_plan or {}).get("steps"):
+                self.stop_assessment("Plan generation failed.")
+                return
+
+            if not isinstance(attack_state.state_data, dict):
+                attack_state.state_data = {}
+            attack_state.state_data["plan_approved"] = False
+            attack_state.save(update_fields=["state_data"])
+            self.stop_assessment("Plan generated. Waiting for approval.")
+            return
+
+        if not (attack_state.state_data or {}).get("plan_approved", False):
+            self.stop_assessment("Plan generated. Waiting for approval.")
+            return
 
         for step in range(self.max_steps):
             elapsed = time.time() - start_ts
@@ -81,6 +110,7 @@ class RemoteExecutionService:
 
             command_id = decision.get("command_id")
             decision_reason = decision.get("reason", "No reason provided.")
+            decision_parameters = decision.get("parameters") or {}
 
             command_obj = Command.objects.filter(id=command_id).first()
             if not command_obj:
@@ -98,9 +128,17 @@ class RemoteExecutionService:
                 "target_host": target,
                 "target_domain": target,
             }
+            command_parameters = {**sub_context, **decision_parameters}
 
             try:
-                command = render_command_template(command_template, sub_context)
+                if self.llm_provider == "hybrid":
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                else:
+                    command = render_command_template(command_template, sub_context)
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "
@@ -142,6 +180,16 @@ class RemoteExecutionService:
                     logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
                     self.state_manager.update_state_with_findings(findings)
 
+                review_reason = self.planner.review_execution(
+                    self.state_manager,
+                    command_obj.name,
+                    command_parameters,
+                    True,
+                    stdout,
+                    stderr,
+                )
+                combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nNVIDIA review: {review_reason}"
+
                 # Create ExecutionResult record
                 attack_state = AttackState.objects.get(id=self.attack_state_id)
                 ExecutionResult.objects.create(
@@ -155,7 +203,10 @@ class RemoteExecutionService:
                 )
 
                 self.state_manager.record_action(
-                    command_obj.name, {"target": target}, {"stdout": stdout, "stderr": stderr}, decision_reason
+                    command_obj.name,
+                    command_parameters,
+                    {"stdout": stdout, "stderr": stderr, "returncode": 0},
+                    combined_reason,
                 )
 
                 # Mark command complete
@@ -165,6 +216,15 @@ class RemoteExecutionService:
                 stdout = output.get("stdout", "") if output else (result.output or "")
                 stderr = output.get("stderr", "") if output else result.error_message
                 logger.warning(f"Task {task.id} failed: {result.error_message}")
+                review_reason = self.planner.review_execution(
+                    self.state_manager,
+                    command_obj.name,
+                    command_parameters,
+                    False,
+                    stdout,
+                    stderr or result.error_message or "",
+                )
+                combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nNVIDIA review: {review_reason}"
 
                 attack_state = AttackState.objects.get(id=self.attack_state_id)
                 ExecutionResult.objects.create(
@@ -175,6 +235,13 @@ class RemoteExecutionService:
                     stdout=stdout,
                     stderr=stderr or result.error_message or "",
                     findings={},
+                )
+
+                self.state_manager.record_action(
+                    command_obj.name,
+                    command_parameters,
+                    {"stdout": stdout, "stderr": stderr or result.error_message or "", "returncode": 1},
+                    combined_reason,
                 )
 
                 # Mark command as failed but continue

@@ -6,24 +6,46 @@ from ai.schemas import DecisionInput
 from typing import List, Optional
 
 PHASE_DESCRIPTIONS = {
-    "RECONNAISSANCE":       "Passive/active info gathering: headers, banners, tech stack, DNS.",
-    "ENUMERATION":          "Service and endpoint discovery: open ports, directories, login pages.",
-    "EXPLOITATION":         "Exploit identified vulnerabilities to gain access.",
-    "PRIVILEGE_ESCALATION": "Escalate from low-privilege to root/admin.",
-    "PROOF_OF_COMPROMISE":  "Capture evidence: flags, sensitive files, screenshots.",
-    "COMPLETED":            "Simulation finished.",
+    "RECONNAISSANCE": "Passive/active info gathering: headers, banners, tech stack, robots, sitemap.",
+    "DISCOVERY": "Enumerate endpoints and parameters that can be reached safely.",
+    "VULNERABILITY_ANALYSIS": "Validate weak controls and probe for likely weaknesses.",
+    "EXPLOITATION": "Attempt safe exploitation paths such as default credentials.",
+    "POST_EXPLOITATION": "Collect clear proof of compromise and impact evidence.",
+    "COMPLETED": "Simulation finished.",
 }
 
 PHASE_ORDER = [
-    "RECONNAISSANCE", "ENUMERATION", "EXPLOITATION",
-    "PRIVILEGE_ESCALATION", "PROOF_OF_COMPROMISE", "COMPLETED",
+    "RECONNAISSANCE",
+    "DISCOVERY",
+    "VULNERABILITY_ANALYSIS",
+    "EXPLOITATION",
+    "POST_EXPLOITATION",
+    "COMPLETED",
 ]
 
+PHASE_ALIASES = {
+    "ENUMERATION": "DISCOVERY",
+    "PRIVILEGE_ESCALATION": "POST_EXPLOITATION",
+    "PROOF_OF_COMPROMISE": "POST_EXPLOITATION",
+}
+
 ALLOWED_ACTIONS = [
-    "HTTPHeaderFetch", "PassiveRecon", "TechnologyFingerprint",
-    "ServiceEnumeration", "EndpointDiscovery",
-    "ExploitAttempt", "PrivilegeEscalation", "ProofOfCompromise",
+    "HTTPHeaderFetch",
+    "TechnologyFingerprint",
+    "RobotsAndSitemap",
+    "EndpointDiscovery",
+    "EndpointProbe",
+    "ParameterDiscovery",
+    "VulnerabilityScanning",
+    "SQLInjectionProbe",
+    "ExploitAttempt",
+    "ProofOfCompromise",
 ]
+
+
+def _normalize_phase(phase: str) -> str:
+    upper = (phase or "RECONNAISSANCE").upper()
+    return PHASE_ALIASES.get(upper, upper)
 
 
 def _available_action_names(decision_input: DecisionInput) -> List[str]:
@@ -37,7 +59,7 @@ def _available_action_names(decision_input: DecisionInput) -> List[str]:
 
 
 def _next_phase(phase: str) -> str:
-    upper = phase.upper()
+    upper = _normalize_phase(phase)
     try:
         idx = PHASE_ORDER.index(upper)
         return PHASE_ORDER[idx + 1] if idx + 1 < len(PHASE_ORDER) else "COMPLETED"
@@ -46,7 +68,7 @@ def _next_phase(phase: str) -> str:
 
 
 def _phase_desc(phase: str) -> str:
-    return PHASE_DESCRIPTIONS.get(phase.upper(), "Unknown phase.")
+    return PHASE_DESCRIPTIONS.get(_normalize_phase(phase), "Unknown phase.")
 
 
 def _result_block(decision_input: DecisionInput) -> str:
@@ -88,7 +110,7 @@ def build_recommendation_prompt(
     decision_input: DecisionInput,
     next_step_hint: dict = None,
 ) -> str:
-    phase = decision_input.phase or "RECONNAISSANCE"
+    phase = _normalize_phase(decision_input.phase or "RECONNAISSANCE")
     next_p = _next_phase(phase)
     actions = ", ".join(_available_action_names(decision_input))
 
@@ -132,7 +154,7 @@ def build_recommendation_prompt(
 
 
 def build_plan_prompt(decision_input: DecisionInput) -> str:
-    phase = decision_input.phase or "RECONNAISSANCE"
+    phase = _normalize_phase(decision_input.phase or "RECONNAISSANCE")
     upper = phase.upper()
     try:
         start = PHASE_ORDER.index(upper)
@@ -157,7 +179,10 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
         f"{_target_block(decision_input)}\n\n"
         f"{_result_block(decision_input)}\n\n"
         f"{_findings_block(decision_input)}\n\n"
-        f"Task: Generate a complete ordered plan from {phase} to ProofOfCompromise.\n"
+        f"Task: Generate a full ordered cyber kill-chain plan from {phase} to POST_EXPLOITATION.\n"
+        f"- Cover the remaining phases, not just the next action.\n"
+        f"- Return 5 to 8 steps when enough actions are available.\n"
+        f"- Prefer one meaningful step per stage of progress.\n"
         f"- Use real values from findings/output for parameters (IPs, URLs, ports).\n"
         f"- Skip already done: {done}\n"
         f"- Each step rationale must reference actual output or findings.\n"
@@ -191,7 +216,7 @@ def build_step_mapping_prompt(
     Returns a JSON schema identical to build_recommendation_prompt so all
     existing parsers work unchanged.
     """
-    phase = decision_input.phase or "RECONNAISSANCE"
+    phase = _normalize_phase(decision_input.phase or "RECONNAISSANCE")
     next_p = _next_phase(phase)
 
     lr = decision_input.last_result
@@ -237,7 +262,7 @@ def build_step_mapping_prompt(
 
 
 def build_narrative_prompt(decision_input: DecisionInput) -> str:
-    phase = decision_input.phase or "RECONNAISSANCE"
+    phase = _normalize_phase(decision_input.phase or "RECONNAISSANCE")
     next_p = _next_phase(phase)
 
     return (

@@ -26,14 +26,23 @@ class FallbackAdapter(BaseLLMAdapter):
         if not self.adapters:
             logger.info("FallbackAdapter initialized with no valid adapters. LLM recommendation will be disabled.")
 
-    def get_recommendation(self, decision_input: DecisionInput, next_step_hint: dict = None) -> Optional[Decision]:
+    def get_recommendation(
+        self,
+        decision_input: DecisionInput,
+        next_step_hint: dict = None,
+        task_key: Optional[str] = None,
+    ) -> Optional[Decision]:
         if not self.adapters:
             return None
 
         for adapter in self.adapters:
             if self._is_temporarily_disabled(adapter):
                 continue
-            result = adapter.get_recommendation(decision_input, next_step_hint=next_step_hint)
+            result = adapter.get_recommendation(
+                decision_input,
+                next_step_hint=next_step_hint,
+                task_key=task_key,
+            )
             if result:
                 self._mark_success(adapter)
                 return result
@@ -42,14 +51,18 @@ class FallbackAdapter(BaseLLMAdapter):
         logger.error("FallbackAdapter: All adapters failed to return recommendation.")
         return None
 
-    def get_plan(self, decision_input: DecisionInput) -> Optional[Plan]:
+    def get_plan(
+        self,
+        decision_input: DecisionInput,
+        task_key: Optional[str] = None,
+    ) -> Optional[Plan]:
         if not self.adapters:
             return None
 
         for adapter in self.adapters:
             if self._is_temporarily_disabled(adapter):
                 continue
-            result = adapter.get_plan(decision_input)
+            result = adapter.get_plan(decision_input, task_key=task_key)
             if result:
                 self._mark_success(adapter)
                 return result

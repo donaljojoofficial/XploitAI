@@ -19,9 +19,9 @@
                     <span class="px-2 py-1 bg-yellow-900/30 text-warning border border-yellow-500/50 rounded">{{ attack_state.autonomy_status }}</span>
                 {% endif %}
                 
-                <span class="px-2 py-1 bg-blue-900/30 text-info border border-blue-500/50 rounded" title="AI Provider">
+                <span class="px-2 py-1 bg-blue-900/30 text-info border border-blue-500/50 rounded" title="AI Provider">{% with provider=attack_state.state_data.llm_provider|default:"auto" %}{% if provider == "auto" %}ROUTER{% elif provider == "lmstudio" %}LM STUDIO ONLY{% else %}
                     ⚙️ {{ attack_state.state_data.llm_provider|default:"AUTO"|upper }}
-                </span>
+                {% endif %}{% endwith %}</span>
             </div>
         </div>
         
@@ -85,7 +85,7 @@
             {% endif %}
             <span class="px-2 py-1 rounded bg-gray-700 text-gray-300 border border-gray-600">Pending: {{ plan_view.summary.pending }}</span>
             {% if plan_view.current_step %}
-            <span class="ml-2 text-gray-300">Current Step: <strong class="text-white">{{ plan_view.current_step.action_type|default:plan_view.current_step.action }}</strong></span>
+            <span class="ml-2 text-gray-300">Current Step: <strong class="text-white">{% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}Unknown Step{% endif %}</strong></span>
             {% endif %}
         </div>
     </div>
