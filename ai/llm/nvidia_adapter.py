@@ -34,13 +34,13 @@ class NvidiaAdapter(BaseLLMAdapter):
         self.api_key = api_key or os.getenv(self.model_key_env_var) or get_config("NVIDIA_API_KEY") or os.getenv("NVIDIA_API_KEY")
 
         self.max_tokens_decision = max(int(float(get_config("NVIDIA_MAX_TOKENS_DECISION", "160"))), 32)
-        self.max_tokens_plan = max(int(float(get_config("NVIDIA_MAX_TOKENS_PLAN", "1200"))), self.max_tokens_decision)
+        self.max_tokens_plan = max(int(float(get_config("NVIDIA_MAX_TOKENS_PLAN", "3200"))), self.max_tokens_decision)
         self.max_tokens_explain = max(int(float(get_config("NVIDIA_MAX_TOKENS_EXPLAIN", "120"))), 32)
         self.max_tokens_narrative = max(int(float(get_config("NVIDIA_MAX_TOKENS_NARRATIVE", "180"))), 48)
         self.max_tokens_generate = max(int(float(get_config("NVIDIA_MAX_TOKENS_GENERATE", "180"))), 48)
-        self.timeout_seconds = max(float(get_config("NVIDIA_TIMEOUT_SECONDS", "60")), 5.0)
+        self.timeout_seconds = max(float(get_config("NVIDIA_TIMEOUT_SECONDS", "90")), 5.0)
         self.plan_timeout_seconds = max(
-            float(get_config("NVIDIA_PLAN_TIMEOUT_SECONDS", str(self.timeout_seconds))),
+            float(get_config("NVIDIA_PLAN_TIMEOUT_SECONDS", "240")),
             self.timeout_seconds,
         )
         self.temperature = float(get_config("NVIDIA_TEMPERATURE", "0.1"))

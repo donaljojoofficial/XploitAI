@@ -7,7 +7,11 @@ import os
 from ai.planner import AIPlanner
 from ai.command_generator import CommandGenerator
 from executor.local_executor import run_command
-from parser.output_parser import parse_output
+from parser.output_parser import (
+    has_attack_completion_evidence,
+    is_meaningful_action_success,
+    parse_output,
+)
 from state.state_manager import StateManager
 from core.models import AttackState, Command, ExecutionResult
 from services.command_template_utils import (
@@ -110,7 +114,13 @@ class ExecutionService:
                 # or the kill-chain is genuinely complete.
                 attack_state_obj = AttackState.objects.get(id=self.attack_state_id)
                 if attack_state_obj.current_phase.upper() == "COMPLETED":
-                    self.stop_assessment("Kill-chain completed successfully.")
+                    findings = ((attack_state_obj.state_data or {}).get("findings") or {})
+                    if has_attack_completion_evidence(findings):
+                        self.stop_assessment("Kill-chain completed successfully.")
+                    else:
+                        self.stop_assessment(
+                            "Plan exhausted without exploitation or proof evidence."
+                        )
                 else:
                     self.stop_assessment(
                         f"No commands available across all remaining phases "
@@ -174,6 +184,18 @@ class ExecutionService:
 
             stdout = result.get("stdout", "")
             stderr = result.get("stderr", "")
+            findings = {}
+            if final_status == "SUCCESS":
+                findings = parse_output(command_obj.name, stdout) or {}
+                final_status = (
+                    "SUCCESS"
+                    if is_meaningful_action_success(command_obj.name, findings, stdout)
+                    else "FAILED"
+                )
+                if findings:
+                    logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
+                    self.state_manager.update_state_with_findings(findings)
+
             review_reason = self.planner.review_execution(
                 self.state_manager,
                 command_obj.name,
@@ -182,14 +204,7 @@ class ExecutionService:
                 stdout,
                 stderr,
             )
-            combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nNVIDIA review: {review_reason}"
-
-            findings = {}
-            if final_status == "SUCCESS":
-                findings = parse_output(command_obj.name, stdout) or {}
-                if findings:
-                    logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
-                    self.state_manager.update_state_with_findings(findings)
+            combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nAI review: {review_reason}"
 
             attack_state = AttackState.objects.get(id=self.attack_state_id)
             ExecutionResult.objects.create(
@@ -211,7 +226,7 @@ class ExecutionService:
 
             if final_status == "FAILED":
                 logger.info(
-                    "Command '%s' failed; marking it unavailable and asking AI for another command for the same step.",
+                    "Command '%s' failed or produced no meaningful evidence; marking it unavailable and asking AI for another command for the same step.",
                     command_obj.name,
                 )
                 self.state_manager.add_completed_command(command_id)

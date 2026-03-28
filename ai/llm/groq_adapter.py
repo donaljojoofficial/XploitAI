@@ -55,7 +55,7 @@ class GroqAdapter(BaseLLMAdapter):
         self._client = None
         self._response_cache = {}
         self.max_tokens_decision = max(int(float(get_config("GROQ_MAX_TOKENS_DECISION", "96"))), 32)
-        self.max_tokens_plan = max(int(float(get_config("GROQ_MAX_TOKENS_PLAN", "220"))), self.max_tokens_decision)
+        self.max_tokens_plan = max(int(float(get_config("GROQ_MAX_TOKENS_PLAN", "1400"))), self.max_tokens_decision)
         self.max_tokens_explain = max(int(float(get_config("GROQ_MAX_TOKENS_EXPLAIN", "96"))), 32)
         self.max_tokens_narrative = max(int(float(get_config("GROQ_MAX_TOKENS_NARRATIVE", "140"))), 48)
         self.max_tokens_generate = max(int(float(get_config("GROQ_MAX_TOKENS_GENERATE", "120"))), 48)

@@ -591,6 +591,12 @@ class AIPlanner:
             "decision": dict(decision),
         }
 
+    def _minimum_plan_steps(self, available_command_metadata: List[Dict[str, str]]) -> int:
+        available_count = len(available_command_metadata or [])
+        if available_count <= 0:
+            return 4
+        return min(8, max(4, available_count))
+
     def _ensure_plan(
         self,
         attack_state,
@@ -639,6 +645,15 @@ class AIPlanner:
 
         if not plan or not plan.steps:
             self.last_plan_error = "AI provider did not return a valid plan with steps."
+            return False
+
+        minimum_steps = self._minimum_plan_steps(available_command_metadata)
+        if len(plan.steps) < minimum_steps:
+            self.last_plan_error = (
+                f"AI provider returned an incomplete plan with only {len(plan.steps)} steps; "
+                f"expected at least {minimum_steps} for this attack."
+            )
+            logger.warning(self.last_plan_error)
             return False
 
         attack_state.current_plan = {

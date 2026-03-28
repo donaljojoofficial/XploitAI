@@ -199,6 +199,12 @@ class CommandGenerator:
             return self._generate_technology_fingerprint(parameters)
         elif action_name == "EndpointDiscovery":
             return self._generate_endpoint_discovery(parameters)
+        elif action_name == "ParameterDiscovery":
+            return self._generate_parameter_discovery(parameters)
+        elif action_name == "VulnerabilityScanning":
+            return self._generate_vulnerability_scanning(parameters)
+        elif action_name == "SQLInjectionProbe":
+            return self._generate_sql_injection_probe(parameters)
         else:
             logger.warning("Unknown action '%s'. Returning fallback echo.", action_name)
             return GeneratedCommand(
@@ -272,12 +278,16 @@ class CommandGenerator:
 
     def _generate_exploit_attempt(self, params: Mapping[str, Any]) -> GeneratedCommand:
         host = params.get("target_host", "localhost")
-        vuln_id = params.get("vulnerability_id", "unknown")
         safe_host = shlex.quote(str(host))
-        safe_vuln = shlex.quote(str(vuln_id))
+        path = params.get("login_path", "/login")
+        safe_path = str(path)
         return GeneratedCommand(
-            shell_command=f"echo 'Exploiting {safe_host} using {safe_vuln}'",
-            explanation=f"Simulates exploitation of {vuln_id} on {host}."
+            shell_command=(
+                f"hydra -l admin -P /usr/share/wordlists/rockyou.txt "
+                f"{safe_host} http-post-form "
+                f"\"{safe_path}:username=^USER^&password=^PASS^:F=invalid\" -f -V"
+            ),
+            explanation=f"Attempts default-credential login brute force against {host}{safe_path}."
         )
 
     def _generate_privilege_escalation(self, params: Mapping[str, Any]) -> GeneratedCommand:
@@ -289,11 +299,15 @@ class CommandGenerator:
         )
 
     def _generate_proof_of_compromise(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        tag = params.get("evidence_tag", "proof")
-        safe_tag = shlex.quote(str(tag))
+        url = params.get("target_url", "http://localhost")
+        safe_url = shlex.quote(str(url).rstrip('/'))
         return GeneratedCommand(
-            shell_command=f"echo 'PROOF_OF_COMPROMISE: {safe_tag}' > /tmp/proof.txt",
-            explanation=f"Writes proof tag '{tag}' to /tmp/proof.txt."
+            shell_command=(
+                f"curl -s {safe_url}/.env && "
+                f"curl -s {safe_url}/api/users && "
+                f"curl -s {safe_url}/admin"
+            ),
+            explanation=f"Collects proof artifacts from common sensitive endpoints on {url}."
         )
 
     def _generate_http_header_fetch(self, params: Mapping[str, Any]) -> GeneratedCommand:
@@ -314,9 +328,36 @@ class CommandGenerator:
 
     def _generate_endpoint_discovery(self, params: Mapping[str, Any]) -> GeneratedCommand:
         url = params.get("target_url", "http://localhost")
-        # Ensure no trailing slash for clean concatenation
-        safe_url = shlex.quote(str(url).rstrip('/') + "/robots.txt")
+        safe_url = shlex.quote(str(url).rstrip('/'))
         return GeneratedCommand(
-            shell_command=f"curl {safe_url}",
-            explanation=f"Checks for robots.txt at {url}."
+            shell_command=(
+                f"dirsearch -u {safe_url} "
+                f"-w /usr/share/seclists/Discovery/Web-Content/common.txt "
+                f"--exclude-status 404,400"
+            ),
+            explanation=f"Enumerates likely web content on {url} using dirsearch."
+        )
+
+    def _generate_parameter_discovery(self, params: Mapping[str, Any]) -> GeneratedCommand:
+        url = params.get("target_url", "http://localhost")
+        safe_url = shlex.quote(str(url))
+        return GeneratedCommand(
+            shell_command=f"arjun -u {safe_url} --stable -oT /tmp/arjun-params.txt",
+            explanation=f"Discovers hidden query parameters on {url} using Arjun."
+        )
+
+    def _generate_vulnerability_scanning(self, params: Mapping[str, Any]) -> GeneratedCommand:
+        url = params.get("target_url", "http://localhost")
+        safe_url = shlex.quote(str(url))
+        return GeneratedCommand(
+            shell_command=f"nikto -h {safe_url} -ask no",
+            explanation=f"Runs Nikto against {url} to identify common web vulnerabilities."
+        )
+
+    def _generate_sql_injection_probe(self, params: Mapping[str, Any]) -> GeneratedCommand:
+        url = params.get("target_url", "http://localhost")
+        safe_url = shlex.quote(str(url).rstrip('/') + "/search?q=test")
+        return GeneratedCommand(
+            shell_command=f"sqlmap -u {safe_url} --batch --level 2 --risk 1",
+            explanation=f"Probes a likely parameterized endpoint on {url} for SQL injection."
         )

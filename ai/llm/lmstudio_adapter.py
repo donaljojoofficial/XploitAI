@@ -74,7 +74,7 @@ class LMStudioAdapter(BaseLLMAdapter):
         self.timeout_retries = max(int(float(cfg_retries)), 0)
         self.retry_cooldown_seconds = max(float(cfg_cooldown), 1.0)
         self.max_tokens_decision = max(int(float(cfg_decision_tokens)), 32)
-        self.max_tokens_plan = max(int(float(cfg_plan_tokens)), self.max_tokens_decision)
+        self.max_tokens_plan = max(int(float(cfg_plan_tokens or "1400")), self.max_tokens_decision)
         self.max_tokens_explain = max(int(float(cfg_explain_tokens)), 32)
         self.max_tokens_narrative = max(int(float(cfg_narrative_tokens)), 48)
         self.max_tokens_generate = max(int(float(cfg_generate_tokens)), 48)

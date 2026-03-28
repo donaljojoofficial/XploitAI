@@ -8,7 +8,11 @@ from ai.planner import AIPlanner
 from ai.command_generator import CommandGenerator
 from core.models import AttackState, Command, ExecutionResult, ExecutionTask, AttackerExecutor
 from state.state_manager import StateManager
-from parser.output_parser import parse_output
+from parser.output_parser import (
+    has_attack_completion_evidence,
+    is_meaningful_action_success,
+    parse_output,
+)
 from services.command_template_utils import (
     build_target_context,
     infer_required_tools,
@@ -107,7 +111,13 @@ class RemoteExecutionService:
                 # Planner returned None only when ALL phases are exhausted
                 attack_state_obj = AttackState.objects.get(id=self.attack_state_id)
                 if attack_state_obj.current_phase.upper() == "COMPLETED":
-                    self.stop_assessment("Kill-chain completed successfully.")
+                    findings = ((attack_state_obj.state_data or {}).get("findings") or {})
+                    if has_attack_completion_evidence(findings):
+                        self.stop_assessment("Kill-chain completed successfully.")
+                    else:
+                        self.stop_assessment(
+                            "Plan exhausted without exploitation or proof evidence."
+                        )
                 else:
                     self.stop_assessment(
                         f"No commands available across all remaining phases "
@@ -179,8 +189,12 @@ class RemoteExecutionService:
                 output = result.output if isinstance(result.output, dict) else {}
                 stdout = output.get("stdout", "") if output else (result.output or "")
                 stderr = output.get("stderr", "") if output else result.error_message
-                
                 findings = parse_output(command_obj.name, stdout)
+                semantic_success = is_meaningful_action_success(
+                    command_obj.name,
+                    findings,
+                    stdout,
+                )
                 if findings:
                     logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
                     self.state_manager.update_state_with_findings(findings)
@@ -189,11 +203,11 @@ class RemoteExecutionService:
                     self.state_manager,
                     command_obj.name,
                     command_parameters,
-                    True,
+                    semantic_success,
                     stdout,
                     stderr,
                 )
-                combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nNVIDIA review: {review_reason}"
+                combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nAI review: {review_reason}"
 
                 # Create ExecutionResult record
                 attack_state = AttackState.objects.get(id=self.attack_state_id)
@@ -201,7 +215,7 @@ class RemoteExecutionService:
                     command=command_obj,
                     attack_state=attack_state,
                     target=target,
-                    status="SUCCESS",
+                    status="SUCCESS" if semantic_success else "FAILED",
                     stdout=stdout,
                     stderr=stderr,
                     findings=findings or {},
@@ -210,13 +224,22 @@ class RemoteExecutionService:
                 self.state_manager.record_action(
                     command_obj.name,
                     command_parameters,
-                    {"stdout": stdout, "stderr": stderr, "returncode": 0},
+                    {"stdout": stdout, "stderr": stderr, "returncode": 0 if semantic_success else 1},
                     combined_reason,
                 )
 
-                # Mark command complete only after a successful execution so the
-                # next planned step cannot advance early.
-                self.state_manager.add_completed_command(command_id)
+                if semantic_success:
+                    # Mark command complete only after a successful execution so the
+                    # next planned step cannot advance early.
+                    self.state_manager.add_completed_command(command_id)
+                else:
+                    logger.info(
+                        "Command '%s' ran but produced no exploit/proof evidence; asking AI for another command for the same step.",
+                        command_obj.name,
+                    )
+                    self.state_manager.add_completed_command(command_id)
+                    time.sleep(1)
+                    continue
             else:
                 output = result.output if isinstance(result.output, dict) else {}
                 stdout = output.get("stdout", "") if output else (result.output or "")
@@ -230,7 +253,7 @@ class RemoteExecutionService:
                     stdout,
                     stderr or result.error_message or "",
                 )
-                combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nNVIDIA review: {review_reason}"
+                combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nAI review: {review_reason}"
 
                 attack_state = AttackState.objects.get(id=self.attack_state_id)
                 ExecutionResult.objects.create(

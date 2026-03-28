@@ -138,6 +138,11 @@
                     <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
                         <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
                             <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Command Preview</div>
+                            {% if step.command_preview_source == "hybrid" %}
+                            <div class="mt-2 text-xs text-slate-400">Hybrid preview using the tool-oriented command generator. The final AI-generated command may vary slightly at execution time.</div>
+                            {% elif step.command_preview_source == "deterministic" %}
+                            <div class="mt-2 text-xs text-slate-400">Deterministic runtime template preview.</div>
+                            {% endif %}
                             {% if step.command_preview %}
                             <pre class="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-slate-700/50 bg-slate-900/70 p-3 font-mono text-xs leading-6 text-cyber-primary">{{ step.command_preview }}</pre>
                             {% else %}

@@ -29,6 +29,7 @@ from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext, Command
+from ai.command_generator import CommandGenerator
 from services.execution_service import ExecutionService
 from services.remote_execution_service import RemoteExecutionService
 from services.command_template_utils import (
@@ -73,6 +74,8 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         command.name: command
         for command in Command.objects.all()
     }
+    llm_provider = ((state.state_data or {}).get("llm_provider") or "auto").lower()
+    preview_generator = CommandGenerator(use_llm=False, llm_provider=llm_provider)
     target_context = build_target_context(
         (state.state_data or {}).get("target")
         or (state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
@@ -100,14 +103,24 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         command_obj = command_lookup.get(action_name)
         if command_obj:
             try:
-                template = normalize_command_template(command_obj)
                 step_context = {**target_context, **(item.get("parameters") or {})}
-                item["command_preview"] = render_command_template(template, step_context)
+                if llm_provider == "hybrid":
+                    item["command_preview"] = preview_generator.generate(
+                        action_name,
+                        step_context,
+                    ).shell_command
+                    item["command_preview_source"] = "hybrid"
+                else:
+                    template = normalize_command_template(command_obj)
+                    item["command_preview"] = render_command_template(template, step_context)
+                    item["command_preview_source"] = "deterministic"
             except Exception:
                 item["command_preview"] = command_obj.command_template or ""
+                item["command_preview_source"] = "stored"
             item["required_tools"] = infer_required_tools(item.get("command_preview") or command_obj.command_template or "")
         else:
             item["command_preview"] = ""
+            item["command_preview_source"] = ""
             item["required_tools"] = []
 
         item.setdefault("step_number", idx + 1)
