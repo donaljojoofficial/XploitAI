@@ -533,7 +533,9 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     if pending_transition.get('next_phase'):
         state.current_phase = pending_transition['next_phase']
         state.current_plan = {}
-        state.state_data['plan_approved'] = True
+        # Approval here only confirms the phase transition. The next phase must
+        # still generate a fresh plan and wait for explicit approval.
+        state.state_data['plan_approved'] = False
         state.state_data.pop('phase_transition_pending', None)
         state.save(update_fields=['state_data', 'current_phase', 'current_plan'])
     else:

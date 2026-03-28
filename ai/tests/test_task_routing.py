@@ -355,3 +355,41 @@ class AIPlannerPlanProgressionTests(TestCase):
         self.assertEqual(state.current_plan["phase"], "reconnaissance")
         self.assertEqual(len(planner.plan_adapter.last_plan_input.available_commands), 1)
         self.assertEqual(planner.plan_adapter.last_plan_input.available_commands[0]["name"], header.name)
+
+    def test_ensure_initial_plan_resets_plan_approval_for_new_phase_plan(self):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        header = Command.objects.create(
+            phase=reconnaissance,
+            name="HTTPHeaderFetch",
+            description="Headers",
+            command_template="curl -I {target_url}",
+        )
+
+        state = AttackState.objects.create(
+            name="Approval reset",
+            current_phase="RECONNAISSANCE",
+            state_data={
+                "target": "http://127.0.0.1:4280/",
+                "plan_approved": True,
+            },
+        )
+
+        from state.state_manager import StateManager
+
+        planner = AIPlanner.__new__(AIPlanner)
+        planner.last_plan_error = None
+        planner.plan_adapter = PlanRecordingAdapter([header.name])
+        planner._plan_task_key = AIPlanner._plan_task_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_key = AIPlanner._normalize_phase_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_name = AIPlanner._normalize_phase_name.__get__(planner, AIPlanner)
+        planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
+        planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
+        planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
+        planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+
+        ready = planner.ensure_initial_plan(StateManager(state.id))
+        state.refresh_from_db()
+
+        self.assertTrue(ready)
+        self.assertFalse(state.state_data["plan_approved"])
+        self.assertEqual(state.current_plan["phase"], "reconnaissance")

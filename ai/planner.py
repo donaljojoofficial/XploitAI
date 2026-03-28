@@ -776,7 +776,10 @@ class AIPlanner:
                 for s in plan.steps
             ],
         }
-        attack_state.save(update_fields=["current_plan"])
+        if not isinstance(attack_state.state_data, dict):
+            attack_state.state_data = {}
+        attack_state.state_data["plan_approved"] = False
+        attack_state.save(update_fields=["current_plan", "state_data"])
         logger.info(
             "AIPlanner generated phase plan for '%s' with %d step(s).",
             normalized_phase,
