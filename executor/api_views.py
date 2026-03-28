@@ -1,5 +1,6 @@
 import json
 import logging
+from urllib.parse import urlsplit
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -8,6 +9,14 @@ from django.db import transaction
 from core.models import AttackerExecutor, ExecutionTask
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_host_target(target):
+    raw = str(target or "").strip()
+    if not raw:
+        return "127.0.0.1"
+    parsed = urlsplit(raw if "://" in raw else f"//{raw}")
+    return parsed.hostname or raw
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -52,7 +61,7 @@ def _resolve_command(action_name, parameters):
     params = parameters or {}
     
     if action_name == "scan_target":
-        target = params.get("ip") or params.get("target") or "127.0.0.1"
+        target = _normalize_host_target(params.get("ip") or params.get("target") or "127.0.0.1")
         return f"nmap -sV {target}"
     elif action_name == "ping_target":
         target = params.get("ip") or params.get("target") or "127.0.0.1"
@@ -61,7 +70,7 @@ def _resolve_command(action_name, parameters):
         target = params.get("target_domain") or "localhost"
         return f"whois {target}"
     elif action_name == "ServiceEnumeration":
-        target = params.get("target_host") or "localhost"
+        target = _normalize_host_target(params.get("target_host") or params.get("target") or "localhost")
         return f"nmap -sV {target}"
     elif action_name == "ExploitAttempt":
         vuln_id = params.get("vulnerability_id", "UNKNOWN_VULN")

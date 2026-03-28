@@ -52,6 +52,15 @@
                             </div>
                         {% endif %}
 
+                        {% if plan_view and plan_view.phase_reviews %}
+                            {% with last_review=plan_view.phase_reviews|last %}
+                            <div class="mt-4 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4">
+                                <div class="text-xs uppercase tracking-[0.2em] text-cyan-300">Latest Phase Review</div>
+                                <div class="mt-2 text-sm text-slate-200">{{ last_review.review }}</div>
+                            </div>
+                            {% endwith %}
+                        {% endif %}
+
                         {% if attack_state %}
                             <div class="mt-6 flex flex-wrap gap-3">
                                 <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-primary/50 hover:shadow-[0_0_20px_rgba(0,245,255,0.3)] transition-all">
@@ -59,6 +68,9 @@
                                 </a>
                                 <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-info/50 hover:shadow-[0_0_20px_rgba(51,136,255,0.3)] transition-all">
                                      View Plan
+                                </a>
+                                <a href="{% url 'dashboard_attack_phase_reviews' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyan-500/50 text-cyan-300 hover:shadow-[0_0_20px_rgba(34,211,238,0.25)] transition-all">
+                                    Phase Reviews
                                 </a>
                                 <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-warning/50 hover:shadow-[0_0_20px_rgba(255,170,0,0.3)] transition-all">
                                      Replay
@@ -75,7 +87,7 @@
                                 <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="inline-block">
                                     {% csrf_token %}
                                     <button type="submit" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-accent/50 bg-green-900/20 text-cyber-accent hover:shadow-[0_0_20px_rgba(0,255,136,0.3)] transition-all">
-                                         Approve & Resume
+                                        {% if plan_view.phase_transition_pending %}Approve Next Phase{% else %}Approve & Resume{% endif %}
                                     </button>
                                 </form>
                                 {% endif %}

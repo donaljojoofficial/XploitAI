@@ -1,4 +1,34 @@
 import re
+import json
+
+
+def merge_findings(primary: dict, secondary: dict) -> dict:
+    """Merge parser and AI findings while preserving lists and nested dicts."""
+    merged = dict(primary or {})
+    for key, value in (secondary or {}).items():
+        if key not in merged:
+            merged[key] = value
+            continue
+
+        current = merged[key]
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = merge_findings(current, value)
+            continue
+
+        if isinstance(current, list) and isinstance(value, list):
+            seen = {json.dumps(item, sort_keys=True, default=str) for item in current}
+            for item in value:
+                fingerprint = json.dumps(item, sort_keys=True, default=str)
+                if fingerprint not in seen:
+                    current.append(item)
+                    seen.add(fingerprint)
+            merged[key] = current
+            continue
+
+        if current in (None, "", [], {}) and value not in (None, "", [], {}):
+            merged[key] = value
+
+    return merged
 
 
 def is_meaningful_action_success(action_name: str, findings: dict, stdout: str) -> bool:

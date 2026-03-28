@@ -2,8 +2,9 @@
 Shared prompt construction logic for LLM adapters.
 """
 import json
+from typing import List
+
 from ai.schemas import DecisionInput
-from typing import List, Optional
 
 PHASE_DESCRIPTIONS = {
     "RECONNAISSANCE": "Passive/active info gathering: headers, banners, tech stack, robots, sitemap.",
@@ -86,16 +87,17 @@ def _findings_block(decision_input: DecisionInput) -> str:
     findings = decision_input.findings or {}
     if not findings:
         return "Findings: none yet."
-    # compact JSON — no indent, saves ~30% tokens vs indent=2
-    return "Findings: " + json.dumps(findings, separators=(',', ':'))
+    return "Findings: " + json.dumps(findings, separators=(",", ":"))
 
 
 def _history_block(decision_input: DecisionInput) -> str:
     past = decision_input.past_actions or []
     if not past:
         return "History: none."
-    lines = [f"  {a.action_type}({json.dumps(a.parameters, separators=(',', ':'))})"
-             for a in past[-3:]]
+    lines = [
+        f"  {a.action_type}({json.dumps(a.parameters, separators=(',', ':'))})"
+        for a in past[-3:]
+    ]
     return "History (last 3):\n" + "\n".join(lines)
 
 
@@ -140,7 +142,6 @@ def build_recommendation_prompt(
             "If FAILED, retry with corrected parameters or pick an alternative."
         )
 
-    # NOTE: JSON schema uses f-string interpolation — phase values are real strings here
     schema = (
         '{\n'
         '  "action_type": "<action name>",\n'
@@ -152,7 +153,7 @@ def build_recommendation_prompt(
     )
 
     return (
-        f"Phase: {phase} — {_phase_desc(phase)}\n"
+        f"Phase: {phase} - {_phase_desc(phase)}\n"
         f"{_target_block(decision_input)}\n\n"
         f"{_result_block(decision_input)}\n\n"
         f"{_findings_block(decision_input)}\n\n"
@@ -167,18 +168,12 @@ def build_recommendation_prompt(
 
 def build_plan_prompt(decision_input: DecisionInput) -> str:
     phase = _normalize_phase(decision_input.phase or "RECONNAISSANCE")
-    upper = phase.upper()
-    try:
-        start = PHASE_ORDER.index(upper)
-    except ValueError:
-        start = 0
-    remaining = [p for p in PHASE_ORDER[start:] if p != "COMPLETED"]
-    phase_guide = "\n".join(f"  {p}: {_phase_desc(p)}" for p in remaining)
     done = [a.action_type for a in (decision_input.past_actions or [])]
+    available_actions = _available_action_names(decision_input)
 
     schema = (
         '{\n'
-        '  "rationale": "<one sentence overall plan rationale>",\n'
+        '  "rationale": "<one sentence phase plan rationale>",\n'
         '  "steps": [\n'
         '    {"step_number": 1, "action_type": "<action>", "parameters": {}, '
         '"rationale": "<one sentence referencing output or findings>"}\n'
@@ -187,35 +182,30 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
     )
 
     return (
-        f"Phase: {phase} — {_phase_desc(phase)}\n"
+        f"Phase: {phase} - {_phase_desc(phase)}\n"
         f"{_target_block(decision_input)}\n\n"
         f"{_result_block(decision_input)}\n\n"
         f"{_findings_block(decision_input)}\n\n"
-        f"Task: Generate a complete ordered cyber kill-chain plan from {phase} to PROOF_OF_COMPROMISE.\n"
-        f"- Cover every remaining phase, not just the next action.\n"
-        f"- Return 8 to 12 detailed steps when that many actions are available.\n"
-        f"- Use as many distinct allowed actions as possible before ending the plan.\n"
-        f"- Do not compress an entire phase into one generic step when multiple relevant actions exist.\n"
-        f"- For reconnaissance and discovery, include multiple concrete substeps.\n"
-        f"- For vulnerability analysis, include multiple validation steps before exploitation.\n"
-        f"- Do not jump to exploitation until the plan has gathered enough evidence.\n"
-        f"- Do not end at ProofOfCompromise unless exploitation evidence should exist first.\n"
-        f"- Use only allowed actions from the list below. Never invent action names.\n"
-        f"- Use real values from findings/output for parameters (IPs, URLs, ports).\n"
+        f"Task: Generate an ordered plan for the CURRENT PHASE ONLY: {phase}.\n"
+        f"- Do not plan later phases yet.\n"
+        f"- Include multiple concrete commands for this phase when they are relevant.\n"
+        f"- Prefer broader information gathering before narrower retries.\n"
+        f"- Use as many distinct allowed actions for this phase as are useful.\n"
+        f"- Keep weak or redundant retries out of the plan.\n"
+        f"- Use real values from findings/output for parameters (IPs, URLs, ports, paths).\n"
         f"- Keep parameters compact and reuse the exact target reference above.\n"
-        f"- Skip already done: {done}\n"
+        f"- Skip already done in this attack: {done}\n"
         f"- Each step rationale must reference actual output or findings.\n"
         f"- Keep rationale fields short (<= 14 words each).\n"
-        f"- The plan must feel like a real pentest workflow, not a 4-step outline.\n"
+        f"- If only one action is available, return one step.\n"
+        f"- If multiple actions are available, sequence them to maximize useful data collection.\n"
         f"{_target_lock_rules(decision_input)}\n\n"
-        f"Phases remaining:\n{phase_guide}\n\n"
-        f"Allowed actions: {', '.join(_available_action_names(decision_input))}\n\n"
+        f"Allowed actions for this phase: {', '.join(available_actions)}\n\n"
         f"Respond ONLY with this JSON (no markdown):\n{schema}"
     )
 
 
 def is_first_step(decision_input: DecisionInput) -> bool:
-    """Return True when no previous action has been executed yet."""
     return not decision_input.past_actions and decision_input.last_result is None
 
 
@@ -223,20 +213,6 @@ def build_step_mapping_prompt(
     decision_input: DecisionInput,
     next_step_hint: dict = None,
 ) -> str:
-    """
-    Minimal prompt for non-first steps.
-
-    Instead of resending the full context (findings, history, target, phase
-    description, allowed-action list, etc.) we only send:
-      - the previous command output (already truncated by ActionResultSummary)
-      - the next planned step hint (if any)
-
-    This keeps token usage as low as possible on free-quota APIs while still
-    giving the model enough signal to refine parameters for the next action.
-
-    Returns a JSON schema identical to build_recommendation_prompt so all
-    existing parsers work unchanged.
-    """
     phase = _normalize_phase(decision_input.phase or "RECONNAISSANCE")
     next_p = _next_phase(phase)
 
@@ -288,7 +264,7 @@ def build_narrative_prompt(decision_input: DecisionInput) -> str:
     next_p = _next_phase(phase)
 
     return (
-        f"Phase: {phase} — {_phase_desc(phase)}\n"
+        f"Phase: {phase} - {_phase_desc(phase)}\n"
         f"{_target_block(decision_input)}\n\n"
         f"{_result_block(decision_input)}\n\n"
         f"{_findings_block(decision_input)}\n\n"

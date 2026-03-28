@@ -286,13 +286,49 @@ def build_target_context(target: str) -> dict[str, str]:
 
     parsed = urlsplit(raw_target if "://" in raw_target else f"//{raw_target}")
     host = parsed.hostname or raw_target
+    port = str(parsed.port or "")
 
     return {
         "target": raw_target,
         "target_url": raw_target,
         "target_host": host,
         "target_domain": host,
+        "target_port": port,
     }
+
+
+def normalize_command_targets(command: str, context: dict[str, str]) -> str:
+    """
+    Rewrite obvious host-only tool invocations so they never receive a full URL.
+
+    This is especially useful for LLM-generated commands, which may incorrectly
+    pass `http://host:port/path` to tools such as nmap.
+    """
+    text = str(command or "")
+    if not text:
+        return text
+
+    target_url = str((context or {}).get("target_url") or "")
+    target_host = str((context or {}).get("target_host") or "")
+    if not target_host:
+        return text
+
+    def _replace_after_tool(tool_name: str, source: str) -> str:
+        pattern = rf"(?P<prefix>\b{re.escape(tool_name)}\b(?:\s+-\S+|\s+--\S+(?:=\S+)?)*)\s+(?P<target>https?://[^\s|;&]+)"
+        return re.sub(
+            pattern,
+            lambda match: f"{match.group('prefix')} {target_host}",
+            source,
+            flags=re.IGNORECASE,
+        )
+
+    for tool in ("nmap", "ping", "whois", "nslookup", "dig", "nc", "netcat"):
+        text = _replace_after_tool(tool, text)
+
+    if target_url and "nmap" in text.lower():
+        text = text.replace(target_url, target_host)
+
+    return text
 
 
 def infer_required_tools(command: str) -> list[str]:

@@ -1,0 +1,122 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Phase Reviews - XploitAI{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <section class="glass-panel rounded-2xl overflow-hidden border border-slate-600/50 shadow-2xl">
+        <div class="relative p-8 md:p-10 bg-[radial-gradient(circle_at_top_left,rgba(0,245,255,0.16),transparent_32%),radial-gradient(circle_at_top_right,rgba(0,255,136,0.12),transparent_24%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,41,59,0.88))]">
+            <div class="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div class="max-w-4xl">
+                    <div class="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300">
+                        Detailed Phase Reviews
+                    </div>
+                    <h1 class="mt-4 text-3xl font-bold text-white md:text-4xl">{{ attack_state.name }}</h1>
+                    <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                        NVIDIA output analysis reviews for each completed phase, including command intent, outcomes, evidence, and operator guidance.
+                    </p>
+                </div>
+                <div class="flex flex-wrap gap-3">
+                    <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="rounded-xl border border-slate-600/50 bg-slate-900/60 px-4 py-3 text-sm text-white hover:border-cyan-400/40">Operation</a>
+                    <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="rounded-xl border border-slate-600/50 bg-slate-900/60 px-4 py-3 text-sm text-white hover:border-cyan-400/40">Plan</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {% if phase_reviews %}
+    <section class="grid gap-6">
+        {% for review in phase_reviews %}
+        {% with details=review.details %}
+        <article class="glass-panel rounded-2xl border border-slate-600/50 overflow-hidden">
+            <div class="border-b border-slate-700/60 bg-slate-950/40 px-6 py-5">
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="text-lg font-semibold text-white">{{ review.phase }}</div>
+                    {% if review.next_phase %}
+                    <div class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-mono text-cyan-300">Next: {{ review.next_phase }}</div>
+                    {% endif %}
+                </div>
+                <p class="mt-3 text-sm leading-7 text-slate-300">{{ details.summary|default:review.review }}</p>
+            </div>
+
+            <div class="grid gap-4 p-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+                <div class="space-y-4">
+                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Phase Objective</div>
+                        <div class="mt-3 text-sm leading-7 text-slate-200">{{ details.phase_objective|default:"No objective summary stored." }}</div>
+                    </div>
+
+                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Command Reviews</div>
+                        {% if details.command_reviews %}
+                        <div class="mt-3 space-y-3">
+                            {% for item in details.command_reviews %}
+                            <div class="rounded-xl border border-slate-700/50 bg-slate-900/60 p-4">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <div class="font-mono text-sm text-white">{{ item.command }}</div>
+                                    <div class="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-400">{{ item.status }}</div>
+                                </div>
+                                <div class="mt-2 text-sm text-cyan-200">{{ item.purpose }}</div>
+                                <div class="mt-2 text-sm leading-6 text-slate-300">{{ item.outcome }}</div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="mt-3 text-sm text-slate-500">No detailed command review stored.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Operator Notes</div>
+                        <div class="mt-3 text-sm leading-7 text-slate-200">{{ details.operator_notes|default:"No additional operator notes stored." }}</div>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Key Evidence</div>
+                        {% if details.key_evidence %}
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            {% for evidence in details.key_evidence %}
+                            <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">{{ evidence }}</span>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="mt-3 text-sm text-slate-500">No key evidence items stored.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Planned Commands</div>
+                        {% if details.plan_snapshot %}
+                        <div class="mt-3 space-y-3">
+                            {% for step in details.plan_snapshot %}
+                            <div class="rounded-xl border border-slate-700/50 bg-slate-900/60 p-3">
+                                <div class="font-mono text-sm text-white">
+                                    {% if step.action_type %}{{ step.action_type }}{% elif step.action %}{{ step.action }}{% else %}Unknown Step{% endif %}
+                                </div>
+                                {% if step.rationale %}<div class="mt-1 text-xs text-slate-400">{{ step.rationale }}</div>{% endif %}
+                                {% if step.resolved_command %}
+                                <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-slate-700/50 bg-slate-950/70 p-2 font-mono text-[11px] leading-5 text-cyan-300">{{ step.resolved_command }}</pre>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="mt-3 text-sm text-slate-500">No plan snapshot stored.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </article>
+        {% endwith %}
+        {% endfor %}
+    </section>
+    {% else %}
+    <section class="glass-panel rounded-2xl border border-slate-600/50 p-10 text-center">
+        <div class="text-sm uppercase tracking-[0.3em] text-slate-500">No Reviews Yet</div>
+        <p class="mt-4 text-sm leading-7 text-slate-300">Complete at least one phase to generate a detailed review page.</p>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

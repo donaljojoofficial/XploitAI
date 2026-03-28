@@ -4,6 +4,7 @@ from services.command_template_utils import (
     build_target_context,
     escape_non_placeholder_braces,
     infer_required_tools,
+    normalize_command_targets,
     normalize_command_template,
     render_command_template,
 )
@@ -66,6 +67,16 @@ class CommandTemplateUtilsTests(SimpleTestCase):
         self.assertEqual(context["target_url"], "http://127.0.0.1:4280/")
         self.assertEqual(context["target_host"], "127.0.0.1")
         self.assertEqual(context["target_domain"], "127.0.0.1")
+        self.assertEqual(context["target_port"], "4280")
+
+    def test_normalize_command_targets_rewrites_nmap_url_target(self):
+        context = build_target_context("http://127.0.0.1:4280/")
+
+        command = "nmap -sV -p- http://127.0.0.1:4280/ -oX output.xml"
+
+        normalized = normalize_command_targets(command, context)
+
+        self.assertEqual(normalized, "nmap -sV -p- 127.0.0.1 -oX output.xml")
 
     def test_infer_required_tools_detects_shell_dependencies(self):
         tools = infer_required_tools("curl -s http://127.0.0.1:4280/ | jq '.'")

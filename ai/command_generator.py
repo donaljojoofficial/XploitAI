@@ -19,6 +19,8 @@ import shlex
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
+from services.command_template_utils import normalize_command_targets
+
 # Attempt to import the LLM adapter (Phase 3/Auto feature)
 try:
     from ai.llm.gemini import GeminiAdapter
@@ -225,7 +227,28 @@ class CommandGenerator:
         if not response:
             return None
 
-        return self._parse_llm_response(response)
+        generated = self._parse_llm_response(response)
+        if not generated or not generated.shell_command:
+            return None
+
+        normalized_command = normalize_command_targets(
+            generated.shell_command,
+            parameters if isinstance(parameters, Mapping) else {},
+        )
+        generated = GeneratedCommand(
+            shell_command=normalized_command,
+            explanation=generated.explanation,
+        )
+
+        if self._has_obvious_shell_issues(generated.shell_command):
+            logger.warning(
+                "LLM generated an invalid-looking command for '%s'; falling back to deterministic generation. Command: %s",
+                action_name,
+                generated.shell_command,
+            )
+            return None
+
+        return generated
 
     def _construct_prompt(self, action_name: str, parameters: Mapping[str, Any]) -> str:
         """Construct the prompt for the LLM."""
@@ -259,6 +282,20 @@ class CommandGenerator:
         except json.JSONDecodeError:
             # If parsing fails, raise error to trigger fallback
             raise ValueError("Failed to parse JSON from LLM response")
+
+    def _has_obvious_shell_issues(self, command: str) -> bool:
+        text = str(command or "").strip()
+        if not text:
+            return True
+
+        lowered = text.lower()
+        if "nmap" in lowered and ("http://" in lowered or "https://" in lowered):
+            return True
+        if "jq" in lowered and ".{}" in text:
+            return True
+        if "xmllint --xpath" in lowered and "| jq" in lowered:
+            return True
+        return False
 
     def _generate_passive_recon(self, params: Mapping[str, Any]) -> GeneratedCommand:
         domain = params.get("target_domain", "localhost")

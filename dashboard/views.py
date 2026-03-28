@@ -35,6 +35,7 @@ from services.remote_execution_service import RemoteExecutionService
 from services.command_template_utils import (
     build_target_context,
     infer_required_tools,
+    normalize_command_targets,
     normalize_command_template,
     render_command_template,
 )
@@ -104,20 +105,26 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         if command_obj:
             try:
                 step_context = {**target_context, **(item.get("parameters") or {})}
-                if llm_provider == "hybrid":
+                actual_command = item.get("resolved_command")
+                if actual_command:
+                    item["command_preview"] = actual_command
+                    item["command_preview_source"] = "executor"
+                elif llm_provider == "hybrid":
                     item["command_preview"] = preview_generator.generate(
                         action_name,
                         step_context,
                     ).shell_command
+                    item["command_preview"] = normalize_command_targets(item["command_preview"], step_context)
                     item["command_preview_source"] = "hybrid"
                 else:
                     template = normalize_command_template(command_obj)
                     item["command_preview"] = render_command_template(template, step_context)
+                    item["command_preview"] = normalize_command_targets(item["command_preview"], step_context)
                     item["command_preview_source"] = "deterministic"
             except Exception:
                 item["command_preview"] = command_obj.command_template or ""
                 item["command_preview_source"] = "stored"
-            item["required_tools"] = infer_required_tools(item.get("command_preview") or command_obj.command_template or "")
+            item["required_tools"] = item.get("resolved_tools") or infer_required_tools(item.get("command_preview") or command_obj.command_template or "")
         else:
             item["command_preview"] = ""
             item["command_preview_source"] = ""
@@ -153,6 +160,8 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         },
         "current_step": current_step,
         "all_done": completed_count == len(steps),
+        "phase_reviews": (state.state_data or {}).get("phase_reviews", []),
+        "phase_transition_pending": (state.state_data or {}).get("phase_transition_pending"),
     }
 
 
@@ -411,6 +420,20 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @login_required(login_url='login')
+def attack_phase_reviews(request: HttpRequest, pk: int) -> HttpResponse:
+    """Show detailed stored phase reviews for an attack."""
+    state = get_object_or_404(AttackState, pk=pk)
+    plan_view = _build_plan_view_state(state)
+    context = {
+        'attack_state': state,
+        'plan_view': plan_view,
+        'phase_reviews': (state.state_data or {}).get('phase_reviews', []),
+        **_get_global_context(),
+    }
+    return render(request, 'dashboard/phase_reviews.html', context)
+
+
+@login_required(login_url='login')
 @require_POST
 def start_attack(request: HttpRequest) -> HttpResponse:
     """
@@ -506,8 +529,16 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     
     if not state.state_data:
         state.state_data = {}
-    state.state_data['plan_approved'] = True
-    state.save(update_fields=['state_data'])
+    pending_transition = state.state_data.get('phase_transition_pending') or {}
+    if pending_transition.get('next_phase'):
+        state.current_phase = pending_transition['next_phase']
+        state.current_plan = {}
+        state.state_data['plan_approved'] = True
+        state.state_data.pop('phase_transition_pending', None)
+        state.save(update_fields=['state_data', 'current_phase', 'current_plan'])
+    else:
+        state.state_data['plan_approved'] = True
+        state.save(update_fields=['state_data'])
 
     # Auto-resume the attack
     last_context = AttackContext.objects.order_by('-created_at').first()

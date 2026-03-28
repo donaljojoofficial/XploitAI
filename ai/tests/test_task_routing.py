@@ -4,7 +4,7 @@ from ai.llm.base import BaseLLMAdapter
 from ai.llm.nvidia_adapter import NvidiaAdapter
 from ai.llm.task_router import TaskRouterAdapter
 from ai.planner import AIPlanner
-from ai.schemas import Decision, DecisionInput
+from ai.schemas import Decision, DecisionInput, Plan, PlanStep
 from core.models import AttackState, Command, ExecutionResult, Phase
 
 
@@ -36,6 +36,29 @@ class RecordingAdapter(BaseLLMAdapter):
 
     def get_attack_narrative(self, decision_input):
         yield self.name
+
+
+class PlanRecordingAdapter(RecordingAdapter):
+    def __init__(self, step_names):
+        super().__init__("planner")
+        self.step_names = step_names
+        self.last_plan_input = None
+
+    def get_plan(self, decision_input, task_key=None):
+        self.last_task_key = task_key
+        self.last_plan_input = decision_input
+        return Plan(
+            rationale="phase plan",
+            steps=[
+                PlanStep(
+                    step_number=index + 1,
+                    action_type=name,
+                    parameters={},
+                    rationale=f"step {index + 1}",
+                )
+                for index, name in enumerate(self.step_names)
+            ],
+        )
 
 
 class TaskRouterAdapterTests(SimpleTestCase):
@@ -288,3 +311,47 @@ class AIPlannerPlanProgressionTests(TestCase):
         next_step = planner._next_step_hint(state)
 
         self.assertEqual(next_step["action_type"], proof.name)
+
+    def test_ensure_initial_plan_scopes_to_current_phase(self):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        discovery = Phase.objects.create(name="discovery", description="Discovery")
+
+        header = Command.objects.create(
+            phase=reconnaissance,
+            name="HTTPHeaderFetch",
+            description="Headers",
+            command_template="curl -I {target_url}",
+        )
+        Command.objects.create(
+            phase=discovery,
+            name="EndpointDiscovery",
+            description="Endpoints",
+            command_template="python discover.py",
+        )
+
+        state = AttackState.objects.create(
+            name="Phase only",
+            current_phase="RECONNAISSANCE",
+            state_data={"target": "http://127.0.0.1:4280/"},
+        )
+
+        from state.state_manager import StateManager
+
+        planner = AIPlanner.__new__(AIPlanner)
+        planner.last_plan_error = None
+        planner.plan_adapter = PlanRecordingAdapter([header.name])
+        planner._plan_task_key = AIPlanner._plan_task_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_key = AIPlanner._normalize_phase_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_name = AIPlanner._normalize_phase_name.__get__(planner, AIPlanner)
+        planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
+        planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
+        planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
+        planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+
+        ready = planner.ensure_initial_plan(StateManager(state.id))
+        state.refresh_from_db()
+
+        self.assertTrue(ready)
+        self.assertEqual(state.current_plan["phase"], "reconnaissance")
+        self.assertEqual(len(planner.plan_adapter.last_plan_input.available_commands), 1)
+        self.assertEqual(planner.plan_adapter.last_plan_input.available_commands[0]["name"], header.name)

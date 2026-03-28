@@ -32,6 +32,7 @@
             <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="px-3 py-1.5 text-sm border border-gray-500 text-gray-300 hover:border-gray-300 hover:text-white rounded transition-colors flex items-center gap-1">
                 📋 Plan
             </a>
+            <a href="{% url 'dashboard_attack_phase_reviews' attack_state.id %}" class="px-3 py-1.5 text-sm border border-cyan-500/50 text-cyan-300 hover:border-cyan-300 hover:text-white rounded transition-colors flex items-center gap-1">Phase Reviews</a>
             <a href="{% url 'dashboard_attack_command_logs' attack_state.id %}" class="px-3 py-1.5 text-sm border border-gray-500 text-gray-300 hover:border-gray-300 hover:text-white rounded transition-colors flex items-center gap-1">
                 🖥️ Command Logs
             </a>
@@ -67,10 +68,29 @@
             {% if waiting_for_approval %}
                 <form action="{% url 'approve_plan' attack_state.id %}" method="POST" class="inline-block ml-4">
                     {% csrf_token %}
-                    <button type="submit" class="px-3 py-1.5 bg-warning text-gray-900 font-bold text-sm rounded hover:bg-yellow-400 transition-colors">Approve & Continue</button>
+                    <button type="submit" class="px-3 py-1.5 bg-warning text-gray-900 font-bold text-sm rounded hover:bg-yellow-400 transition-colors">
+                        {% if plan_view.phase_transition_pending %}Approve Next Phase{% else %}Approve & Continue{% endif %}
+                    </button>
                 </form>
             {% endif %}
         </div>
+    {% endif %}
+
+    {% if plan_view and plan_view.phase_reviews %}
+    <div class="rounded-xl border border-cyan-700/40 bg-slate-900/60 p-5">
+        <div class="mb-3 text-sm font-semibold uppercase tracking-wider text-cyan-300">Phase Reviews</div>
+        <div class="space-y-3">
+            {% for review in plan_view.phase_reviews %}
+            <div class="rounded-lg border border-slate-700 bg-slate-950/50 p-4">
+                <div class="flex flex-wrap items-center gap-2 text-xs font-mono text-slate-400">
+                    <span class="text-white">{{ review.phase }}</span>
+                    {% if review.next_phase %}<span>&rarr; {{ review.next_phase }}</span>{% endif %}
+                </div>
+                <p class="mt-2 text-sm leading-6 text-slate-200">{{ review.review }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
     {% endif %}
 
     {% if plan_view and plan_view.steps %}

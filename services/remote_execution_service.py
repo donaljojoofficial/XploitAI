@@ -6,16 +6,19 @@ from typing import Optional
 
 from ai.planner import AIPlanner
 from ai.command_generator import CommandGenerator
+from ai.output_analysis import OutputAnalysisService
 from core.models import AttackState, Command, ExecutionResult, ExecutionTask, AttackerExecutor
 from state.state_manager import StateManager
 from parser.output_parser import (
     has_attack_completion_evidence,
     is_meaningful_action_success,
+    merge_findings,
     parse_output,
 )
 from services.command_template_utils import (
     build_target_context,
     infer_required_tools,
+    normalize_command_targets,
     normalize_command_template,
     render_command_template,
 )
@@ -50,7 +53,56 @@ class RemoteExecutionService:
             use_llm=self.llm_provider == "hybrid",
             llm_provider="groq" if self.llm_provider == "hybrid" else llm_provider,
         )
+        self.output_analyzer = OutputAnalysisService()
         self.phase_command_counts = {}
+
+    def _persist_step_command(self, action_name: str, command: str):
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        plan = attack_state.current_plan or {}
+        steps = plan.get("steps") or []
+        for step in steps:
+            step_name = step.get("action_type") or step.get("action")
+            if step_name == action_name and not step.get("resolved_command"):
+                step["resolved_command"] = command
+                step["resolved_tools"] = infer_required_tools(command)
+                break
+        attack_state.current_plan = plan
+        attack_state.save(update_fields=["current_plan"])
+
+    def _store_phase_review_and_pause(self, current_phase: str) -> bool:
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        next_phase = self.planner.peek_next_phase_with_commands(self.state_manager, attack_state)
+        if not next_phase:
+            return False
+
+        review = self.planner.review_phase(self.state_manager, current_phase)
+        if not isinstance(attack_state.state_data, dict):
+            attack_state.state_data = {}
+        reviews = attack_state.state_data.get("phase_reviews", [])
+        if not isinstance(reviews, list):
+            reviews = []
+        reviews.append(
+            {
+                "phase": current_phase,
+                "review": (review or {}).get("summary", ""),
+                "details": review or {},
+                "next_phase": next_phase,
+                "completed_at": time.time(),
+                "findings": (attack_state.state_data.get("findings") or {}).copy(),
+            }
+        )
+        attack_state.state_data["phase_reviews"] = reviews
+        attack_state.state_data["phase_transition_pending"] = {
+            "from_phase": current_phase,
+            "next_phase": next_phase,
+            "review": (review or {}).get("summary", ""),
+        }
+        attack_state.state_data["plan_approved"] = False
+        attack_state.save(update_fields=["state_data"])
+        self.stop_assessment(
+            f"Phase '{current_phase}' completed. Waiting for approval to advance to '{next_phase}'."
+        )
+        return True
 
     def start_assessment(self):
         """Starts the remote execution in a background thread."""
@@ -81,10 +133,11 @@ class RemoteExecutionService:
 
             if not isinstance(attack_state.state_data, dict):
                 attack_state.state_data = {}
-            attack_state.state_data["plan_approved"] = False
-            attack_state.save(update_fields=["state_data"])
-            self.stop_assessment("Plan generated. Waiting for approval.")
-            return
+            if not attack_state.state_data.get("plan_approved", False):
+                attack_state.state_data["plan_approved"] = False
+                attack_state.save(update_fields=["state_data"])
+                self.stop_assessment("Plan generated. Waiting for approval.")
+                return
 
         if not (attack_state.state_data or {}).get("plan_approved", False):
             self.stop_assessment("Plan generated. Waiting for approval.")
@@ -161,6 +214,9 @@ class RemoteExecutionService:
                 )
                 return
 
+            command = normalize_command_targets(command, command_parameters)
+            self._persist_step_command(command_obj.name, command)
+
             # Create an ExecutionTask for the remote executor to pick up
             task = ExecutionTask.objects.create(
                 action_name=command_obj.name,
@@ -190,6 +246,15 @@ class RemoteExecutionService:
                 stdout = output.get("stdout", "") if output else (result.output or "")
                 stderr = output.get("stderr", "") if output else result.error_message
                 findings = parse_output(command_obj.name, stdout)
+                findings = merge_findings(
+                    findings,
+                    self.output_analyzer.analyze(
+                        command_obj.name,
+                        stdout,
+                        stderr,
+                        current_state.get("findings", {}),
+                    ),
+                )
                 semantic_success = is_meaningful_action_success(
                     command_obj.name,
                     findings,
@@ -228,6 +293,12 @@ class RemoteExecutionService:
                     combined_reason,
                 )
 
+                attack_state.refresh_from_db()
+                if self.planner.current_phase_completed(attack_state):
+                    current_phase_name = (attack_state.current_plan or {}).get("phase") or attack_state.current_phase
+                    if self._store_phase_review_and_pause(current_phase_name):
+                        return
+
                 if semantic_success:
                     # Mark command complete only after a successful execution so the
                     # next planned step cannot advance early.
@@ -245,6 +316,18 @@ class RemoteExecutionService:
                 stdout = output.get("stdout", "") if output else (result.output or "")
                 stderr = output.get("stderr", "") if output else result.error_message
                 logger.warning(f"Task {task.id} failed: {result.error_message}")
+                findings = merge_findings(
+                    parse_output(command_obj.name, stdout) or {},
+                    self.output_analyzer.analyze(
+                        command_obj.name,
+                        stdout,
+                        stderr or result.error_message or "",
+                        current_state.get("findings", {}),
+                    ),
+                )
+                if findings:
+                    logger.info(f"Parsed findings for failed '{command_obj.name}': {findings}")
+                    self.state_manager.update_state_with_findings(findings)
                 review_reason = self.planner.review_execution(
                     self.state_manager,
                     command_obj.name,
@@ -263,7 +346,7 @@ class RemoteExecutionService:
                     status="FAILED",
                     stdout=stdout,
                     stderr=stderr or result.error_message or "",
-                    findings={},
+                    findings=findings,
                 )
 
                 self.state_manager.record_action(
@@ -272,6 +355,12 @@ class RemoteExecutionService:
                     {"stdout": stdout, "stderr": stderr or result.error_message or "", "returncode": 1},
                     combined_reason,
                 )
+
+                attack_state.refresh_from_db()
+                if self.planner.current_phase_completed(attack_state):
+                    current_phase_name = (attack_state.current_plan or {}).get("phase") or attack_state.current_phase
+                    if self._store_phase_review_and_pause(current_phase_name):
+                        return
 
                 logger.info(
                     "Command '%s' failed; marking it unavailable and asking AI for another command for the same step.",

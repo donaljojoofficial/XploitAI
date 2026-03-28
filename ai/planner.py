@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple
 
 from ai.llm.base import BaseLLMAdapter
 from ai.llm.lmstudio_adapter import LMStudioAdapter
+from ai.llm.nvidia_output_analysis_adapter import NvidiaOutputAnalysisAdapter
 from ai.schemas import ActionResultSummary, Decision, DecisionInput, KnownService, PastActionSummary
 from state.state_manager import StateManager
 
@@ -105,6 +106,7 @@ class AIPlanner:
         self.adapter = self._get_adapter(provider)
         self.plan_adapter = self._get_plan_adapter(provider)
         self.review_adapter = self._get_review_adapter(provider)
+        self.phase_review_adapter = NvidiaOutputAnalysisAdapter()
         self.last_plan_error: Optional[str] = None
         self._decision_cache: dict[str, dict] = {}
         self._decision_cache_ttl_seconds = 15.0
@@ -301,19 +303,34 @@ class AIPlanner:
         current_state = state_manager.get_current_state_for_planner()
         phase = current_state.get("current_phase")
 
-        # Create plan once, then execute iteratively step-by-step from it.
-        available_commands = list(state_manager.get_available_commands(phase))
-        available_command_metadata = [
-            {"id": c.id, "name": c.name, "description": c.description}
-            for c in available_commands
-        ]
-        self._ensure_plan(attack_state, phase, available_command_metadata)
-        next_step_hint = self._next_step_hint(attack_state)
-        if attack_state.current_plan and not next_step_hint:
+        phase_ready = self._ensure_active_phase_plan(state_manager, attack_state, phase)
+        if not phase_ready:
             attack_state.current_phase = "COMPLETED"
             attack_state.save(update_fields=["current_phase"])
-            logger.info("AIPlanner completed all planned steps for AttackState %s.", attack_state.id)
+            logger.info("AIPlanner exhausted all phases for AttackState %s.", attack_state.id)
             return None
+
+        attack_state.refresh_from_db()
+        current_state = state_manager.get_current_state_for_planner()
+        phase = current_state.get("current_phase")
+        available_commands = list(state_manager.get_available_commands(phase))
+        available_command_metadata = self._command_metadata(available_commands)
+
+        next_step_hint = self._next_step_hint(attack_state)
+        if attack_state.current_plan and not next_step_hint:
+            phase_ready = self._advance_to_next_phase_with_plan(state_manager, attack_state)
+            if not phase_ready:
+                attack_state.current_phase = "COMPLETED"
+                attack_state.save(update_fields=["current_phase"])
+                logger.info("AIPlanner completed all phase plans for AttackState %s.", attack_state.id)
+                return None
+
+            attack_state.refresh_from_db()
+            current_state = state_manager.get_current_state_for_planner()
+            phase = current_state.get("current_phase")
+            available_commands = list(state_manager.get_available_commands(phase))
+            available_command_metadata = self._command_metadata(available_commands)
+            next_step_hint = self._next_step_hint(attack_state)
 
         planned_command = None
         planned_command_name = None
@@ -491,6 +508,88 @@ class AIPlanner:
         logger.info("Fallback planner engine engaged after LLM fallback.")
         return FallbackPlannerEngine(state_manager).get_next_command()
 
+    def _command_metadata(self, commands) -> List[Dict[str, str]]:
+        return [
+            {
+                "id": c.id,
+                "name": c.name,
+                "description": c.description,
+                "phase": getattr(getattr(c, "phase", None), "name", None),
+            }
+            for c in (commands or [])
+        ]
+
+    def _ensure_active_phase_plan(
+        self,
+        state_manager: StateManager,
+        attack_state,
+        phase: str,
+    ) -> bool:
+        available_commands = list(state_manager.get_available_commands(phase))
+        available_command_metadata = self._command_metadata(available_commands)
+
+        if available_commands:
+            return self._ensure_plan(
+                attack_state,
+                phase,
+                available_command_metadata,
+                force=self._plan_phase(attack_state.current_plan) != self._normalize_phase_name(phase),
+            )
+
+        return self._advance_to_next_phase_with_plan(state_manager, attack_state)
+
+    def _advance_to_next_phase_with_plan(self, state_manager: StateManager, attack_state) -> bool:
+        next_phase = self._advance_to_next_phase_with_commands(state_manager, attack_state)
+        if not next_phase:
+            return False
+
+        available_commands = list(state_manager.get_available_commands(next_phase))
+        return self._ensure_plan(
+            attack_state,
+            next_phase,
+            self._command_metadata(available_commands),
+            force=True,
+        )
+
+    def _advance_to_next_phase_with_commands(
+        self,
+        state_manager: StateManager,
+        attack_state,
+    ) -> Optional[str]:
+        from core.models import Phase
+
+        all_phases = list(Phase.objects.order_by("id").values_list("name", flat=True))
+        current_lower = self._normalize_phase_name(attack_state.current_phase)
+        try:
+            current_idx = next(
+                i for i, phase_name in enumerate(all_phases)
+                if phase_name.lower() == current_lower
+            )
+        except StopIteration:
+            current_idx = -1
+
+        for next_phase_name in all_phases[current_idx + 1:]:
+            if state_manager.get_available_commands(next_phase_name).exists():
+                attack_state.current_phase = next_phase_name
+                attack_state.current_plan = {}
+                attack_state.save(update_fields=["current_phase", "current_plan"])
+                logger.info(
+                    "AIPlanner advancing from phase '%s' to '%s'.",
+                    current_lower or attack_state.current_phase,
+                    next_phase_name,
+                )
+                return next_phase_name
+
+        return None
+
+    def _normalize_phase_name(self, phase: Optional[str]) -> str:
+        return (phase or "").strip().lower()
+
+    def _plan_phase(self, plan: Optional[dict]) -> str:
+        if not isinstance(plan, dict):
+            return ""
+        return self._normalize_phase_name(plan.get("phase"))
+
     def _resolve_planned_command(
         self,
         state_manager: StateManager,
@@ -594,18 +693,25 @@ class AIPlanner:
     def _minimum_plan_steps(self, available_command_metadata: List[Dict[str, str]]) -> int:
         available_count = len(available_command_metadata or [])
         if available_count <= 0:
-            return 4
-        return min(8, max(4, available_count))
+            return 1
+        return min(available_count, 4)
 
     def _ensure_plan(
         self,
         attack_state,
         phase: str,
         available_command_metadata: List[Dict[str, str]],
+        force: bool = False,
     ) -> bool:
-        """Generate and persist an initial strategic plan once per attack run."""
+        """Generate and persist a plan for the current active phase."""
         self.last_plan_error = None
-        if attack_state.current_plan and attack_state.current_plan.get("steps"):
+        normalized_phase = self._normalize_phase_name(phase or attack_state.current_phase)
+        if (
+            not force
+            and attack_state.current_plan
+            and attack_state.current_plan.get("steps")
+            and self._plan_phase(attack_state.current_plan) == normalized_phase
+        ):
             return True
         if not self.plan_adapter:
             self.last_plan_error = "No AI planning adapter is available for plan generation."
@@ -657,6 +763,8 @@ class AIPlanner:
             return False
 
         attack_state.current_plan = {
+            "phase": normalized_phase,
+            "scope": "phase",
             "rationale": plan.rationale or "Plan generated by AIPlanner.",
             "steps": [
                 {
@@ -670,48 +778,24 @@ class AIPlanner:
         }
         attack_state.save(update_fields=["current_plan"])
         logger.info(
-            "AIPlanner generated initial plan with %d step(s).",
+            "AIPlanner generated phase plan for '%s' with %d step(s).",
+            normalized_phase,
             len(plan.steps),
         )
         self.last_plan_error = None
         return True
 
     def ensure_initial_plan(self, state_manager: StateManager) -> bool:
-        from core.models import Command, Phase
-
         attack_state = state_manager.get_attack_state()
         current_state = state_manager.get_current_state_for_planner()
         phase = current_state.get("current_phase")
         available_commands = list(state_manager.get_available_commands(phase))
-
-        # For the initial strategy, expose commands across the remaining kill chain
-        # so the reasoning model can build a full multi-phase plan instead of a
-        # single-step local phase plan.
-        phase_names = list(Phase.objects.order_by("id").values_list("name", flat=True))
-        current_lower = (phase or attack_state.current_phase or "").lower()
-        try:
-            current_idx = next(i for i, name in enumerate(phase_names) if name.lower() == current_lower)
-        except StopIteration:
-            current_idx = 0
-
-        remaining_phase_names = phase_names[current_idx:]
-        if remaining_phase_names:
-            available_commands = list(
-                Command.objects.filter(phase__name__in=remaining_phase_names)
-                .select_related("phase")
-                .order_by("phase__id", "id")
-            )
-
-        available_command_metadata = [
-            {
-                "id": c.id,
-                "name": c.name,
-                "description": c.description,
-                "phase": getattr(c.phase, "name", None),
-            }
-            for c in available_commands
-        ]
-        return self._ensure_plan(attack_state, phase, available_command_metadata)
+        return self._ensure_plan(
+            attack_state,
+            phase,
+            self._command_metadata(available_commands),
+            force=True,
+        )
 
     def review_execution(
         self,
@@ -762,6 +846,136 @@ class AIPlanner:
         except Exception as exc:
             logger.warning("Execution review failed in AIPlanner: %s", exc)
             return None
+
+    def review_phase(
+        self,
+        state_manager: StateManager,
+        phase_name: str,
+    ) -> dict:
+        from core.models import ExecutionResult
+
+        attack_state = state_manager.get_attack_state()
+        current_state = state_manager.get_current_state_for_planner()
+        findings = current_state.get("findings", {}) or {}
+        plan = (attack_state.current_plan or {}).copy()
+        plan_steps = list(plan.get("steps") or [])
+        phase_commands = [
+            step.get("action_type") or step.get("action")
+            for step in plan_steps
+            if step.get("action_type") or step.get("action")
+        ]
+        recent_results = list(
+            ExecutionResult.objects.filter(attack_state=attack_state)
+            .select_related("command")
+            .order_by("-created_at")[:5]
+        )
+
+        latest_result_by_command = {}
+        result_summaries = []
+        for result in reversed(recent_results):
+            command_name = getattr(result.command, "name", "unknown")
+            latest_result_by_command[command_name] = result
+            result_summaries.append(
+                {
+                    "command": command_name,
+                    "status": result.status,
+                    "stdout_excerpt": (result.stdout or "")[:400],
+                    "stderr_excerpt": (result.stderr or "")[:240],
+                    "findings": result.findings or {},
+                }
+            )
+
+        command_reviews = []
+        for step in plan_steps:
+            command_name = step.get("action_type") or step.get("action") or "unknown"
+            linked_result = latest_result_by_command.get(command_name)
+            command_reviews.append(
+                {
+                    "command": command_name,
+                    "purpose": step.get("rationale") or "",
+                    "status": getattr(linked_result, "status", "PLANNED"),
+                    "outcome": ((getattr(linked_result, "stdout", "") or getattr(linked_result, "stderr", ""))[:240] if linked_result else "Planned command for this phase."),
+                    "resolved_command": step.get("resolved_command") or "",
+                    "resolved_tools": step.get("resolved_tools") or [],
+                }
+            )
+
+        phase_payload = {
+            "phase": phase_name,
+            "phase_plan_rationale": plan.get("rationale", ""),
+            "commands_in_phase_plan": plan_steps,
+            "completed_commands": phase_commands,
+            "command_reviews": command_reviews,
+            "recent_execution_results": result_summaries,
+            "current_findings": findings,
+        }
+        prompt = (
+            "You are writing a detailed phase review for a cyber-range operation.\n"
+            "Use every concrete detail provided. Be factual and specific.\n"
+            "Explain the phase objective, each command's purpose, what completed successfully, what failed, what evidence was gathered, and what should be checked before moving on.\n"
+            "Return JSON only with this schema:\n"
+            '{"summary":"...", "phase_objective":"...", "command_reviews":[{"command":"...", "purpose":"...", "status":"...", "outcome":"..."}], "key_evidence":["..."], "recommended_next_phase":"...", "operator_notes":"..."}\n'
+            f"Phase data:\n{json.dumps(phase_payload, sort_keys=True, default=str)[:14000]}"
+        )
+
+        if self.phase_review_adapter:
+            try:
+                review = self.phase_review_adapter.analyze(prompt)
+                if isinstance(review, dict):
+                    review.setdefault("summary", "")
+                    review.setdefault("phase_objective", "")
+                    review.setdefault("command_reviews", command_reviews)
+                    review.setdefault("key_evidence", [])
+                    review.setdefault("recommended_next_phase", "")
+                    review.setdefault("operator_notes", "")
+                    review["phase"] = phase_name
+                    review["plan_snapshot"] = plan_steps
+                    review["results_snapshot"] = result_summaries
+                    return review
+            except Exception as exc:
+                logger.warning("Phase review failed in AIPlanner: %s", exc)
+
+        finding_keys = ", ".join(sorted(findings.keys())[:6]) or "no significant findings"
+        return {
+            "phase": phase_name,
+            "summary": f"Completed phase {phase_name} with {finding_keys}.",
+            "phase_objective": f"Review evidence gathered in {phase_name}.",
+            "command_reviews": command_reviews,
+            "key_evidence": sorted(findings.keys())[:6],
+            "recommended_next_phase": self.peek_next_phase_with_commands(state_manager, attack_state) or "",
+            "operator_notes": "Review the stored evidence before advancing.",
+            "plan_snapshot": plan_steps,
+            "results_snapshot": result_summaries,
+        }
+
+    def current_phase_completed(self, attack_state) -> bool:
+        steps = (attack_state.current_plan or {}).get("steps") or []
+        if not steps:
+            return False
+        return self._next_step_hint(attack_state) is None
+
+    def peek_next_phase_with_commands(
+        self,
+        state_manager: StateManager,
+        attack_state,
+    ) -> Optional[str]:
+        from core.models import Phase
+
+        all_phases = list(Phase.objects.order_by("id").values_list("name", flat=True))
+        current_lower = self._normalize_phase_name(attack_state.current_phase)
+        try:
+            current_idx = next(
+                i for i, phase_name in enumerate(all_phases)
+                if phase_name.lower() == current_lower
+            )
+        except StopIteration:
+            current_idx = -1
+
+        for next_phase_name in all_phases[current_idx + 1:]:
+            if state_manager.get_available_commands(next_phase_name).exists():
+                return next_phase_name
+
+        return None
 
     def _next_step_hint(self, attack_state) -> Optional[dict]:
         """

@@ -6,16 +6,20 @@ import os
 
 from ai.planner import AIPlanner
 from ai.command_generator import CommandGenerator
+from ai.output_analysis import OutputAnalysisService
 from executor.local_executor import run_command
 from parser.output_parser import (
     has_attack_completion_evidence,
     is_meaningful_action_success,
+    merge_findings,
     parse_output,
 )
 from state.state_manager import StateManager
 from core.models import AttackState, Command, ExecutionResult
 from services.command_template_utils import (
     build_target_context,
+    infer_required_tools,
+    normalize_command_targets,
     normalize_command_template,
     render_command_template,
 )
@@ -50,7 +54,56 @@ class ExecutionService:
             use_llm=self.llm_provider == "hybrid",
             llm_provider="groq" if self.llm_provider == "hybrid" else llm_provider,
         )
+        self.output_analyzer = OutputAnalysisService()
         self.phase_command_counts = {}
+
+    def _persist_step_command(self, action_name: str, command: str):
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        plan = attack_state.current_plan or {}
+        steps = plan.get("steps") or []
+        for step in steps:
+            step_name = step.get("action_type") or step.get("action")
+            if step_name == action_name and not step.get("resolved_command"):
+                step["resolved_command"] = command
+                step["resolved_tools"] = infer_required_tools(command)
+                break
+        attack_state.current_plan = plan
+        attack_state.save(update_fields=["current_plan"])
+
+    def _store_phase_review_and_pause(self, current_phase: str) -> bool:
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        next_phase = self.planner.peek_next_phase_with_commands(self.state_manager, attack_state)
+        if not next_phase:
+            return False
+
+        review = self.planner.review_phase(self.state_manager, current_phase)
+        if not isinstance(attack_state.state_data, dict):
+            attack_state.state_data = {}
+        reviews = attack_state.state_data.get("phase_reviews", [])
+        if not isinstance(reviews, list):
+            reviews = []
+        reviews.append(
+            {
+                "phase": current_phase,
+                "review": (review or {}).get("summary", ""),
+                "details": review or {},
+                "next_phase": next_phase,
+                "completed_at": time.time(),
+                "findings": (attack_state.state_data.get("findings") or {}).copy(),
+            }
+        )
+        attack_state.state_data["phase_reviews"] = reviews
+        attack_state.state_data["phase_transition_pending"] = {
+            "from_phase": current_phase,
+            "next_phase": next_phase,
+            "review": (review or {}).get("summary", ""),
+        }
+        attack_state.state_data["plan_approved"] = False
+        attack_state.save(update_fields=["state_data"])
+        self.stop_assessment(
+            f"Phase '{current_phase}' completed. Waiting for approval to advance to '{next_phase}'."
+        )
+        return True
 
     def start_assessment(self):
         """Starts the assessment in a background thread."""
@@ -81,10 +134,11 @@ class ExecutionService:
 
             if not isinstance(attack_state.state_data, dict):
                 attack_state.state_data = {}
-            attack_state.state_data["plan_approved"] = False
-            attack_state.save(update_fields=["state_data"])
-            self.stop_assessment("Plan generated. Waiting for approval.")
-            return
+            if not attack_state.state_data.get("plan_approved", False):
+                attack_state.state_data["plan_approved"] = False
+                attack_state.save(update_fields=["state_data"])
+                self.stop_assessment("Plan generated. Waiting for approval.")
+                return
 
         if not (attack_state.state_data or {}).get("plan_approved", False):
             self.stop_assessment("Plan generated. Waiting for approval.")
@@ -164,6 +218,9 @@ class ExecutionService:
                 )
                 return
 
+            command = normalize_command_targets(command, command_parameters)
+            self._persist_step_command(command_obj.name, command)
+
             result = None
             final_status = "FAILED"
             for attempt in range(self.max_retries + 1):
@@ -184,17 +241,26 @@ class ExecutionService:
 
             stdout = result.get("stdout", "")
             stderr = result.get("stderr", "")
-            findings = {}
+            findings = parse_output(command_obj.name, stdout) or {}
+            findings = merge_findings(
+                findings,
+                self.output_analyzer.analyze(
+                    command_obj.name,
+                    stdout,
+                    stderr,
+                    current_state.get("findings", {}),
+                ),
+            )
+            if findings:
+                logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
+                self.state_manager.update_state_with_findings(findings)
+
             if final_status == "SUCCESS":
-                findings = parse_output(command_obj.name, stdout) or {}
                 final_status = (
                     "SUCCESS"
                     if is_meaningful_action_success(command_obj.name, findings, stdout)
                     else "FAILED"
                 )
-                if findings:
-                    logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
-                    self.state_manager.update_state_with_findings(findings)
 
             review_reason = self.planner.review_execution(
                 self.state_manager,
@@ -223,6 +289,12 @@ class ExecutionService:
                 result,
                 combined_reason,
             )
+
+            attack_state.refresh_from_db()
+            if self.planner.current_phase_completed(attack_state):
+                current_phase_name = (attack_state.current_plan or {}).get("phase") or attack_state.current_phase
+                if self._store_phase_review_and_pause(current_phase_name):
+                    return
 
             if final_status == "FAILED":
                 logger.info(
