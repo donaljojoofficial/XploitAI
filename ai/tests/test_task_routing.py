@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase
 
 from ai.llm.base import BaseLLMAdapter
+from ai.llm.nvidia_adapter import NvidiaAdapter
 from ai.llm.task_router import TaskRouterAdapter
 from ai.planner import AIPlanner
 from ai.schemas import Decision, DecisionInput
@@ -128,6 +129,50 @@ class AIPlannerTaskKeyTests(SimpleTestCase):
         self.assertEqual(routes["plan.initial"][0], "lmstudio")
         self.assertEqual(routes["recommendation.exploitation"][0], "lmstudio")
 
+    def test_ai_only_adapters_excludes_local_rule_engine(self):
+        adapters = {
+            "groq": RecordingAdapter("groq"),
+            "local": RecordingAdapter("local"),
+        }
+
+        filtered = self.planner._ai_only_adapters(adapters)
+
+        self.assertIn("groq", filtered)
+        self.assertNotIn("local", filtered)
+
+    def test_plan_adapter_is_none_for_local_provider(self):
+        self.planner._discover_adapters = lambda: {"local": RecordingAdapter("local")}
+
+        self.assertIsNone(self.planner._get_plan_adapter("local"))
+
+    def test_plan_adapter_for_auto_uses_only_ai_providers(self):
+        self.planner._discover_adapters = lambda: {
+            "groq": RecordingAdapter("groq"),
+            "local": RecordingAdapter("local"),
+        }
+
+        adapter = self.planner._get_plan_adapter("auto")
+
+        self.assertIsInstance(adapter, TaskRouterAdapter)
+        self.assertIn("groq", adapter.adapters_by_name)
+        self.assertNotIn("local", adapter.adapters_by_name)
+
+    def test_plan_adapter_for_hybrid_builds_ai_only_router(self):
+        self.planner._discover_adapters = lambda: {
+            "nvidia": RecordingAdapter("nvidia"),
+            "groq": RecordingAdapter("groq"),
+            "local": RecordingAdapter("local"),
+        }
+
+        adapter = self.planner._get_plan_adapter("hybrid")
+
+        self.assertIsInstance(adapter, TaskRouterAdapter)
+        self.assertIn("nvidia", adapter.adapters_by_name)
+        self.assertIn("groq", adapter.adapters_by_name)
+        self.assertNotIn("local", adapter.adapters_by_name)
+        self.assertEqual(adapter.task_routes["plan.initial"][0], "nvidia")
+        self.assertEqual(adapter.task_routes["plan.initial"][1], "groq")
+
     def test_resolve_proposed_command_name_maps_legacy_aliases(self):
         available_commands = [
             type("Command", (), {"name": "EndpointDiscovery"})(),
@@ -153,3 +198,44 @@ class AIPlannerTaskKeyTests(SimpleTestCase):
             self.planner._resolve_proposed_command_name("http header fetch", available_commands),
             "HTTPHeaderFetch",
         )
+
+
+class NvidiaAdapterPlanParsingTests(SimpleTestCase):
+    def setUp(self):
+        self.adapter = NvidiaAdapter.__new__(NvidiaAdapter)
+
+    def test_parse_plan_salvages_truncated_json_response(self):
+        text = """```json
+{
+  "rationale": "Sequential execution.",
+  "steps": [
+    {
+      "step_number": 1,
+      "action_type": "EndpointDiscovery",
+      "parameters": {"target": "http://127.0.0.1:4280/"},
+      "rationale": "Discover endpoints."
+    },
+    {
+      "step_number": 2,
+      "action_type": "ParameterDiscovery",
+      "parameters": {"target": "http://127.0.0.1:4280/"},
+      "rationale": "Discover parameters."
+    },
+    {
+      "step_number": 3,
+      "action_type": "ProofOfCompromise",
+      "parameters": {"target": "http://127.0.0.1:4280/"},
+      "rationale": "Verify impact."
+    },
+    {
+      "step_number": 4,
+      "action_type": "SQLInjectionProbe",
+      "parameters": {"target": "http://127.0.0.1:4280/"},
+```"""
+
+        plan = self.adapter._parse_plan(text)
+
+        self.assertIsNotNone(plan)
+        self.assertEqual(len(plan.steps), 3)
+        self.assertEqual(plan.steps[0].action_type, "EndpointDiscovery")
+        self.assertEqual(plan.steps[2].action_type, "ProofOfCompromise")

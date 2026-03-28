@@ -9,7 +9,12 @@ from ai.command_generator import CommandGenerator
 from core.models import AttackState, Command, ExecutionResult, ExecutionTask, AttackerExecutor
 from state.state_manager import StateManager
 from parser.output_parser import parse_output
-from services.command_template_utils import normalize_command_template, render_command_template
+from services.command_template_utils import (
+    build_target_context,
+    infer_required_tools,
+    normalize_command_template,
+    render_command_template,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +70,9 @@ class RemoteExecutionService:
             plan_ready = self.planner.ensure_initial_plan(self.state_manager)
             attack_state.refresh_from_db()
             if not plan_ready or not (attack_state.current_plan or {}).get("steps"):
-                self.stop_assessment("Plan generation failed.")
+                self.stop_assessment(
+                    self.planner.last_plan_error or "Plan generation failed."
+                )
                 return
 
             if not isinstance(attack_state.state_data, dict):
@@ -122,12 +129,7 @@ class RemoteExecutionService:
             # Re-read current_phase after planner may have advanced it
             current_state = self.state_manager.get_current_state_for_planner()
             target = current_state.get("target") or ""
-            sub_context = {
-                "target": target,
-                "target_url": target,
-                "target_host": target,
-                "target_domain": target,
-            }
+            sub_context = build_target_context(target)
             command_parameters = {**sub_context, **decision_parameters}
 
             try:
@@ -142,10 +144,12 @@ class RemoteExecutionService:
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "
-                    "Marking as failed and continuing."
+                    "Stopping because the planned step cannot be executed."
                 )
-                self.state_manager.add_completed_command(command_id)
-                continue
+                self.stop_assessment(
+                    f"Planned step '{command_obj.name}' could not be rendered: missing placeholder {e}."
+                )
+                return
 
             # Create an ExecutionTask for the remote executor to pick up
             task = ExecutionTask.objects.create(
@@ -154,7 +158,8 @@ class RemoteExecutionService:
                 parameters={
                     "command": command,
                     "target": target,
-                    "reasoning": decision_reason
+                    "reasoning": decision_reason,
+                    "required_tools": infer_required_tools(command),
                 },
                 status="PENDING",
                 requires_approval=False,  # Remote execution doesn't require approval in this phase
@@ -209,7 +214,8 @@ class RemoteExecutionService:
                     combined_reason,
                 )
 
-                # Mark command complete
+                # Mark command complete only after a successful execution so the
+                # next planned step cannot advance early.
                 self.state_manager.add_completed_command(command_id)
             else:
                 output = result.output if isinstance(result.output, dict) else {}
@@ -244,8 +250,13 @@ class RemoteExecutionService:
                     combined_reason,
                 )
 
-                # Mark command as failed but continue
+                logger.info(
+                    "Command '%s' failed; marking it unavailable and asking AI for another command for the same step.",
+                    command_obj.name,
+                )
                 self.state_manager.add_completed_command(command_id)
+                time.sleep(1)
+                continue
 
             time.sleep(2)  # Brief pause between tasks
 

@@ -28,9 +28,15 @@ from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
 
-from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
+from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext, Command
 from services.execution_service import ExecutionService
 from services.remote_execution_service import RemoteExecutionService
+from services.command_template_utils import (
+    build_target_context,
+    infer_required_tools,
+    normalize_command_template,
+    render_command_template,
+)
 from core.config import get_config, set_config
 from ai.llm.groq_adapter import GroqAdapter
 
@@ -63,6 +69,14 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         .select_related("command")
         .order_by("-created_at")
     )
+    command_lookup = {
+        command.name: command
+        for command in Command.objects.all()
+    }
+    target_context = build_target_context(
+        (state.state_data or {}).get("target")
+        or (state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
+    )
 
     latest_by_command: dict[str, Any] = {}
     for result in results:
@@ -82,6 +96,19 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             item["status"] = "failed"
         else:
             item["status"] = "pending"
+
+        command_obj = command_lookup.get(action_name)
+        if command_obj:
+            try:
+                template = normalize_command_template(command_obj)
+                step_context = {**target_context, **(item.get("parameters") or {})}
+                item["command_preview"] = render_command_template(template, step_context)
+            except Exception:
+                item["command_preview"] = command_obj.command_template or ""
+            item["required_tools"] = infer_required_tools(item.get("command_preview") or command_obj.command_template or "")
+        else:
+            item["command_preview"] = ""
+            item["required_tools"] = []
 
         item.setdefault("step_number", idx + 1)
         steps.append(item)

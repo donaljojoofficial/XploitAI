@@ -451,5 +451,13 @@ class NvidiaAdapter(BaseLLMAdapter):
             normalized["steps"] = [PlanStep(**step) for step in normalized["steps"]]
             return Plan(**normalized)
         except Exception as exc:
+            salvaged = self._salvage_partial_plan(text)
+            if salvaged and salvaged.steps:
+                logger.info(
+                    "NvidiaAdapter recovered %d plan step(s) from a malformed plan response after parse error: %s",
+                    len(salvaged.steps),
+                    exc,
+                )
+                return salvaged
             logger.error("NvidiaAdapter: failed to parse plan: %s\nRaw: %s", exc, (text or "")[:500])
-            return self._salvage_partial_plan(text)
+            return None

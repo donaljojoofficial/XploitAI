@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ai.llm.base import BaseLLMAdapter
 from ai.llm.lmstudio_adapter import LMStudioAdapter
@@ -105,6 +105,7 @@ class AIPlanner:
         self.adapter = self._get_adapter(provider)
         self.plan_adapter = self._get_plan_adapter(provider)
         self.review_adapter = self._get_review_adapter(provider)
+        self.last_plan_error: Optional[str] = None
         self._decision_cache: dict[str, dict] = {}
         self._decision_cache_ttl_seconds = 15.0
 
@@ -137,12 +138,35 @@ class AIPlanner:
 
     def _get_plan_adapter(self, provider: str) -> BaseLLMAdapter:
         requested_provider = (provider or "auto").lower()
-        adapters_by_name = self._discover_adapters()
+        adapters_by_name = self._ai_only_adapters(self._discover_adapters())
+
+        if requested_provider == "local":
+            return None
 
         if requested_provider == "hybrid":
-            return adapters_by_name.get("nvidia") or adapters_by_name.get("groq") or adapters_by_name["local"]
+            if not adapters_by_name:
+                return None
 
-        return self.adapter
+            from ai.llm.task_router import TaskRouterAdapter
+            hybrid_routes = {
+                "plan": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
+                "plan.initial": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
+                "plan.reconnaissance": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
+                "plan.enumeration": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
+                "plan.exploitation": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
+                "plan.privilege_escalation": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
+                "plan.proof_of_compromise": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
+            }
+            return TaskRouterAdapter(adapters_by_name, task_routes=hybrid_routes)
+
+        if requested_provider not in {"auto", "fallback"}:
+            return adapters_by_name.get(requested_provider)
+
+        if not adapters_by_name:
+            return None
+
+        from ai.llm.task_router import TaskRouterAdapter
+        return TaskRouterAdapter(adapters_by_name)
 
     def _get_review_adapter(self, provider: str) -> BaseLLMAdapter:
         requested_provider = (provider or "auto").lower()
@@ -204,6 +228,16 @@ class AIPlanner:
             routes[task_name] = [preferred_provider] + ordered
         return routes
 
+    def _ai_only_adapters(
+        self,
+        adapters_by_name: Dict[str, BaseLLMAdapter],
+    ) -> Dict[str, BaseLLMAdapter]:
+        return {
+            name: adapter
+            for name, adapter in (adapters_by_name or {}).items()
+            if name != "local"
+        }
+
     def _normalize_phase_key(self, phase: Optional[str]) -> str:
         phase_name = (phase or "").strip().lower().replace(" ", "_")
         return phase_name or "reconnaissance"
@@ -261,30 +295,69 @@ class AIPlanner:
     def get_next_command(self, state_manager: StateManager) -> Optional[dict]:
         """Determines the next command ID to execute one step at a time."""
 
-        if not self.adapter:
-            logger.info("No LLM provider active; using fallback planner engine.")
-            return FallbackPlannerEngine(state_manager).get_next_command()
-
         from core.models import AttackTarget, Command, ExecutionResult
 
+        attack_state = state_manager.get_attack_state()
         current_state = state_manager.get_current_state_for_planner()
         phase = current_state.get("current_phase")
 
+        # Create plan once, then execute iteratively step-by-step from it.
         available_commands = list(state_manager.get_available_commands(phase))
-        if not available_commands:
-            logger.info("No available commands for current phase. Falling back to deterministic engine.")
-            return FallbackPlannerEngine(state_manager).get_next_command()
-
         available_command_metadata = [
             {"id": c.id, "name": c.name, "description": c.description}
             for c in available_commands
         ]
-
-        attack_state = state_manager.get_attack_state()
-
-        # Create plan once, then execute iteratively step-by-step from it.
         self._ensure_plan(attack_state, phase, available_command_metadata)
         next_step_hint = self._next_step_hint(attack_state)
+        if attack_state.current_plan and not next_step_hint:
+            attack_state.current_phase = "COMPLETED"
+            attack_state.save(update_fields=["current_phase"])
+            logger.info("AIPlanner completed all planned steps for AttackState %s.", attack_state.id)
+            return None
+
+        planned_command = None
+        planned_command_name = None
+        planned_phase = None
+        if next_step_hint:
+            planned_command, planned_command_name, planned_phase = self._resolve_planned_command(
+                state_manager,
+                attack_state,
+                next_step_hint,
+            )
+            if planned_phase:
+                available_commands = list(state_manager.get_available_commands(planned_phase))
+                available_command_metadata = [
+                    {
+                        "id": c.id,
+                        "name": c.name,
+                        "description": c.description,
+                    }
+                    for c in available_commands
+                ]
+
+            if planned_command is None and not available_commands:
+                logger.warning(
+                    "AIPlanner could not resolve planned step '%s' to an executable command.",
+                    next_step_hint.get("action_type") or next_step_hint.get("action"),
+                )
+                return None
+
+            if planned_command is not None:
+                prioritized_commands = [planned_command] + [
+                    c for c in available_commands if c.id != planned_command.id
+                ]
+                available_commands = prioritized_commands
+                available_command_metadata = [
+                    {
+                        "id": c.id,
+                        "name": c.name,
+                        "description": c.description,
+                    }
+                    for c in available_commands
+                ]
+        elif not available_commands:
+            logger.info("No available commands for current phase. Falling back to deterministic engine.")
+            return FallbackPlannerEngine(state_manager).get_next_command()
 
         # Build a structured DecisionInput with last execution feedback so the
         # model can derive the next command from previous output.
@@ -384,13 +457,12 @@ class AIPlanner:
             logger.warning(f"LLM recommendation failed: {e}")
 
         if proposal is not None:
-            chosen_name = self._resolve_proposed_command_name(
-                proposal.action_type,
-                available_commands,
-            )
-            if not chosen_name and next_step_hint:
+            chosen_name = None
+            if planned_command_name and any(c.name == planned_command_name for c in available_commands):
+                chosen_name = planned_command_name
+            if not chosen_name:
                 chosen_name = self._resolve_proposed_command_name(
-                    next_step_hint.get("action_type") or next_step_hint.get("action"),
+                    proposal.action_type,
                     available_commands,
                 )
             chosen = next((c for c in available_commands if c.name == chosen_name), None)
@@ -406,8 +478,66 @@ class AIPlanner:
             else:
                 logger.warning(f"LLM proposed unknown command: {proposal.action_type}")
 
+        if planned_command is not None:
+            result = {
+                "command_id": planned_command.id,
+                "command_name": planned_command.name,
+                "reason": f"Following AI-generated plan step '{planned_command.name}'.",
+                "parameters": (next_step_hint or {}).get("parameters") or {},
+            }
+            self._set_cached_decision(cache_key, result)
+            return result
+
         logger.info("Fallback planner engine engaged after LLM fallback.")
         return FallbackPlannerEngine(state_manager).get_next_command()
+
+    def _resolve_planned_command(
+        self,
+        state_manager: StateManager,
+        attack_state,
+        next_step_hint: dict,
+    ) -> Tuple[Optional[object], Optional[str], Optional[str]]:
+        from core.models import Command
+
+        planned_name = next_step_hint.get("action_type") or next_step_hint.get("action")
+        if not planned_name:
+            return None, None, None
+
+        completed_ids = ((attack_state.state_data or {}).get("completed_commands") or [])
+        all_commands = list(Command.objects.select_related("phase"))
+        resolved_name = self._resolve_proposed_command_name(planned_name, all_commands)
+        if not resolved_name:
+            return None, None, None
+
+        resolved_command = next((c for c in all_commands if c.name == resolved_name), None)
+        resolved_phase = getattr(getattr(resolved_command, "phase", None), "name", None)
+
+        candidate_commands = [
+            c for c in all_commands
+            if c.id not in completed_ids
+        ]
+
+        chosen = next((c for c in candidate_commands if c.name == resolved_name), None)
+        if resolved_phase and attack_state.current_phase != resolved_phase:
+            attack_state.current_phase = resolved_phase
+            attack_state.save(update_fields=["current_phase"])
+            logger.info(
+                "AIPlanner advancing phase to '%s' to execute planned step '%s'.",
+                resolved_phase,
+                resolved_name,
+            )
+
+        if chosen and getattr(chosen, "phase", None):
+            chosen_phase = chosen.phase.name
+            if chosen_phase and attack_state.current_phase != chosen_phase:
+                attack_state.current_phase = chosen_phase
+                attack_state.save(update_fields=["current_phase"])
+                logger.info(
+                    "AIPlanner advancing phase to '%s' to execute planned step '%s'.",
+                    chosen_phase,
+                    resolved_name,
+                )
+        return chosen, resolved_name, resolved_phase
 
     def _build_decision_cache_key(
         self,
@@ -468,8 +598,13 @@ class AIPlanner:
         available_command_metadata: List[Dict[str, str]],
     ) -> bool:
         """Generate and persist an initial strategic plan once per attack run."""
+        self.last_plan_error = None
         if attack_state.current_plan and attack_state.current_plan.get("steps"):
             return True
+        if not self.plan_adapter:
+            self.last_plan_error = "No AI planning adapter is available for plan generation."
+            logger.warning("AIPlanner has no AI planning adapter available.")
+            return False
 
         known_services: List[KnownService] = []
         target = (attack_state.state_data or {}).get("target")
@@ -498,10 +633,12 @@ class AIPlanner:
         try:
             plan = self.plan_adapter.get_plan(decision_input, task_key=plan_task_key)
         except Exception as e:
+            self.last_plan_error = f"AI plan generation raised an exception: {e}"
             logger.warning(f"Plan generation failed in AIPlanner: {e}")
             return False
 
         if not plan or not plan.steps:
+            self.last_plan_error = "AI provider did not return a valid plan with steps."
             return False
 
         attack_state.current_plan = {
@@ -521,6 +658,7 @@ class AIPlanner:
             "AIPlanner generated initial plan with %d step(s).",
             len(plan.steps),
         )
+        self.last_plan_error = None
         return True
 
     def ensure_initial_plan(self, state_manager: StateManager) -> bool:

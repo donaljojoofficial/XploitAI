@@ -1,7 +1,9 @@
 from django.test import SimpleTestCase
 
 from services.command_template_utils import (
+    build_target_context,
     escape_non_placeholder_braces,
+    infer_required_tools,
     normalize_command_template,
     render_command_template,
 )
@@ -56,3 +58,16 @@ class CommandTemplateUtilsTests(SimpleTestCase):
         self.assertIn("patterns={'WordPress':'wp-content'}", rendered)
         self.assertIn("headers={'User-Agent': 'XploitAI-Scanner/1.0'}", rendered)
         self.assertNotIn("{{{{", rendered)
+
+    def test_build_target_context_extracts_host_from_url(self):
+        context = build_target_context("http://127.0.0.1:4280/")
+
+        self.assertEqual(context["target"], "http://127.0.0.1:4280/")
+        self.assertEqual(context["target_url"], "http://127.0.0.1:4280/")
+        self.assertEqual(context["target_host"], "127.0.0.1")
+        self.assertEqual(context["target_domain"], "127.0.0.1")
+
+    def test_infer_required_tools_detects_shell_dependencies(self):
+        tools = infer_required_tools("curl -s http://127.0.0.1:4280/ | jq '.'")
+
+        self.assertEqual(tools, ["curl", "jq"])

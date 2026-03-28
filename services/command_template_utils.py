@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 from core.models import Command
 
@@ -70,6 +71,17 @@ _KNOWN_PLACEHOLDER_RE = re.compile(
     r"\{(" + "|".join(sorted(PLACEHOLDERS)) + r")\}"
 )
 
+_TOOL_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("python", r"(?<![\w./-])python(?:3)?(?![\w./-])"),
+    ("curl", r"(?<![\w./-])curl(?![\w./-])"),
+    ("jq", r"(?<![\w./-])jq(?![\w./-])"),
+    ("grep", r"(?<![\w./-])grep(?![\w./-])"),
+    ("nmap", r"(?<![\w./-])nmap(?![\w./-])"),
+    ("whatweb", r"(?<![\w./-])whatweb(?![\w./-])"),
+    ("dirsearch", r"(?<![\w./-])dirsearch(?:\.py)?(?![\w./-])"),
+    ("paramspider", r"(?<![\w./-])paramspider(?:\.py)?(?![\w./-])"),
+)
+
 
 def escape_non_placeholder_braces(template: str) -> str:
     """
@@ -126,3 +138,40 @@ def render_command_template(template: str, context: dict[str, str]) -> str:
     rendered = _KNOWN_PLACEHOLDER_RE.sub(replace, template)
     # Backward compatibility for templates previously escaped for str.format().
     return rendered.replace("{{", "{").replace("}}", "}")
+
+
+def build_target_context(target: str) -> dict[str, str]:
+    """
+    Derive URL/host/domain placeholders from the persisted target value.
+
+    Web targets are often stored as full URLs, but host-oriented tools such as
+    nmap require only the hostname/IP component.
+    """
+    raw_target = str(target or "").strip()
+    if not raw_target:
+        return {
+            "target": "",
+            "target_url": "",
+            "target_host": "",
+            "target_domain": "",
+        }
+
+    parsed = urlsplit(raw_target if "://" in raw_target else f"//{raw_target}")
+    host = parsed.hostname or raw_target
+
+    return {
+        "target": raw_target,
+        "target_url": raw_target,
+        "target_host": host,
+        "target_domain": host,
+    }
+
+
+def infer_required_tools(command: str) -> list[str]:
+    """Infer likely executor tool dependencies from a shell command string."""
+    tools: list[str] = []
+    text = str(command or "")
+    for tool_name, pattern in _TOOL_PATTERNS:
+        if re.search(pattern, text):
+            tools.append(tool_name)
+    return tools

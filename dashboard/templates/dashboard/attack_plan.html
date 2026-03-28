@@ -134,6 +134,33 @@
                             {% endif %}
                         </div>
                     </div>
+
+                    <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
+                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Command Preview</div>
+                            {% if step.command_preview %}
+                            <pre class="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-slate-700/50 bg-slate-900/70 p-3 font-mono text-xs leading-6 text-cyber-primary">{{ step.command_preview }}</pre>
+                            {% else %}
+                            <div class="mt-3 text-sm text-slate-500">No command preview is available for this step yet.</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Executor Tools</div>
+                            {% if step.required_tools %}
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                {% for tool in step.required_tools %}
+                                <span class="rounded-full border border-cyber-warning/30 bg-cyber-warning/10 px-3 py-1 font-mono text-xs text-cyber-warning">{{ tool }}</span>
+                                {% endfor %}
+                            </div>
+                            <div class="mt-3 text-sm text-slate-400">
+                                Ensure these tools are installed on the executor before this step runs.
+                            </div>
+                            {% else %}
+                            <div class="mt-3 text-sm text-slate-500">No external tool dependency was inferred for this step.</div>
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
             </div>
         </article>

@@ -10,7 +10,11 @@ from executor.local_executor import run_command
 from parser.output_parser import parse_output
 from state.state_manager import StateManager
 from core.models import AttackState, Command, ExecutionResult
-from services.command_template_utils import normalize_command_template, render_command_template
+from services.command_template_utils import (
+    build_target_context,
+    normalize_command_template,
+    render_command_template,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +70,9 @@ class ExecutionService:
             plan_ready = self.planner.ensure_initial_plan(self.state_manager)
             attack_state.refresh_from_db()
             if not plan_ready or not (attack_state.current_plan or {}).get("steps"):
-                self.stop_assessment("Plan generation failed.")
+                self.stop_assessment(
+                    self.planner.last_plan_error or "Plan generation failed."
+                )
                 return
 
             if not isinstance(attack_state.state_data, dict):
@@ -126,12 +132,7 @@ class ExecutionService:
             # Re-read current_phase after planner may have advanced it
             current_state = self.state_manager.get_current_state_for_planner()
             target = current_state.get("target") or ""
-            sub_context = {
-                "target": target,
-                "target_url": target,
-                "target_host": target,
-                "target_domain": target,
-            }
+            sub_context = build_target_context(target)
             command_parameters = {**sub_context, **decision_parameters}
 
             try:
@@ -146,10 +147,12 @@ class ExecutionService:
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "
-                    "Marking as failed and continuing."
+                    "Stopping because the planned step cannot be executed."
                 )
-                self.state_manager.add_completed_command(command_id)
-                continue
+                self.stop_assessment(
+                    f"Planned step '{command_obj.name}' could not be rendered: missing placeholder {e}."
+                )
+                return
 
             result = None
             final_status = "FAILED"
@@ -199,9 +202,6 @@ class ExecutionService:
                 findings=findings,
             )
 
-            # Mark command complete — this prevents it from being selected again
-            self.state_manager.add_completed_command(command_id)
-
             self.state_manager.record_action(
                 command_obj.name,
                 command_parameters,
@@ -210,8 +210,17 @@ class ExecutionService:
             )
 
             if final_status == "FAILED":
-                logger.info(f"Command '{command_obj.name}' failed, moving to next.")
+                logger.info(
+                    "Command '%s' failed; marking it unavailable and asking AI for another command for the same step.",
+                    command_obj.name,
+                )
+                self.state_manager.add_completed_command(command_id)
+                time.sleep(1)
                 continue
+
+            # Mark command complete only after a successful execution so the
+            # next planned step cannot advance early.
+            self.state_manager.add_completed_command(command_id)
 
             time.sleep(2)
 
