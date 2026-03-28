@@ -782,6 +782,18 @@ class AIPlanner:
             .exclude(command=None)
             .values_list("command__name", flat=True)
         )
+        failed_names = list(
+            ExecutionResult.objects.filter(
+                attack_state=attack_state,
+                status="FAILED",
+            )
+            .exclude(command=None)
+            .values_list("command__name", flat=True)
+        )
+        completed_ids = set(((attack_state.state_data or {}).get("completed_commands") or []))
+        available_commands_by_name = {}
+        for command in self._all_commands():
+            available_commands_by_name.setdefault(command.name, []).append(command)
 
         remaining = list(succeeded_names)
         for step in steps:
@@ -791,10 +803,26 @@ class AIPlanner:
             if step_action in remaining:
                 remaining.remove(step_action)
                 continue
+            if step_action in failed_names:
+                unresolved_candidates = [
+                    command for command in available_commands_by_name.get(step_action, [])
+                    if command.id not in completed_ids
+                ]
+                if not unresolved_candidates:
+                    logger.info(
+                        "AIPlanner skipping exhausted failed plan step '%s' because no runnable commands remain for it.",
+                        step_action,
+                    )
+                    continue
             return {
                 "action_type": step_action,
                 "parameters": step.get("parameters", {}) or {},
             }
 
         return None
+
+    def _all_commands(self):
+        from core.models import Command
+
+        return list(Command.objects.select_related("phase"))
 

@@ -1,10 +1,11 @@
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from ai.llm.base import BaseLLMAdapter
 from ai.llm.nvidia_adapter import NvidiaAdapter
 from ai.llm.task_router import TaskRouterAdapter
 from ai.planner import AIPlanner
 from ai.schemas import Decision, DecisionInput
+from core.models import AttackState, Command, ExecutionResult, Phase
 
 
 class RecordingAdapter(BaseLLMAdapter):
@@ -239,3 +240,51 @@ class NvidiaAdapterPlanParsingTests(SimpleTestCase):
         self.assertEqual(len(plan.steps), 3)
         self.assertEqual(plan.steps[0].action_type, "EndpointDiscovery")
         self.assertEqual(plan.steps[2].action_type, "ProofOfCompromise")
+
+
+class AIPlannerPlanProgressionTests(TestCase):
+    def test_next_step_hint_skips_failed_exhausted_step(self):
+        discovery = Phase.objects.create(name="discovery", description="Discovery")
+        exploitation = Phase.objects.create(name="exploitation", description="Exploitation")
+
+        endpoint = Command.objects.create(
+            phase=discovery,
+            name="EndpointDiscovery",
+            description="Discover endpoints",
+            command_template="dirsearch -u {target_url}",
+        )
+        proof = Command.objects.create(
+            phase=exploitation,
+            name="ProofOfCompromise",
+            description="Verify compromise",
+            command_template="echo proof",
+        )
+
+        state = AttackState.objects.create(
+            name="Regression",
+            current_phase="RECONNAISSANCE",
+            state_data={
+                "completed_commands": [endpoint.id],
+            },
+            current_plan={
+                "steps": [
+                    {"step_number": 1, "action_type": "EndpointDiscovery", "parameters": {}},
+                    {"step_number": 2, "action_type": "ProofOfCompromise", "parameters": {}},
+                ]
+            },
+        )
+        ExecutionResult.objects.create(
+            command=endpoint,
+            attack_state=state,
+            target="http://127.0.0.1:4280/",
+            status="FAILED",
+            stdout="",
+            stderr="404",
+            findings={},
+        )
+
+        planner = AIPlanner.__new__(AIPlanner)
+
+        next_step = planner._next_step_hint(state)
+
+        self.assertEqual(next_step["action_type"], proof.name)
