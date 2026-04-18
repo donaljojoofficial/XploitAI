@@ -250,6 +250,7 @@
                         {% empty %}
                         <div class="px-4 py-3 text-slate-500 text-sm">No recent operations.</div>
                         {% endfor %}
+                        <a href="{% url 'dashboard_test_history' %}" class="block px-4 py-3 text-amber-300 hover:bg-slate-700/50 text-sm font-semibold border-t border-slate-700/50">VIEW FULL TEST HISTORY</a>
                     </div>
                 </div>
 

@@ -61,6 +61,17 @@ class PlanRecordingAdapter(RecordingAdapter):
         )
 
 
+class EmptyPlanAdapter(RecordingAdapter):
+    def __init__(self):
+        super().__init__("empty-plan")
+        self.last_plan_input = None
+
+    def get_plan(self, decision_input, task_key=None):
+        self.last_task_key = task_key
+        self.last_plan_input = decision_input
+        return None
+
+
 class TaskRouterAdapterTests(SimpleTestCase):
     def test_exact_route_overrides_generic_route(self):
         recon_adapter = RecordingAdapter("groq")
@@ -266,6 +277,13 @@ class NvidiaAdapterPlanParsingTests(SimpleTestCase):
 
 
 class AIPlannerPlanProgressionTests(TestCase):
+    def _bind_plan_generation_helpers(self, planner):
+        planner._render_step_command = AIPlanner._render_step_command.__get__(planner, AIPlanner)
+        planner._serialize_plan_step = AIPlanner._serialize_plan_step.__get__(planner, AIPlanner)
+        planner._resolve_proposed_command_name = AIPlanner._resolve_proposed_command_name.__get__(planner, AIPlanner)
+        planner._normalize_command_name = AIPlanner._normalize_command_name.__get__(planner, AIPlanner)
+        planner._all_commands = AIPlanner._all_commands.__get__(planner, AIPlanner)
+
     def test_next_step_hint_skips_failed_exhausted_step(self):
         discovery = Phase.objects.create(name="discovery", description="Discovery")
         exploitation = Phase.objects.create(name="exploitation", description="Exploitation")
@@ -347,6 +365,7 @@ class AIPlannerPlanProgressionTests(TestCase):
         planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
         planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
         planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+        self._bind_plan_generation_helpers(planner)
 
         ready = planner.ensure_initial_plan(StateManager(state.id))
         state.refresh_from_db()
@@ -386,6 +405,7 @@ class AIPlannerPlanProgressionTests(TestCase):
         planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
         planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
         planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+        self._bind_plan_generation_helpers(planner)
 
         ready = planner.ensure_initial_plan(StateManager(state.id))
         state.refresh_from_db()
@@ -393,3 +413,143 @@ class AIPlannerPlanProgressionTests(TestCase):
         self.assertTrue(ready)
         self.assertFalse(state.state_data["plan_approved"])
         self.assertEqual(state.current_plan["phase"], "reconnaissance")
+
+    def test_ensure_initial_plan_supplements_underfilled_phase_plan(self):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        header = Command.objects.create(
+            phase=reconnaissance,
+            name="HTTPHeaderFetch",
+            description="Headers",
+            command_template="curl -I {target_url}",
+        )
+        tech = Command.objects.create(
+            phase=reconnaissance,
+            name="TechnologyFingerprint",
+            description="Tech",
+            command_template="curl {target_url}",
+        )
+        robots = Command.objects.create(
+            phase=reconnaissance,
+            name="RobotsAndSitemap",
+            description="Robots",
+            command_template="curl {target_url}/robots.txt",
+        )
+
+        state = AttackState.objects.create(
+            name="Supplement plan",
+            current_phase="RECONNAISSANCE",
+            state_data={"target": "http://127.0.0.1:4280/"},
+        )
+
+        from state.state_manager import StateManager
+
+        planner = AIPlanner.__new__(AIPlanner)
+        planner.last_plan_error = None
+        planner.plan_adapter = PlanRecordingAdapter([header.name])
+        planner._plan_task_key = AIPlanner._plan_task_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_key = AIPlanner._normalize_phase_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_name = AIPlanner._normalize_phase_name.__get__(planner, AIPlanner)
+        planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
+        planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
+        planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
+        planner._supplement_plan_with_available_commands = AIPlanner._supplement_plan_with_available_commands.__get__(planner, AIPlanner)
+        planner._recover_phase_plan = AIPlanner._recover_phase_plan.__get__(planner, AIPlanner)
+        planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+        self._bind_plan_generation_helpers(planner)
+
+        ready = planner.ensure_initial_plan(StateManager(state.id))
+        state.refresh_from_db()
+
+        self.assertTrue(ready)
+        self.assertEqual(state.current_plan["phase"], "reconnaissance")
+        self.assertEqual(len(state.current_plan["steps"]), 3)
+        self.assertEqual(
+            [step["action_type"] for step in state.current_plan["steps"]],
+            [header.name, tech.name, robots.name],
+        )
+
+    def test_ensure_initial_plan_recovers_when_ai_plan_is_empty(self):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        header = Command.objects.create(
+            phase=reconnaissance,
+            name="HTTPHeaderFetch",
+            description="Headers",
+            command_template="curl -I {target_url}",
+        )
+        tech = Command.objects.create(
+            phase=reconnaissance,
+            name="TechnologyFingerprint",
+            description="Tech",
+            command_template="curl {target_url}",
+        )
+
+        state = AttackState.objects.create(
+            name="Recover plan",
+            current_phase="RECONNAISSANCE",
+            state_data={"target": "http://127.0.0.1:4280/"},
+        )
+
+        from state.state_manager import StateManager
+
+        planner = AIPlanner.__new__(AIPlanner)
+        planner.last_plan_error = None
+        planner.plan_adapter = EmptyPlanAdapter()
+        planner._plan_task_key = AIPlanner._plan_task_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_key = AIPlanner._normalize_phase_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_name = AIPlanner._normalize_phase_name.__get__(planner, AIPlanner)
+        planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
+        planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
+        planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
+        planner._supplement_plan_with_available_commands = AIPlanner._supplement_plan_with_available_commands.__get__(planner, AIPlanner)
+        planner._recover_phase_plan = AIPlanner._recover_phase_plan.__get__(planner, AIPlanner)
+        planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+        self._bind_plan_generation_helpers(planner)
+
+        ready = planner.ensure_initial_plan(StateManager(state.id))
+        state.refresh_from_db()
+
+        self.assertTrue(ready)
+        self.assertEqual(len(state.current_plan["steps"]), 2)
+        self.assertEqual(
+            [step["action_type"] for step in state.current_plan["steps"]],
+            [header.name, tech.name],
+        )
+
+    def test_ensure_initial_plan_persists_rendered_command_on_each_step(self):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        header = Command.objects.create(
+            phase=reconnaissance,
+            name="HTTPHeaderFetch",
+            description="Headers",
+            command_template="curl -I {target_url}",
+        )
+
+        state = AttackState.objects.create(
+            name="Rendered plan",
+            current_phase="RECONNAISSANCE",
+            state_data={"target": "http://127.0.0.1:4280/"},
+        )
+
+        from state.state_manager import StateManager
+
+        planner = AIPlanner.__new__(AIPlanner)
+        planner.last_plan_error = None
+        planner.plan_adapter = PlanRecordingAdapter([header.name])
+        planner._plan_task_key = AIPlanner._plan_task_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_key = AIPlanner._normalize_phase_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_name = AIPlanner._normalize_phase_name.__get__(planner, AIPlanner)
+        planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
+        planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
+        planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
+        planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+        self._bind_plan_generation_helpers(planner)
+
+        ready = planner.ensure_initial_plan(StateManager(state.id))
+        state.refresh_from_db()
+
+        self.assertTrue(ready)
+        self.assertEqual(
+            state.current_plan["steps"][0]["resolved_command"],
+            "curl -I http://127.0.0.1:4280/",
+        )
+        self.assertTrue(state.current_plan["steps"][0]["resolved_tools"])

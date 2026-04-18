@@ -44,6 +44,180 @@ from ai.llm.groq_adapter import GroqAdapter
 
 logger = logging.getLogger(__name__)
 
+def _normalize_phase_key(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _display_phase_name(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "Unknown Phase"
+    return text.replace("_", " ").title()
+
+
+def _summarize_findings(findings: Any) -> list[dict[str, Any]]:
+    if isinstance(findings, dict):
+        return [
+            {"key": str(key), "value": value}
+            for key, value in findings.items()
+        ]
+    if isinstance(findings, list):
+        return [
+            {"key": f"Finding {idx + 1}", "value": value}
+            for idx, value in enumerate(findings)
+        ]
+    if findings:
+        return [{"key": "Finding", "value": findings}]
+    return []
+
+
+def _status_from_result(value: Any) -> str:
+    status = str(value or "").upper()
+    if status in {"SUCCESS", "COMPLETED", "EXECUTED"}:
+        return "completed"
+    if status in {"FAILED", "ERROR", "REJECTED"}:
+        return "failed"
+    if status in {"RUNNING"}:
+        return "running"
+    return "pending"
+
+
+def _step_summary(steps: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "total": len(steps),
+        "completed": sum(1 for step in steps if step.get("status") == "completed"),
+        "failed": sum(1 for step in steps if step.get("status") == "failed"),
+        "running": sum(1 for step in steps if step.get("status") == "running"),
+        "pending": sum(1 for step in steps if step.get("status") == "pending"),
+    }
+
+
+def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
+    state_data = state.state_data or {}
+    phase_reviews = state_data.get("phase_reviews", [])
+    phases: list[dict[str, Any]] = []
+    reviewed_phase_keys: set[str] = set()
+
+    for index, review in enumerate(phase_reviews, start=1):
+        details = review.get("details") if isinstance(review, dict) else {}
+        details = details if isinstance(details, dict) else {}
+        review_phase = review.get("phase") if isinstance(review, dict) else None
+        plan_snapshot = details.get("plan_snapshot") or review.get("plan_snapshot") or []
+        result_snapshot = details.get("results_snapshot") or review.get("results_snapshot") or []
+        latest_result_by_command = {
+            item.get("command"): item
+            for item in result_snapshot
+            if isinstance(item, dict) and item.get("command")
+        }
+
+        steps = []
+        for step_index, step in enumerate(plan_snapshot, start=1):
+            item = deepcopy(step)
+            action_name = item.get("action_type") or item.get("action") or ""
+            matched_result = latest_result_by_command.get(action_name, {})
+            item["status"] = _status_from_result(matched_result.get("status") or "SUCCESS")
+            item.setdefault("step_number", step_index)
+            if matched_result.get("stdout_excerpt") and not item.get("output_excerpt"):
+                item["output_excerpt"] = matched_result.get("stdout_excerpt")
+            elif matched_result.get("stderr_excerpt") and not item.get("output_excerpt"):
+                item["output_excerpt"] = matched_result.get("stderr_excerpt")
+            steps.append(item)
+
+        findings = (
+            details.get("current_findings")
+            or review.get("findings")
+            or {key: True for key in details.get("key_evidence", [])}
+        )
+        outputs = []
+        for item in result_snapshot:
+            if not isinstance(item, dict):
+                continue
+            outputs.append(
+                {
+                    "command": item.get("command") or "unknown",
+                    "status": item.get("status") or "PLANNED",
+                    "stdout_excerpt": item.get("stdout_excerpt") or "",
+                    "stderr_excerpt": item.get("stderr_excerpt") or "",
+                    "findings": item.get("findings") or {},
+                }
+            )
+
+        phase_key = _normalize_phase_key(review_phase)
+        if phase_key:
+            reviewed_phase_keys.add(phase_key)
+
+        phases.append(
+            {
+                "phase": review_phase or f"Phase {index}",
+                "phase_display": _display_phase_name(review_phase or f"Phase {index}"),
+                "next_phase": review.get("next_phase") if isinstance(review, dict) else "",
+                "review": review.get("review", "") if isinstance(review, dict) else "",
+                "details": details,
+                "steps": steps,
+                "summary": _step_summary(steps),
+                "findings": _summarize_findings(findings),
+                "outputs": outputs,
+                "source": "review",
+            }
+        )
+
+    active_plan_view = _build_plan_view_state(state)
+    active_phase = (state.current_plan or {}).get("phase") or state.current_phase
+    active_phase_key = _normalize_phase_key(active_phase)
+    active_step_names = [
+        step.get("action_type") or step.get("action")
+        for step in (state.current_plan or {}).get("steps") or []
+    ]
+    latest_reviewed_steps = []
+    for phase in reversed(phases):
+        if _normalize_phase_key(phase.get("phase")) == active_phase_key:
+            latest_reviewed_steps = [
+                step.get("action_type") or step.get("action")
+                for step in phase.get("steps", [])
+            ]
+            break
+    should_append_active_phase = bool(active_plan_view.get("steps")) and (
+        active_phase_key not in reviewed_phase_keys
+        or active_step_names != latest_reviewed_steps
+    )
+
+    if should_append_active_phase:
+        phases.append(
+            {
+                "phase": active_phase,
+                "phase_display": _display_phase_name(active_phase),
+                "next_phase": "",
+                "review": "",
+                "details": {},
+                "steps": deepcopy(active_plan_view.get("steps") or []),
+                "summary": deepcopy(active_plan_view.get("summary") or _step_summary([])),
+                "findings": _summarize_findings(state_data.get("findings") or {}),
+                "outputs": [
+                    {
+                        "command": getattr(result.command, "name", "unknown"),
+                        "status": result.status,
+                        "stdout_excerpt": (result.stdout or "")[:400],
+                        "stderr_excerpt": (result.stderr or "")[:240],
+                        "findings": result.findings or {},
+                    }
+                    for result in state.execution_results.select_related("command").order_by("-created_at")[:10]
+                ],
+                "source": "active_plan",
+            }
+        )
+
+    aggregate_steps = [step for phase in phases for step in phase.get("steps", [])]
+    summary = _step_summary(aggregate_steps)
+    summary["phases"] = len(phases)
+    summary["findings"] = sum(len(phase.get("findings", [])) for phase in phases)
+    summary["outputs"] = sum(len(phase.get("outputs", [])) for phase in phases)
+
+    return {
+        "phases": phases,
+        "summary": summary,
+    }
+
+
 def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
     """
     Build a UI-friendly, execution-aware representation of current_plan.
@@ -64,6 +238,8 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             },
             "current_step": None,
             "all_done": False,
+            "phase_reviews": (state.state_data or {}).get("phase_reviews", []),
+            "phase_transition_pending": (state.state_data or {}).get("phase_transition_pending"),
         }
 
     results = (
@@ -414,6 +590,7 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
         'attack_state': state,
         'actions': actions,
         'plan_view': _build_plan_view_state(state),
+        'operation_history': _build_attack_run_history(state),
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_plan.html', context)
@@ -431,6 +608,25 @@ def attack_phase_reviews(request: HttpRequest, pk: int) -> HttpResponse:
         **_get_global_context(),
     }
     return render(request, 'dashboard/phase_reviews.html', context)
+
+
+@login_required(login_url='login')
+def test_history(request: HttpRequest) -> HttpResponse:
+    """Show all initiated attack runs with their stored plans, outputs, and reviews."""
+    attacks = list(AttackState.objects.order_by('-created_at'))
+    attack_histories = [
+        {
+            "attack_state": attack,
+            "history": _build_attack_run_history(attack),
+            "plan_view": _build_plan_view_state(attack),
+        }
+        for attack in attacks
+    ]
+    context = {
+        'attack_histories': attack_histories,
+        **_get_global_context(),
+    }
+    return render(request, 'dashboard/test_history.html', context)
 
 
 @login_required(login_url='login')
@@ -529,18 +725,10 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     
     if not state.state_data:
         state.state_data = {}
-    pending_transition = state.state_data.get('phase_transition_pending') or {}
-    if pending_transition.get('next_phase'):
-        state.current_phase = pending_transition['next_phase']
-        state.current_plan = {}
-        # Approval here only confirms the phase transition. The next phase must
-        # still generate a fresh plan and wait for explicit approval.
-        state.state_data['plan_approved'] = False
-        state.state_data.pop('phase_transition_pending', None)
-        state.save(update_fields=['state_data', 'current_phase', 'current_plan'])
-    else:
-        state.state_data['plan_approved'] = True
-        state.save(update_fields=['state_data'])
+    state.state_data['plan_approved'] = True
+    state.state_data.pop('auto_approve_generated_plan', None)
+    state.state_data.pop('phase_transition_pending', None)
+    state.save(update_fields=['state_data'])
 
     # Auto-resume the attack
     last_context = AttackContext.objects.order_by('-created_at').first()

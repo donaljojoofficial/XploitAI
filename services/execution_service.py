@@ -93,15 +93,23 @@ class ExecutionService:
             }
         )
         attack_state.state_data["phase_reviews"] = reviews
-        attack_state.state_data["phase_transition_pending"] = {
-            "from_phase": current_phase,
-            "next_phase": next_phase,
-            "review": (review or {}).get("summary", ""),
-        }
+        attack_state.state_data.pop("phase_transition_pending", None)
         attack_state.state_data["plan_approved"] = False
-        attack_state.save(update_fields=["state_data"])
+        attack_state.current_phase = next_phase
+        attack_state.current_plan = {}
+        attack_state.save(update_fields=["state_data", "current_phase", "current_plan"])
+
+        plan_ready = self.planner.ensure_initial_plan(self.state_manager)
+        attack_state.refresh_from_db()
+        if not plan_ready or not (attack_state.current_plan or {}).get("steps"):
+            self.stop_assessment(
+                self.planner.last_plan_error
+                or f"Phase '{current_phase}' reviewed, but next phase plan generation failed."
+            )
+            return True
+
         self.stop_assessment(
-            f"Phase '{current_phase}' completed. Waiting for approval to advance to '{next_phase}'."
+            f"Phase '{current_phase}' reviewed. Plan for '{next_phase}' generated and waiting for approval."
         )
         return True
 
@@ -134,6 +142,7 @@ class ExecutionService:
 
             if not isinstance(attack_state.state_data, dict):
                 attack_state.state_data = {}
+            attack_state.state_data.pop("auto_approve_generated_plan", None)
             if not attack_state.state_data.get("plan_approved", False):
                 attack_state.state_data["plan_approved"] = False
                 attack_state.save(update_fields=["state_data"])
@@ -192,6 +201,7 @@ class ExecutionService:
                 return
 
             command_template = normalize_command_template(command_obj)
+            planned_command = (decision.get("planned_command") or "").strip()
 
             # Re-read current_phase after planner may have advanced it
             current_state = self.state_manager.get_current_state_for_planner()
@@ -200,7 +210,9 @@ class ExecutionService:
             command_parameters = {**sub_context, **decision_parameters}
 
             try:
-                if self.llm_provider == "hybrid":
+                if planned_command:
+                    command = planned_command
+                elif self.llm_provider == "hybrid":
                     generated = self.command_generator.generate(
                         command_obj.name,
                         command_parameters,

@@ -28,6 +28,9 @@
                 </div>
 
                 <div class="flex flex-wrap gap-3 lg:max-w-sm lg:justify-end">
+                    <a href="{% url 'dashboard_test_history' %}" class="rounded-2xl border border-amber-500/30 bg-slate-900/60 px-4 py-3 text-sm text-amber-300 hover:border-amber-300/60 hover:text-white">
+                        Test History
+                    </a>
                     <a href="{% url 'dashboard_attack_phase_reviews' attack_state.id %}" class="rounded-2xl border border-cyan-500/30 bg-slate-900/60 px-4 py-3 text-sm text-cyan-300 hover:border-cyan-300/60 hover:text-white">
                         Phase Reviews
                     </a>
@@ -41,7 +44,7 @@
                     </div>
                     <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
                         <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Steps</div>
-                        <div class="mt-1 font-mono text-sm text-white">{{ plan_view.summary.total|default:0 }}</div>
+                        <div class="mt-1 font-mono text-sm text-white">{{ operation_history.summary.total|default:0 }}</div>
                     </div>
                 </div>
             </div>
@@ -49,19 +52,19 @@
             <div class="relative mt-8 grid gap-4 md:grid-cols-4">
                 <div class="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4">
                     <div class="text-[11px] uppercase tracking-[0.2em] text-emerald-300/80">Completed</div>
-                    <div class="mt-2 text-2xl font-bold text-white">{{ plan_view.summary.completed|default:0 }}</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ operation_history.summary.completed|default:0 }}</div>
                 </div>
                 <div class="rounded-2xl border border-cyber-info/25 bg-cyber-info/10 p-4">
                     <div class="text-[11px] uppercase tracking-[0.2em] text-cyber-info/80">Running</div>
-                    <div class="mt-2 text-2xl font-bold text-white">{{ plan_view.summary.running|default:0 }}</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ operation_history.summary.running|default:0 }}</div>
                 </div>
                 <div class="rounded-2xl border border-rose-500/25 bg-rose-500/10 p-4">
                     <div class="text-[11px] uppercase tracking-[0.2em] text-rose-300/80">Failed</div>
-                    <div class="mt-2 text-2xl font-bold text-white">{{ plan_view.summary.failed|default:0 }}</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ operation_history.summary.failed|default:0 }}</div>
                 </div>
                 <div class="rounded-2xl border border-slate-500/25 bg-slate-500/10 p-4">
                     <div class="text-[11px] uppercase tracking-[0.2em] text-slate-400">Pending</div>
-                    <div class="mt-2 text-2xl font-bold text-white">{{ plan_view.summary.pending|default:0 }}</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ operation_history.summary.pending|default:0 }}</div>
                 </div>
             </div>
         </div>
@@ -90,100 +93,180 @@
     </section>
     {% endif %}
 
-    {% if plan_view and plan_view.steps %}
+    {% if operation_history and operation_history.phases %}
     <section class="grid gap-5">
-        {% for step in plan_view.steps %}
-        <article class="glass-panel rounded-2xl border {% if step.status == 'completed' %}border-emerald-500/30{% elif step.status == 'running' %}border-cyber-info/40{% elif step.status == 'failed' %}border-rose-500/40{% else %}border-slate-600/50{% endif %} overflow-hidden">
-            <div class="grid gap-0 lg:grid-cols-[120px_1fr]">
-                <div class="flex items-center justify-center border-b border-slate-700/50 bg-slate-950/60 px-6 py-6 lg:border-b-0 lg:border-r lg:border-slate-700/50">
-                    <div class="text-center">
-                        <div class="text-[11px] uppercase tracking-[0.25em] text-slate-500">Step</div>
-                        <div class="mt-3 text-4xl font-bold text-white">{{ step.step_number|default:forloop.counter }}</div>
-                        <div class="mt-3 inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] {% if step.status == 'completed' %}bg-emerald-500/15 text-emerald-300{% elif step.status == 'running' %}bg-cyber-info/15 text-cyber-info{% elif step.status == 'failed' %}bg-rose-500/15 text-rose-300{% else %}bg-slate-600/20 text-slate-400{% endif %}">
-                            {{ step.status|default:"pending" }}
-                        </div>
-                    </div>
+        {% for phase in operation_history.phases %}
+        <article class="glass-panel rounded-2xl border border-slate-600/50 overflow-hidden">
+            <div class="border-b border-slate-700/60 bg-slate-950/40 px-6 py-5">
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="text-lg font-semibold text-white">{{ phase.phase_display }}</div>
+                    <div class="rounded-full border border-slate-600 px-3 py-1 text-xs font-mono text-slate-300">{{ phase.summary.completed }}/{{ phase.summary.total }} complete</div>
+                    {% if phase.next_phase %}
+                    <div class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-mono text-cyan-300">Next: {{ phase.next_phase }}</div>
+                    {% endif %}
+                    {% if phase.source == "active_plan" %}
+                    <div class="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-mono text-amber-300">Active Phase</div>
+                    {% endif %}
                 </div>
+                {% if phase.review %}
+                <p class="mt-3 text-sm leading-7 text-slate-300">{{ phase.review }}</p>
+                {% elif phase.details.summary %}
+                <p class="mt-3 text-sm leading-7 text-slate-300">{{ phase.details.summary }}</p>
+                {% endif %}
+            </div>
 
-                <div class="p-6 md:p-7">
-                    <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                        <div>
-                            <h2 class="text-xl font-semibold text-white">
-                                {% if step.action_type %}{{ step.action_type }}{% elif step.action %}{{ step.action }}{% else %}Unknown Step{% endif %}
-                            </h2>
-                            {% if step.rationale %}
-                            <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                                {{ step.rationale }}
-                            </p>
-                            {% endif %}
+            <div class="p-6 md:p-7 space-y-5">
+                {% if phase.steps %}
+                <div class="grid gap-4">
+                    {% for step in phase.steps %}
+                    <div class="rounded-2xl border {% if step.status == 'completed' %}border-emerald-500/30{% elif step.status == 'running' %}border-cyber-info/40{% elif step.status == 'failed' %}border-rose-500/40{% else %}border-slate-600/50{% endif %} overflow-hidden">
+                        <div class="grid gap-0 lg:grid-cols-[120px_1fr]">
+                            <div class="flex items-center justify-center border-b border-slate-700/50 bg-slate-950/60 px-6 py-6 lg:border-b-0 lg:border-r lg:border-slate-700/50">
+                                <div class="text-center">
+                                    <div class="text-[11px] uppercase tracking-[0.25em] text-slate-500">Step</div>
+                                    <div class="mt-3 text-4xl font-bold text-white">{{ step.step_number|default:forloop.counter }}</div>
+                                    <div class="mt-3 inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] {% if step.status == 'completed' %}bg-emerald-500/15 text-emerald-300{% elif step.status == 'running' %}bg-cyber-info/15 text-cyber-info{% elif step.status == 'failed' %}bg-rose-500/15 text-rose-300{% else %}bg-slate-600/20 text-slate-400{% endif %}">
+                                        {{ step.status|default:"pending" }}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="p-6 md:p-7">
+                                <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                        <h2 class="text-xl font-semibold text-white">
+                                            {% if step.action_type %}{{ step.action_type }}{% elif step.action %}{{ step.action }}{% else %}Unknown Step{% endif %}
+                                        </h2>
+                                        {% if step.rationale %}
+                                        <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
+                                            {{ step.rationale }}
+                                        </p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
+                                <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
+                                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Intent</div>
+                                        <div class="mt-3 text-sm leading-7 text-slate-300">
+                                            {% if step.status == 'completed' %}
+                                                This stage has completed successfully and fed evidence into the next branch of the kill chain.
+                                            {% elif step.status == 'running' %}
+                                                This stage is currently being executed and may refine later steps with fresh output.
+                                            {% elif step.status == 'failed' %}
+                                                This stage failed and should be reviewed before the next aggressive action continues.
+                                            {% else %}
+                                                This stage is queued in the strategy and will execute once earlier evidence is confirmed.
+                                            {% endif %}
+                                        </div>
+                                        {% if step.output_excerpt %}
+                                        <pre class="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-slate-700/50 bg-slate-900/70 p-3 font-mono text-xs leading-6 text-emerald-300">{{ step.output_excerpt }}</pre>
+                                        {% endif %}
+                                    </div>
+
+                                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Parameters</div>
+                                        {% if step.parameters %}
+                                        <div class="mt-3 space-y-2">
+                                            {% for key, value in step.parameters.items %}
+                                            <div class="flex items-start justify-between gap-4 rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2">
+                                                <div class="font-mono text-xs uppercase tracking-[0.15em] text-slate-400">{{ key }}</div>
+                                                <div class="max-w-[70%] break-all text-right font-mono text-xs text-cyber-primary">{{ value }}</div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                        {% else %}
+                                        <div class="mt-3 text-sm text-slate-500">No explicit parameters set for this step yet.</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
+                                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Command Preview</div>
+                                        {% if step.command_preview_source == "executor" %}
+                                        <div class="mt-2 text-xs text-slate-400">Actual resolved executor command for this step.</div>
+                                        {% elif step.command_preview_source == "hybrid" %}
+                                        <div class="mt-2 text-xs text-slate-400">Hybrid preview using the tool-oriented command generator. The final AI-generated command may vary slightly at execution time.</div>
+                                        {% elif step.command_preview_source == "deterministic" %}
+                                        <div class="mt-2 text-xs text-slate-400">Deterministic runtime template preview.</div>
+                                        {% endif %}
+                                        {% if step.command_preview %}
+                                        <pre class="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-slate-700/50 bg-slate-900/70 p-3 font-mono text-xs leading-6 text-cyber-primary">{{ step.command_preview }}</pre>
+                                        {% elif step.resolved_command %}
+                                        <pre class="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-slate-700/50 bg-slate-900/70 p-3 font-mono text-xs leading-6 text-cyber-primary">{{ step.resolved_command }}</pre>
+                                        {% else %}
+                                        <div class="mt-3 text-sm text-slate-500">No command preview is available for this step yet.</div>
+                                        {% endif %}
+                                    </div>
+
+                                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Executor Tools</div>
+                                        {% if step.required_tools %}
+                                        <div class="mt-3 flex flex-wrap gap-2">
+                                            {% for tool in step.required_tools %}
+                                            <span class="rounded-full border border-cyber-warning/30 bg-cyber-warning/10 px-3 py-1 font-mono text-xs text-cyber-warning">{{ tool }}</span>
+                                            {% endfor %}
+                                        </div>
+                                        <div class="mt-3 text-sm text-slate-400">
+                                            Ensure these tools are installed on the executor before this step runs.
+                                        </div>
+                                        {% elif step.resolved_tools %}
+                                        <div class="mt-3 flex flex-wrap gap-2">
+                                            {% for tool in step.resolved_tools %}
+                                            <span class="rounded-full border border-cyber-warning/30 bg-cyber-warning/10 px-3 py-1 font-mono text-xs text-cyber-warning">{{ tool }}</span>
+                                            {% endfor %}
+                                        </div>
+                                        {% else %}
+                                        <div class="mt-3 text-sm text-slate-500">No external tool dependency was inferred for this step.</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
 
-                    <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
-                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
-                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Intent</div>
-                            <div class="mt-3 text-sm leading-7 text-slate-300">
-                                {% if step.status == 'completed' %}
-                                    This stage has completed successfully and fed evidence into the next branch of the kill chain.
-                                {% elif step.status == 'running' %}
-                                    This stage is currently being executed and may refine later steps with fresh output.
-                                {% elif step.status == 'failed' %}
-                                    This stage failed and should be reviewed before the next aggressive action continues.
-                                {% else %}
-                                    This stage is queued in the strategy and will execute once earlier evidence is confirmed.
+                <div class="grid gap-4 xl:grid-cols-2">
+                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Findings</div>
+                        {% if phase.findings %}
+                        <div class="mt-3 space-y-2">
+                            {% for finding in phase.findings %}
+                            <div class="rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2">
+                                <div class="font-mono text-xs uppercase tracking-[0.15em] text-slate-400">{{ finding.key }}</div>
+                                <div class="mt-1 break-all text-sm text-cyan-200">{{ finding.value }}</div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="mt-3 text-sm text-slate-500">No findings stored for this phase yet.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Outputs</div>
+                        {% if phase.outputs %}
+                        <div class="mt-3 space-y-3">
+                            {% for output in phase.outputs %}
+                            <div class="rounded-xl border border-slate-700/50 bg-slate-900/60 p-3">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <div class="font-mono text-sm text-white">{{ output.command }}</div>
+                                    <div class="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-300">{{ output.status }}</div>
+                                </div>
+                                {% if output.stdout_excerpt %}
+                                <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-slate-700/50 bg-slate-950/70 p-2 font-mono text-[11px] leading-5 text-emerald-300">{{ output.stdout_excerpt }}</pre>
+                                {% elif output.stderr_excerpt %}
+                                <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-slate-700/50 bg-slate-950/70 p-2 font-mono text-[11px] leading-5 text-rose-300">{{ output.stderr_excerpt }}</pre>
                                 {% endif %}
                             </div>
+                            {% endfor %}
                         </div>
-
-                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
-                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Parameters</div>
-                            {% if step.parameters %}
-                            <div class="mt-3 space-y-2">
-                                {% for key, value in step.parameters.items %}
-                                <div class="flex items-start justify-between gap-4 rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2">
-                                    <div class="font-mono text-xs uppercase tracking-[0.15em] text-slate-400">{{ key }}</div>
-                                    <div class="max-w-[70%] break-all text-right font-mono text-xs text-cyber-primary">{{ value }}</div>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            {% else %}
-                            <div class="mt-3 text-sm text-slate-500">No explicit parameters set for this step yet.</div>
-                            {% endif %}
-                        </div>
-                    </div>
-
-                    <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
-                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
-                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Command Preview</div>
-                            {% if step.command_preview_source == "executor" %}
-                            <div class="mt-2 text-xs text-slate-400">Actual resolved executor command for this step.</div>
-                            {% elif step.command_preview_source == "hybrid" %}
-                            <div class="mt-2 text-xs text-slate-400">Hybrid preview using the tool-oriented command generator. The final AI-generated command may vary slightly at execution time.</div>
-                            {% elif step.command_preview_source == "deterministic" %}
-                            <div class="mt-2 text-xs text-slate-400">Deterministic runtime template preview.</div>
-                            {% endif %}
-                            {% if step.command_preview %}
-                            <pre class="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-slate-700/50 bg-slate-900/70 p-3 font-mono text-xs leading-6 text-cyber-primary">{{ step.command_preview }}</pre>
-                            {% else %}
-                            <div class="mt-3 text-sm text-slate-500">No command preview is available for this step yet.</div>
-                            {% endif %}
-                        </div>
-
-                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
-                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Executor Tools</div>
-                            {% if step.required_tools %}
-                            <div class="mt-3 flex flex-wrap gap-2">
-                                {% for tool in step.required_tools %}
-                                <span class="rounded-full border border-cyber-warning/30 bg-cyber-warning/10 px-3 py-1 font-mono text-xs text-cyber-warning">{{ tool }}</span>
-                                {% endfor %}
-                            </div>
-                            <div class="mt-3 text-sm text-slate-400">
-                                Ensure these tools are installed on the executor before this step runs.
-                            </div>
-                            {% else %}
-                            <div class="mt-3 text-sm text-slate-500">No external tool dependency was inferred for this step.</div>
-                            {% endif %}
-                        </div>
+                        {% else %}
+                        <div class="mt-3 text-sm text-slate-500">No execution outputs stored for this phase yet.</div>
+                        {% endif %}
                     </div>
                 </div>
             </div>

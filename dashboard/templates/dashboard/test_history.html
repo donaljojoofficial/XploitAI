@@ -1,0 +1,168 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Test History - XploitAI{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <section class="glass-panel rounded-2xl overflow-hidden border border-slate-600/50 shadow-2xl">
+        <div class="relative p-8 md:p-10 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.16),transparent_32%),radial-gradient(circle_at_top_right,rgba(0,245,255,0.12),transparent_24%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,41,59,0.88))]">
+            <div class="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div class="max-w-4xl">
+                    <div class="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-amber-300">
+                        Previous Tests
+                    </div>
+                    <h1 class="mt-4 text-3xl font-bold text-white md:text-4xl">All Initiated Test Runs</h1>
+                    <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                        Full run history across all initiated tests, including phases, steps, findings, outputs, and stored phase reviews.
+                    </p>
+                </div>
+                <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Runs</div>
+                    <div class="mt-1 font-mono text-sm text-white">{{ attack_histories|length }}</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {% if attack_histories %}
+    <section class="grid gap-6">
+        {% for item in attack_histories %}
+        <article class="glass-panel rounded-2xl border border-slate-600/50 overflow-hidden">
+            <div class="border-b border-slate-700/60 bg-slate-950/40 px-6 py-5">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <div class="text-2xl font-semibold text-white">{{ item.attack_state.name }}</div>
+                        <div class="mt-2 flex flex-wrap gap-2 text-xs font-mono">
+                            <span class="rounded-full border border-slate-600 px-3 py-1 text-slate-300">{{ item.attack_state.current_phase }}</span>
+                            <span class="rounded-full border border-slate-600 px-3 py-1 text-slate-300">{{ item.attack_state.autonomy_status }}</span>
+                            <span class="rounded-full border border-slate-600 px-3 py-1 text-slate-300">{{ item.attack_state.created_at|date:"Y-m-d H:i" }}</span>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-3">
+                        <a href="{% url 'dashboard_attack_detail' item.attack_state.id %}" class="rounded-xl border border-slate-600/50 bg-slate-900/60 px-4 py-3 text-sm text-white hover:border-cyan-400/40">Open Operation</a>
+                        <a href="{% url 'dashboard_attack_plan' item.attack_state.id %}" class="rounded-xl border border-cyan-500/30 bg-slate-900/60 px-4 py-3 text-sm text-cyan-300 hover:border-cyan-300/60 hover:text-white">Plan View</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid gap-4 border-b border-slate-700/60 p-6 md:grid-cols-5">
+                <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Phases</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ item.history.summary.phases }}</div>
+                </div>
+                <div class="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-emerald-300/80">Completed</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ item.history.summary.completed }}</div>
+                </div>
+                <div class="rounded-2xl border border-rose-500/25 bg-rose-500/10 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-rose-300/80">Failed</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ item.history.summary.failed }}</div>
+                </div>
+                <div class="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-cyan-300/80">Findings</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ item.history.summary.findings }}</div>
+                </div>
+                <div class="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
+                    <div class="text-[11px] uppercase tracking-[0.2em] text-amber-300/80">Outputs</div>
+                    <div class="mt-2 text-2xl font-bold text-white">{{ item.history.summary.outputs }}</div>
+                </div>
+            </div>
+
+            <div class="p-6 space-y-5">
+                {% for phase in item.history.phases %}
+                <div class="rounded-2xl border border-slate-700/60 bg-slate-950/30 p-5">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div class="text-lg font-semibold text-white">{{ phase.phase_display }}</div>
+                        <div class="rounded-full border border-slate-600 px-3 py-1 text-xs font-mono text-slate-300">{{ phase.summary.completed }}/{{ phase.summary.total }} complete</div>
+                        {% if phase.next_phase %}
+                        <div class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-mono text-cyan-300">Next: {{ phase.next_phase }}</div>
+                        {% endif %}
+                    </div>
+
+                    {% if phase.review %}
+                    <p class="mt-3 text-sm leading-7 text-slate-300">{{ phase.review }}</p>
+                    {% elif phase.details.summary %}
+                    <p class="mt-3 text-sm leading-7 text-slate-300">{{ phase.details.summary }}</p>
+                    {% endif %}
+
+                    <div class="mt-4 grid gap-4 xl:grid-cols-3">
+                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Steps</div>
+                            {% if phase.steps %}
+                            <div class="mt-3 space-y-2">
+                                {% for step in phase.steps %}
+                                <div class="rounded-xl border border-slate-700/50 bg-slate-900/60 p-3">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <div class="font-mono text-sm text-white">{% if step.action_type %}{{ step.action_type }}{% elif step.action %}{{ step.action }}{% else %}Unknown Step{% endif %}</div>
+                                        <div class="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-300">{{ step.status }}</div>
+                                    </div>
+                                    {% if step.rationale %}
+                                    <div class="mt-2 text-sm text-slate-300">{{ step.rationale }}</div>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="mt-3 text-sm text-slate-500">No steps stored.</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Findings</div>
+                            {% if phase.findings %}
+                            <div class="mt-3 space-y-2">
+                                {% for finding in phase.findings %}
+                                <div class="rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2">
+                                    <div class="font-mono text-xs uppercase tracking-[0.15em] text-slate-400">{{ finding.key }}</div>
+                                    <div class="mt-1 break-all text-sm text-cyan-200">{{ finding.value }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="mt-3 text-sm text-slate-500">No findings stored.</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Outputs & Reviews</div>
+                            {% if phase.outputs %}
+                            <div class="mt-3 space-y-3">
+                                {% for output in phase.outputs %}
+                                <div class="rounded-xl border border-slate-700/50 bg-slate-900/60 p-3">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <div class="font-mono text-sm text-white">{{ output.command }}</div>
+                                        <div class="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-300">{{ output.status }}</div>
+                                    </div>
+                                    {% if output.stdout_excerpt %}
+                                    <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-slate-700/50 bg-slate-950/70 p-2 font-mono text-[11px] leading-5 text-emerald-300">{{ output.stdout_excerpt }}</pre>
+                                    {% elif output.stderr_excerpt %}
+                                    <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-slate-700/50 bg-slate-950/70 p-2 font-mono text-[11px] leading-5 text-rose-300">{{ output.stderr_excerpt }}</pre>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="mt-3 text-sm text-slate-500">No outputs stored.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+
+                {% if not item.history.phases %}
+                <div class="rounded-2xl border border-slate-700/60 bg-slate-950/30 p-5 text-sm text-slate-400">
+                    This test has been initiated, but no phase plan or review data has been stored yet.
+                </div>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
+    </section>
+    {% else %}
+    <section class="glass-panel rounded-2xl border border-slate-600/50 p-10 text-center">
+        <div class="text-sm uppercase tracking-[0.3em] text-slate-500">No Tests Yet</div>
+        <p class="mt-4 text-sm leading-7 text-slate-300">Start a new test to populate the history page.</p>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

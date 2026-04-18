@@ -32,6 +32,7 @@
             <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="px-3 py-1.5 text-sm border border-gray-500 text-gray-300 hover:border-gray-300 hover:text-white rounded transition-colors flex items-center gap-1">
                 📋 Plan
             </a>
+            <a href="{% url 'dashboard_test_history' %}" class="px-3 py-1.5 text-sm border border-amber-500/50 text-amber-300 hover:border-amber-300 hover:text-white rounded transition-colors flex items-center gap-1">Test History</a>
             <a href="{% url 'dashboard_attack_phase_reviews' attack_state.id %}" class="px-3 py-1.5 text-sm border border-cyan-500/50 text-cyan-300 hover:border-cyan-300 hover:text-white rounded transition-colors flex items-center gap-1">Phase Reviews</a>
             <a href="{% url 'dashboard_attack_command_logs' attack_state.id %}" class="px-3 py-1.5 text-sm border border-gray-500 text-gray-300 hover:border-gray-300 hover:text-white rounded transition-colors flex items-center gap-1">
                 🖥️ Command Logs

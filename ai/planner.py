@@ -3,10 +3,25 @@ import logging
 import time
 from typing import Dict, List, Optional, Tuple
 
+from services.command_template_utils import (
+    build_target_context,
+    infer_required_tools,
+    normalize_command_targets,
+    normalize_command_template,
+    render_command_template,
+)
 from ai.llm.base import BaseLLMAdapter
 from ai.llm.lmstudio_adapter import LMStudioAdapter
 from ai.llm.nvidia_output_analysis_adapter import NvidiaOutputAnalysisAdapter
-from ai.schemas import ActionResultSummary, Decision, DecisionInput, KnownService, PastActionSummary
+from ai.schemas import (
+    ActionResultSummary,
+    Decision,
+    DecisionInput,
+    KnownService,
+    PastActionSummary,
+    Plan,
+    PlanStep,
+)
 from state.state_manager import StateManager
 
 logger = logging.getLogger(__name__)
@@ -489,6 +504,8 @@ class AIPlanner:
                     "command_name": chosen.name,
                     "reason": proposal.rationale or "Chosen by AI recommendation.",
                     "parameters": proposal.parameters or ((next_step_hint or {}).get("parameters") or {}),
+                    "planned_command": (next_step_hint or {}).get("resolved_command") or "",
+                    "required_tools": (next_step_hint or {}).get("resolved_tools") or [],
                 }
                 self._set_cached_decision(cache_key, result)
                 return result
@@ -501,6 +518,8 @@ class AIPlanner:
                 "command_name": planned_command.name,
                 "reason": f"Following AI-generated plan step '{planned_command.name}'.",
                 "parameters": (next_step_hint or {}).get("parameters") or {},
+                "planned_command": (next_step_hint or {}).get("resolved_command") or "",
+                "required_tools": (next_step_hint or {}).get("resolved_tools") or [],
             }
             self._set_cached_decision(cache_key, result)
             return result
@@ -518,6 +537,52 @@ class AIPlanner:
             }
             for c in (commands or [])
         ]
+
+    def _render_step_command(
+        self,
+        attack_state,
+        action_name: str,
+        parameters: Optional[dict] = None,
+    ) -> tuple[str, list[str], Optional[int]]:
+        from core.models import Command
+
+        parameters = parameters or {}
+        available_commands = self._all_commands()
+        resolved_name = self._resolve_proposed_command_name(action_name, available_commands)
+        command_obj = next((c for c in available_commands if c.name == resolved_name), None)
+        if not command_obj:
+            return "", [], None
+
+        target_context = build_target_context(
+            (attack_state.state_data or {}).get("target")
+            or (attack_state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
+        )
+        render_context = {**target_context, **parameters}
+        try:
+            command = render_command_template(
+                normalize_command_template(command_obj),
+                render_context,
+            )
+            command = normalize_command_targets(command, render_context)
+        except KeyError:
+            command = command_obj.command_template or ""
+        return command, infer_required_tools(command), command_obj.id
+
+    def _serialize_plan_step(self, attack_state, step: PlanStep) -> dict:
+        resolved_command, resolved_tools, command_id = self._render_step_command(
+            attack_state,
+            step.action_type,
+            step.parameters,
+        )
+        return {
+            "step_number": step.step_number,
+            "action_type": step.action_type,
+            "parameters": step.parameters,
+            "rationale": step.rationale,
+            "resolved_command": resolved_command,
+            "resolved_tools": resolved_tools,
+            "command_id": command_id,
+        }
 
     def _ensure_active_phase_plan(
         self,
@@ -696,6 +761,92 @@ class AIPlanner:
             return 1
         return min(available_count, 4)
 
+    def _supplement_plan_with_available_commands(
+        self,
+        plan: Optional[Plan],
+        decision_input: DecisionInput,
+        available_command_metadata: List[Dict[str, str]],
+    ) -> Optional[Plan]:
+        if not available_command_metadata:
+            return plan
+
+        minimum_steps = self._minimum_plan_steps(available_command_metadata)
+        existing_steps = list((plan.steps if plan else []) or [])
+        normalized_existing = {
+            self._normalize_command_name(step.action_type)
+            for step in existing_steps
+            if getattr(step, "action_type", None)
+        }
+
+        supplemented_steps = list(existing_steps)
+        for command_meta in available_command_metadata:
+            action_name = str(command_meta.get("name") or "").strip()
+            if not action_name:
+                continue
+            normalized_name = self._normalize_command_name(action_name)
+            if normalized_name in normalized_existing:
+                continue
+
+            supplemented_steps.append(
+                PlanStep(
+                    step_number=len(supplemented_steps) + 1,
+                    action_type=action_name,
+                    parameters={},
+                    rationale=(
+                        f"Supplemented to ensure {decision_input.phase} phase coverage for {action_name}."
+                    ),
+                )
+            )
+            normalized_existing.add(normalized_name)
+            if len(supplemented_steps) >= minimum_steps:
+                break
+
+        if not supplemented_steps:
+            return None
+
+        rationale = (plan.rationale if plan else None) or (
+            f"Recovered phase plan for {decision_input.phase} from available commands."
+        )
+        return Plan(steps=supplemented_steps, rationale=rationale)
+
+    def _recover_phase_plan(
+        self,
+        decision_input: DecisionInput,
+        available_command_metadata: List[Dict[str, str]],
+        plan: Optional[Plan],
+    ) -> Optional[Plan]:
+        recovered_plan = self._supplement_plan_with_available_commands(
+            plan,
+            decision_input,
+            available_command_metadata,
+        )
+        minimum_steps = self._minimum_plan_steps(available_command_metadata)
+        if recovered_plan and len(recovered_plan.steps) >= minimum_steps:
+            return recovered_plan
+
+        from ai.llm.local_rule_engine import LocalRuleEngine
+
+        try:
+            local_plan = LocalRuleEngine().get_plan(decision_input)
+        except Exception as exc:
+            logger.warning("Local phase plan recovery failed: %s", exc)
+            local_plan = None
+
+        recovered_plan = self._supplement_plan_with_available_commands(
+            local_plan or recovered_plan,
+            decision_input,
+            available_command_metadata,
+        )
+        if recovered_plan and recovered_plan.steps:
+            if local_plan and local_plan.steps:
+                logger.info(
+                    "AIPlanner recovered phase plan for '%s' using local fallback/supplementation.",
+                    decision_input.phase,
+                )
+            return recovered_plan
+
+        return None
+
     def _ensure_plan(
         self,
         attack_state,
@@ -749,32 +900,46 @@ class AIPlanner:
             logger.warning(f"Plan generation failed in AIPlanner: {e}")
             return False
 
-        if not plan or not plan.steps:
-            self.last_plan_error = "AI provider did not return a valid plan with steps."
-            return False
-
         minimum_steps = self._minimum_plan_steps(available_command_metadata)
-        if len(plan.steps) < minimum_steps:
-            self.last_plan_error = (
-                f"AI provider returned an incomplete plan with only {len(plan.steps)} steps; "
-                f"expected at least {minimum_steps} for this attack."
+        if not plan or not plan.steps:
+            logger.warning(
+                "AIPlanner received no usable phase plan for '%s'; attempting recovery.",
+                phase or attack_state.current_phase,
             )
-            logger.warning(self.last_plan_error)
-            return False
+            plan = self._recover_phase_plan(
+                decision_input,
+                available_command_metadata,
+                plan,
+            )
+            if not plan or not plan.steps:
+                self.last_plan_error = "AI provider did not return a valid plan with steps."
+                return False
+
+        if len(plan.steps) < minimum_steps:
+            logger.warning(
+                "AIPlanner received only %d step(s) for phase '%s'; supplementing to reach %d.",
+                len(plan.steps),
+                phase or attack_state.current_phase,
+                minimum_steps,
+            )
+            plan = self._recover_phase_plan(
+                decision_input,
+                available_command_metadata,
+                plan,
+            )
+            if not plan or len(plan.steps) < minimum_steps:
+                self.last_plan_error = (
+                    f"AI provider returned an incomplete plan with only {len((plan.steps if plan else []) or [])} steps; "
+                    f"expected at least {minimum_steps} for this attack."
+                )
+                logger.warning(self.last_plan_error)
+                return False
 
         attack_state.current_plan = {
             "phase": normalized_phase,
             "scope": "phase",
             "rationale": plan.rationale or "Plan generated by AIPlanner.",
-            "steps": [
-                {
-                    "step_number": s.step_number,
-                    "action_type": s.action_type,
-                    "parameters": s.parameters,
-                    "rationale": s.rationale,
-                }
-                for s in plan.steps
-            ],
+            "steps": [self._serialize_plan_step(attack_state, s) for s in plan.steps],
         }
         if not isinstance(attack_state.state_data, dict):
             attack_state.state_data = {}

@@ -679,8 +679,17 @@ class AutonomousController:
         """
         Persist the decision as an Action and queue it for execution.
         """
+        planned_command = ""
+        for step in (state.current_plan or {}).get("steps", []):
+            step_name = step.get("action_type") or step.get("action")
+            if step_name == proposal.name and step.get("resolved_command"):
+                planned_command = step.get("resolved_command") or ""
+                break
+
         # Generate the shell command first to validate it
         generated = self.command_generator.generate(proposal.name, proposal.parameters)
+        if planned_command:
+            generated.shell_command = planned_command
 
         # Safety Check
         is_safe, safety_reason = self.safety_filter.validate(generated.shell_command)
