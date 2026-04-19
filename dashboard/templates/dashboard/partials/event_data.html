@@ -9,9 +9,8 @@
 <div class="evt-container">
     {% if data is None %}
         <span class="evt-empty">No data available</span>
-    
+
     {% elif data.steps %}
-        {# --- AI Plan Visualization --- #}
         <div class="evt-plan">
             <div class="evt-header">AI Plan</div>
             <ol class="evt-list">
@@ -29,29 +28,25 @@
         </div>
 
     {% elif data.rule_id %}
-        {# --- Defender Alert Visualization --- #}
         <div class="evt-alert evt-severity-{{ data.severity|lower|default:'low' }}">
             <div class="evt-alert-header">
-                <span class="evt-icon">🛡️</span>
                 <strong>{{ data.rule_id }}</strong>
             </div>
             <div class="evt-description">{{ data.description|default:"Security Alert" }}</div>
         </div>
 
     {% elif data.policy_decision or data.allowed is not None %}
-        {# --- Policy Decision Visualization --- #}
         <div class="evt-policy evt-policy-{{ data.allowed|yesno:'allowed,blocked' }}">
             <strong>Policy:</strong> {{ data.policy_decision|default:data.allowed|yesno:"ALLOWED,BLOCKED" }}
             {% if data.reason %}
                 <span class="evt-reason-inline">({{ data.reason }})</span>
             {% endif %}
             {% if data.approval_required %}
-                <div class="evt-approval-warning">⚠️ Approval Required</div>
+                <div class="evt-approval-warning">Approval Required</div>
             {% endif %}
         </div>
 
     {% else %}
-        {# --- Fallback / Raw Data --- #}
         <div class="evt-raw">
             <code class="evt-raw-content">{{ data }}</code>
         </div>

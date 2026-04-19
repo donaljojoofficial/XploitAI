@@ -1,16 +1,15 @@
+{% load group_tags %}
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}XploitAI Console{% endblock %}</title>
-    
-    <!-- Fonts -->
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- Tailwind CSS -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -18,301 +17,406 @@
             theme: {
                 extend: {
                     colors: {
-                        // Cyberpunk-inspired color palette
-                        cyber: {
-                            primary: '#00f5ff',      // Cyan
-                            secondary: '#7c3aed',    // Purple
-                            accent: '#00ff88',       // Green
-                            warning: '#ffaa00',      // Orange
-                            danger: '#ff3366',       // Pink
-                            info: '#3388ff',         // Blue
-                        },
+                        accent: '#4fd1ff',
+                        'accent-hover': '#7bddff',
+                        info: '#5ea8ff',
+                        warning: '#f7b955',
+                        error: '#f47b7b',
+                        success: '#52c79a',
                         slate: {
-                            900: '#0f172a', // Deep slate background
-                            800: '#1e293b', // Panel background
-                            700: '#334155',
-                            600: '#475569',
-                            500: '#64748b',
-                            400: '#94a3b8',
-                            300: '#cbd5e1',
-                            200: '#e2e8f0',
-                            100: '#f1f5f9',
-                        },
-                        glass: {
-                            DEFAULT: 'rgba(30, 41, 59, 0.8)',
-                            border: 'rgba(148, 163, 184, 0.3)',
+                            950: '#07111f',
+                            925: '#0b1525',
+                            900: '#0f1b2d',
+                            850: '#142238',
+                            800: '#17283f',
+                            750: '#21324b',
+                            700: '#2b405c',
+                            600: '#47627f',
+                            500: '#6f88a4',
+                            400: '#99adc3',
+                            300: '#c7d5e2'
                         }
                     },
                     fontFamily: {
-                        mono: ['"JetBrains Mono"', 'monospace'],
-                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        sans: ['Manrope', 'system-ui', 'sans-serif'],
+                        mono: ['"IBM Plex Mono"', 'monospace']
                     },
-                    animation: {
-                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                        'float': 'float 6s ease-in-out infinite',
-                        'glow': 'glow 2s ease-in-out infinite alternate',
-                        'scanline': 'scanline 8s linear infinite',
-                    },
-                    keyframes: {
-                        float: {
-                            '0%, 100%': { transform: 'translateY(0px)' },
-                            '50%': { transform: 'translateY(-10px)' }
-                        },
-                        glow: {
-                            '0%': { boxShadow: '0 0 5px rgba(0, 245, 255, 0.5)' },
-                            '100%': { boxShadow: '0 0 20px rgba(0, 245, 255, 0.9)' }
-                        },
-                        scanline: {
-                            '0%': { transform: 'translateY(-100%)' },
-                            '100%': { transform: 'translateY(100%)' }
-                        }
-                    },
-                    backdropBlur: {
-                        xs: '2px',
+                    boxShadow: {
+                        shell: '0 24px 80px rgba(0, 0, 0, 0.28)',
+                        soft: '0 18px 40px rgba(6, 18, 34, 0.18)'
                     }
                 }
             }
-        }
+        };
     </script>
 
-    <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     <style>
         :root {
-            --gradient-bg: linear-gradient(135deg, rgba(0, 245, 255, 0.1), rgba(124, 58, 237, 0.1));
-            --neon-glow: drop-shadow(0 0 10px rgba(0, 245, 255, 0.3));
+            --bg: #07111f;
+            --panel: rgba(17, 29, 46, 0.86);
+            --panel-strong: rgba(13, 24, 38, 0.96);
+            --panel-muted: rgba(21, 34, 52, 0.72);
+            --border: rgba(153, 173, 195, 0.14);
+            --border-strong: rgba(153, 173, 195, 0.24);
+            --text: #eef4fb;
+            --muted: #94a8bd;
+            --accent: #4fd1ff;
+            --accent-soft: rgba(79, 209, 255, 0.14);
+            --success: #52c79a;
+            --warning: #f7b955;
+            --danger: #f47b7b;
         }
-        
-        body { 
-            font-family: 'Inter', system-ui, sans-serif; 
-            background: radial-gradient(1200px 300px at 20% -20%, rgba(0, 245, 255, 0.15), transparent 50%),
-                        radial-gradient(1200px 300px at 120% 120%, rgba(124, 58, 237, 0.15), transparent 50%),
-                        #0f172a;
-            color: #e2e8f0; 
-            background-attachment: fixed;
+
+        * {
+            box-sizing: border-box;
         }
-        
-        .neon-text {
-            text-shadow: 0 0 10px rgba(0, 245, 255, 0.3), 0 0 20px rgba(0, 245, 255, 0.2);
+
+        html {
+            scroll-behavior: smooth;
         }
-        
-        .cyber-border {
-            border: 1px solid rgba(148, 163, 184, 0.3);
-            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 245, 255, 0.1);
+
+        body {
+            margin: 0;
+            font-family: 'Manrope', system-ui, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(79, 209, 255, 0.12), transparent 28%),
+                radial-gradient(circle at top right, rgba(82, 199, 154, 0.09), transparent 22%),
+                linear-gradient(180deg, #0a1627 0%, #07111f 100%);
+            min-height: 100vh;
         }
-        
-        .glass-panel {
-            background: rgba(30, 41, 59, 0.8);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(148, 163, 184, 0.3);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3), inset 0 0 10px rgba(0, 0, 0, 0.5);
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 44px 44px;
+            mask-image: linear-gradient(180deg, rgba(255,255,255,0.18), transparent 70%);
+            opacity: 0.35;
         }
-        
-        .btn-cyber {
-            background: linear-gradient(135deg, rgba(0, 245, 255, 0.1), rgba(124, 58, 237, 0.1));
-            border: 1px solid rgba(0, 245, 255, 0.3);
-            box-shadow: 0 0 15px rgba(0, 245, 255, 0.1);
-            transition: all 0.3s ease;
-        }
-        
-        .btn-cyber:hover {
-            background: linear-gradient(135deg, rgba(0, 245, 255, 0.2), rgba(124, 58, 237, 0.2));
-            box-shadow: 0 0 25px rgba(0, 245, 255, 0.3), 0 0 30px rgba(124, 58, 237, 0.2);
-            transform: translateY(-2px);
-        }
-        
-        .status-running {
-            box-shadow: 0 0 15px rgba(0, 255, 136, 0.5);
-            border-color: rgba(0, 255, 136, 0.5);
-        }
-        
-        .status-planning {
-            box-shadow: 0 0 15px rgba(51, 136, 255, 0.5);
-            border-color: rgba(51, 136, 255, 0.5);
-        }
-        
-        .status-warning {
-            box-shadow: 0 0 15px rgba(255, 170, 0, 0.5);
-            border-color: rgba(255, 170, 0, 0.5);
-        }
-        
-        .status-error {
-            box-shadow: 0 0 15px rgba(255, 51, 102, 0.5);
-            border-color: rgba(255, 51, 102, 0.5);
-        }
-        
+
         [x-cloak] { display: none !important; }
-        
-        /* Legacy Compatibility for Partials */
-        .list-group-item { 
-            border-bottom: 1px solid rgba(148, 163, 184, 0.2); 
-            padding: 0.75rem; 
-            background-color: transparent; 
+
+        .app-shell {
+            position: relative;
+            z-index: 1;
         }
-        .list-group-item:last-child { border-bottom: none; }
-        
-        /* Enhanced scrollbar */
+
+        .shell-panel,
+        .glass-panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(18px);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.24);
+        }
+
+        .panel-soft {
+            background: var(--panel-muted);
+            border: 1px solid var(--border);
+        }
+
+        .panel-strong {
+            background: var(--panel-strong);
+            border: 1px solid var(--border-strong);
+        }
+
+        .section-title {
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: #8ea3b8;
+        }
+
+        .headline-gradient {
+            background: linear-gradient(135deg, #ffffff 0%, #bfeeff 55%, #84d6ff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .ui-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            border-radius: 0.95rem;
+            padding: 0.8rem 1.1rem;
+            font-size: 0.92rem;
+            font-weight: 700;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+            text-decoration: none;
+        }
+
+        .ui-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .ui-btn-primary {
+            background: linear-gradient(135deg, #64d8ff, #2b9bff);
+            color: #031321;
+            box-shadow: 0 14px 30px rgba(40, 153, 255, 0.22);
+        }
+
+        .ui-btn-secondary {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: var(--border-strong);
+            color: #eaf2fb;
+        }
+
+        .ui-btn-secondary:hover {
+            border-color: rgba(79, 209, 255, 0.34);
+            color: white;
+        }
+
+        .ui-btn-danger {
+            background: rgba(244, 123, 123, 0.12);
+            border-color: rgba(244, 123, 123, 0.32);
+            color: #fecaca;
+        }
+
+        .ui-btn-success {
+            background: rgba(82, 199, 154, 0.14);
+            border-color: rgba(82, 199, 154, 0.32);
+            color: #d1fae5;
+        }
+
+        .ui-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            padding: 0.35rem 0.75rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .ui-badge-muted {
+            background: rgba(255, 255, 255, 0.03);
+            color: #c9d6e4;
+        }
+
+        .ui-badge-info {
+            background: rgba(79, 209, 255, 0.12);
+            border-color: rgba(79, 209, 255, 0.24);
+            color: #a6e9ff;
+        }
+
+        .ui-badge-success {
+            background: rgba(82, 199, 154, 0.12);
+            border-color: rgba(82, 199, 154, 0.24);
+            color: #b9f1d9;
+        }
+
+        .ui-badge-warning {
+            background: rgba(247, 185, 85, 0.13);
+            border-color: rgba(247, 185, 85, 0.26);
+            color: #ffe1a8;
+        }
+
+        .ui-badge-danger {
+            background: rgba(244, 123, 123, 0.12);
+            border-color: rgba(244, 123, 123, 0.24);
+            color: #ffc7c7;
+        }
+
+        .ui-kpi {
+            border-radius: 1.25rem;
+            border: 1px solid var(--border);
+            background: rgba(11, 21, 37, 0.72);
+            padding: 1rem 1.1rem;
+        }
+
+        .ui-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #8ea3b8;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="password"],
+        input[type="number"],
+        textarea,
+        select,
+        .ui-input {
+            width: 100%;
+            border-radius: 0.95rem;
+            border: 1px solid rgba(153, 173, 195, 0.18);
+            background: rgba(9, 19, 32, 0.92);
+            color: #eef4fb;
+            padding: 0.85rem 1rem;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus,
+        .ui-input:focus {
+            border-color: rgba(79, 209, 255, 0.48);
+            box-shadow: 0 0 0 4px rgba(79, 209, 255, 0.12);
+            background: rgba(10, 22, 37, 0.98);
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: #698198;
+        }
+
+        input[type="checkbox"] {
+            accent-color: var(--accent);
+        }
+
+        .alert {
+            border-radius: 1rem;
+            border: 1px solid var(--border);
+            padding: 1rem 1.1rem;
+        }
+
+        .alert-success {
+            background: rgba(82, 199, 154, 0.12);
+            border-color: rgba(82, 199, 154, 0.22);
+            color: #d1fae5;
+        }
+
+        .alert-error {
+            background: rgba(244, 123, 123, 0.12);
+            border-color: rgba(244, 123, 123, 0.24);
+            color: #ffd5d5;
+        }
+
+        .alert-warning {
+            background: rgba(247, 185, 85, 0.12);
+            border-color: rgba(247, 185, 85, 0.24);
+            color: #ffe2b2;
+        }
+
+        .table-like-row {
+            border-radius: 1rem;
+            border: 1px solid var(--border);
+            background: rgba(11, 21, 37, 0.74);
+        }
+
+        .auth-shell {
+            min-height: calc(100vh - 8rem);
+            display: grid;
+            place-items: center;
+        }
+
+        .auth-card {
+            width: 100%;
+            max-width: 34rem;
+            border-radius: 1.6rem;
+            padding: 2rem;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
         ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
         }
-        
+
         ::-webkit-scrollbar-track {
-            background: rgba(30, 41, 59, 0.5);
+            background: rgba(255, 255, 255, 0.03);
         }
-        
+
         ::-webkit-scrollbar-thumb {
-            background: rgba(148, 163, 184, 0.5);
-            border-radius: 4px;
+            background: rgba(153, 173, 195, 0.26);
+            border-radius: 999px;
         }
-        
+
         ::-webkit-scrollbar-thumb:hover {
-            background: rgba(0, 245, 255, 0.5);
+            background: rgba(79, 209, 255, 0.36);
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col bg-slate-900 text-slate-200">
-    {% block navbar %}
-    {% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'register' %}
-    <!-- Navbar -->
-    <nav class="border-b border-slate-700 glass-panel px-6 py-4 flex justify-between items-center sticky top-0 z-40">
-        <div class="flex items-center gap-6">
-            <div class="flex items-center gap-3">
-                <div class="w-3 h-3 rounded-full bg-cyber-primary animate-pulse shadow-[0_0_10px_rgba(0,245,255,0.8)]"></div>
-                <a href="{% url 'dashboard_index' %}" class="text-xl font-bold tracking-tight neon-text hover:text-cyber-primary transition-all duration-300">
-                    XPLOIT<span class="text-cyber-primary">AI</span>_CONSOLE
-                </a>
-            </div>
-
-            <!-- Navigation Links -->
-            <div class="hidden md:flex items-center gap-4 text-sm">
-                <!-- Targets Dropdown -->
-                <div class="relative" x-data="{ open: false }">
-                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-primary hover:bg-slate-800/50 transition-all duration-300 group">
-                        <span class="w-2 h-2 rounded-full bg-cyber-info group-hover:animate-pulse"></span>
-                        <span class="text-slate-300 group-hover:text-cyber-primary font-medium">TARGETS</span>
-                        <svg class="w-4 h-4 text-slate-400 group-hover:text-cyber-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </button>
-                    <div x-show="open" class="absolute top-full left-0 mt-2 w-64 glass-panel border border-slate-600/50 rounded-lg shadow-xl z-50" x-cloak>
-                        {% for target in targets %}
-                        <div class="px-4 py-3 border-b border-slate-700/50 last:border-0">
-                            <div class="text-white font-semibold">{{ target.name }}</div>
-                            <div class="text-slate-400 text-sm">{{ target.ip_address }}</div>
+<body class="bg-slate-950 text-slate-100">
+    <div class="app-shell min-h-screen flex flex-col">
+        {% block navbar %}
+        {% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'register' %}
+        <nav class="sticky top-0 z-40 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
+            <div class="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-4 py-4 sm:px-6">
+                <div class="flex min-w-0 items-center gap-6">
+                    <a href="{% url 'dashboard_index' %}" class="flex items-center gap-3">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-sm font-bold text-cyan-200">XA</div>
+                        <div>
+                            <div class="text-lg font-extrabold tracking-tight text-white">XploitAI</div>
+                            <div class="text-[11px] uppercase tracking-[0.22em] text-slate-500">Operations Console</div>
                         </div>
-                        {% empty %}
-                        <div class="px-4 py-3 text-slate-500 text-sm">No targets configured.</div>
-                        {% endfor %}
-                        <a href="{% url 'target_management' %}" class="block px-4 py-3 text-cyber-primary hover:bg-slate-700/50 text-sm font-semibold border-t border-slate-700/50">MANAGE TARGETS →</a>
+                    </a>
+
+                    <div class="hidden items-center gap-2 lg:flex">
+                        <a href="{% url 'dashboard_index' %}" class="ui-btn ui-btn-secondary !px-4 !py-2.5">Dashboard</a>
+                        <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary !px-4 !py-2.5">Targets</a>
+                        <a href="{% url 'executor_management' %}" class="ui-btn ui-btn-secondary !px-4 !py-2.5">Executors</a>
+                        <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary !px-4 !py-2.5">History</a>
+                        {% if user.is_authenticated %}
+                        <a href="{% url 'configuration' %}" class="ui-btn ui-btn-secondary !px-4 !py-2.5">Configuration</a>
+                        {% endif %}
                     </div>
                 </div>
 
-                <!-- Executors Dropdown -->
-                <div class="relative" x-data="{ open: false }">
-                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-info hover:bg-slate-800/50 transition-all duration-300 group">
-                        <span class="w-2 h-2 rounded-full bg-cyber-info group-hover:animate-pulse"></span>
-                        <span class="text-slate-300 group-hover:text-cyber-info font-medium">EXECUTORS</span>
-                        <svg class="w-4 h-4 text-slate-400 group-hover:text-cyber-info transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </button>
-                    <div x-show="open" class="absolute top-full left-0 mt-2 w-72 glass-panel border border-slate-600/50 rounded-lg shadow-xl z-50" x-cloak>
-                        {% for executor in executors %}
-                        <div class="px-4 py-3 border-b border-slate-700/50 last:border-0">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="text-white font-semibold">{{ executor.name }}</span>
-                                <span class="text-xs px-2 py-1 rounded-full {% if executor.status == 'CONNECTED' %}bg-green-900/30 text-green-400 border border-green-500/50{% else %}bg-slate-700/50 text-slate-400{% endif %}">{{ executor.status }}</span>
+                <div class="flex items-center gap-3">
+                    {% if user.is_authenticated %}
+                    <div class="hidden items-center gap-3 xl:flex">
+                        <div class="ui-badge ui-badge-muted">Targets {{ targets|length|default:0 }}</div>
+                        <div class="ui-badge ui-badge-muted">Executors {{ executors|length|default:0 }}</div>
+                    </div>
+
+                    <div class="relative" x-data="{ open: false }">
+                        <button @click="open = !open" @click.away="open = false" class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 transition hover:border-cyan-400/25 hover:bg-white/10">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-400/15 font-semibold text-cyan-200">{{ user.username|slice:":1"|upper }}</div>
+                            <div class="hidden text-left sm:block">
+                                <div class="text-sm font-semibold text-white">{{ user.username }}</div>
+                                <div class="text-xs text-slate-500">Authenticated session</div>
                             </div>
-                            <div class="text-slate-400 text-sm">{{ executor.ip_address }}</div>
+                            <svg class="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+                        <div x-show="open" x-cloak class="shell-panel absolute right-0 top-full mt-3 w-60 rounded-2xl p-2">
+                            <a href="{% url 'profile' %}" class="block rounded-xl px-4 py-3 text-sm text-slate-300 transition hover:bg-white/5 hover:text-white">Profile</a>
+                            <form method="post" action="{% url 'logout' %}">
+                                {% csrf_token %}
+                                <button type="submit" class="block w-full rounded-xl px-4 py-3 text-left text-sm text-rose-300 transition hover:bg-white/5">Log out</button>
+                            </form>
                         </div>
-                        {% empty %}
-                        <div class="px-4 py-3 text-slate-500 text-sm">No executors available.</div>
-                        {% endfor %}
-                        <a href="{% url 'executor_management' %}" class="block px-4 py-3 text-cyber-info hover:bg-slate-700/50 text-sm font-semibold border-t border-slate-700/50">MANAGE EXECUTORS →</a>
                     </div>
-                </div>
-
-                <!-- Operations/History Dropdown -->
-                <div class="relative" x-data="{ open: false }">
-                    <button @click="open = !open" @click.away="open = false" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-warning hover:bg-slate-800/50 transition-all duration-300 group">
-                        <span class="w-2 h-2 rounded-full bg-cyber-warning group-hover:animate-pulse"></span>
-                        <span class="text-slate-300 group-hover:text-cyber-warning font-medium">OPERATIONS</span>
-                        <svg class="w-4 h-4 text-slate-400 group-hover:text-cyber-warning transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </button>
-                    <div x-show="open" class="absolute top-full left-0 mt-2 w-80 glass-panel border border-slate-600/50 rounded-lg shadow-xl z-50" x-cloak>
-                        <div class="px-4 py-3 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-700/50">Recent Operations</div>
-                        {% for attack in recent_attacks %}
-                        <a href="{% url 'dashboard_attack_detail' attack.pk %}" class="block px-4 py-3 border-b border-slate-700/50 last:border-0 hover:bg-slate-700/50 transition-colors">
-                            <div class="flex justify-between items-center mb-2">
-                                <span class="text-white font-semibold text-sm">{{ attack.name }}</span>
-                                <span class="text-xs px-2 py-1 rounded-full {% if attack.autonomy_status == 'RUNNING' %}bg-green-900/30 text-green-400 border border-green-500/50{% elif attack.autonomy_status == 'PLANNING' %}bg-blue-900/30 text-blue-400 border border-blue-500/50{% else %}bg-slate-700/50 text-slate-400{% endif %}">{{ attack.autonomy_status }}</span>
-                            </div>
-                            <div class="text-slate-400 text-xs">{{ attack.created_at|timesince }} ago</div>
-                        </a>
-                        {% empty %}
-                        <div class="px-4 py-3 text-slate-500 text-sm">No recent operations.</div>
-                        {% endfor %}
-                        <a href="{% url 'dashboard_test_history' %}" class="block px-4 py-3 text-amber-300 hover:bg-slate-700/50 text-sm font-semibold border-t border-slate-700/50">VIEW FULL TEST HISTORY</a>
-                    </div>
-                </div>
-
-                <!-- Settings Link (admin only) -->
-                {% load group_tags %}
-                {% if user.is_authenticated %}
-                <a href="{% url 'configuration' %}" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-danger hover:bg-slate-800/50 transition-all duration-300 group" title="Settings">
-                    <svg class="w-5 h-5 text-slate-400 group-hover:text-cyber-danger transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                    </svg>
-                    <span class="text-slate-300 group-hover:text-cyber-danger font-medium">SETTINGS</span>
-                </a>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Right Side: User Info -->
-        <div class="flex items-center gap-4">
-            {% if user.is_authenticated %}
-            <!-- User Menu Dropdown -->
-            <div class="relative" x-data="{ open: false }">
-                <button @click="open = !open" @click.away="open = false" class="flex items-center gap-3 px-4 py-2 rounded-lg border border-slate-600/50 hover:border-cyber-primary hover:bg-slate-800/50 transition-all duration-300 group">
-                    <div class="w-8 h-8 rounded-full bg-gradient-to-br from-cyber-primary to-cyber-secondary flex items-center justify-center shadow-[0_0_15px_rgba(0,245,255,0.3)]">
-                        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12a3 3 0 100-6 3 3 0 000 6zm0 2c-3.314 0-6 1.343-6 3v2h12v-2c0-1.657-2.686-3-6-3z"></path></svg>
-                    </div>
-                    <div class="text-left">
-                        <div class="text-white font-semibold text-sm">{{ user.username }}</div>
-                        <div class="text-slate-400 text-xs">Authenticated</div>
-                    </div>
-                    <svg class="w-4 h-4 text-slate-400 group-hover:text-cyber-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                </button>
-                <div x-show="open" class="absolute top-full right-0 mt-2 w-48 glass-panel border border-slate-600/50 rounded-lg shadow-xl z-50" x-cloak>
-                    <a href="{% url 'profile' %}" class="block px-4 py-3 text-sm text-slate-300 hover:bg-slate-700/50 border-b border-slate-700/50">Profile Settings</a>
-                    <form method="post" action="{% url 'logout' %}" class="block">
-                        {% csrf_token %}
-                        <button type="submit" class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-slate-700/50">Logout</button>
-                    </form>
+                    {% else %}
+                    <a href="{% url 'login' %}" class="ui-btn ui-btn-secondary !px-4 !py-2.5">Sign in</a>
+                    <a href="{% url 'register' %}" class="ui-btn ui-btn-primary !px-4 !py-2.5">Create account</a>
+                    {% endif %}
                 </div>
             </div>
-            {% else %}
-            <!-- Login/Register Links -->
-            <div class="flex items-center gap-3">
-                <a href="{% url 'login' %}" class="px-4 py-2 text-slate-300 hover:text-cyber-primary transition-colors font-medium">Sign In</a>
-                <a href="{% url 'register' %}" class="px-4 py-2 bg-gradient-to-r from-cyber-primary to-cyber-secondary text-slate-900 font-bold rounded-lg hover:shadow-[0_0_20px_rgba(0,245,255,0.5)] transition-all duration-300 border border-cyber-primary/50">
-                    Sign Up
-                </a>
-            </div>
-            {% endif %}
+        </nav>
+        {% endif %}
+        {% endblock navbar %}
 
-            <div class="text-xs text-slate-500 font-mono tracking-widest bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-600/50">
-                SYSTEM_ONLINE
+        <main class="mx-auto flex w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:py-8">
+            <div class="w-full">
+                {% block content %}{% endblock %}
             </div>
-        </div>
-    </nav>
-    {% endif %}
-    {% endblock navbar %}
-
-    <!-- Main Content -->
-    <main class="flex-1 p-6 container mx-auto max-w-7xl">
-        {% block content %}{% endblock %}
-    </main>
+        </main>
+    </div>
 
     {% block extra_js %}{% endblock %}
 </body>

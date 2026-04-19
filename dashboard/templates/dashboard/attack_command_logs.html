@@ -1,63 +1,74 @@
 {% extends 'dashboard/base.html' %}
 
 {% block content %}
-<div class="space-y-6">
-    <div class="flex justify-between items-start">
-        <div>
-            <h1 class="text-2xl font-bold text-white">Command Execution Log for {{ attack_state.name }}</h1>
-            <p class="text-gray-400 text-sm">Phase: {{ attack_state.current_phase }}, Autonomy status: {{ attack_state.autonomy_status }}</p>
-            {% if plan_view and plan_view.current_step %}
-            <p class="text-blue-300 text-sm mt-1">Current planned step: {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}Unknown Step{% endif %}</p>
-            {% endif %}
+<div class="space-y-8">
+    <section class="shell-panel rounded-[1.6rem] p-8">
+        <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+                <div class="section-title">Command Execution Logs</div>
+                <h1 class="mt-2 text-4xl font-extrabold tracking-tight text-white">{{ attack_state.name }}</h1>
+                <p class="mt-4 text-sm leading-7 text-slate-400">
+                    Phase {{ attack_state.current_phase }}, autonomy status {{ attack_state.autonomy_status }}.
+                    {% if plan_view and plan_view.current_step %}
+                    Current step: {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}Unknown Step{% endif %}.
+                    {% endif %}
+                </p>
+            </div>
+            <div class="flex flex-wrap gap-3">
+                <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="ui-btn ui-btn-secondary">Back to Operation</a>
+                <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="ui-btn ui-btn-secondary">Plan</a>
+            </div>
         </div>
-        <div class="flex gap-2">
-            <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="px-3 py-2 border border-gray-500 text-gray-200 rounded hover:bg-gray-700">Back to Attack Detail</a>
-            <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="px-3 py-2 border border-gray-500 text-gray-200 rounded hover:bg-gray-700">Plan</a>
-        </div>
-    </div>
+    </section>
 
     {% if execution_results %}
-    <div class="space-y-4">
+    <div class="space-y-5">
         {% for result in execution_results %}
-            <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
-                <div class="flex justify-between items-start mb-3">
-                    <div>
-                        <h2 class="text-lg font-semibold text-white">{{ result.command.name }}</h2>
-                        <p class="text-sm text-gray-400">Target: {{ result.target }} | Status: <span class="font-bold {% if result.status == 'SUCCESS' %}text-accent{% else %}text-error{% endif %}">{{ result.status }}</span> | <span class="text-gray-500">{{ result.created_at|date:'Y-m-d H:i:s' }}</span></p>
-                    </div>
-                    <span class="px-2 py-1 text-xs font-mono text-gray-300 bg-gray-700 rounded">Command ID: {{ result.command.id }}</span>
-                </div>
-                <div class="grid gap-3 md:grid-cols-2">
-                    <div class="bg-gray-900 border border-gray-700 p-3 rounded">
-                        <h3 class="text-sm text-gray-300 font-semibold mb-1">stdout</h3>
-                        {% if result.stdout %}
-                            <pre class="text-xs text-green-300 font-mono overflow-x-auto" style="white-space: pre-wrap;">{{ result.stdout|linebreaksbr }}</pre>
-                        {% else %}
-                            <p class="text-gray-500 italic">No stdout output.</p>
-                        {% endif %}
-                    </div>
-                    <div class="bg-gray-900 border border-gray-700 p-3 rounded">
-                        <h3 class="text-sm text-gray-300 font-semibold mb-1">stderr</h3>
-                        {% if result.stderr %}
-                            <pre class="text-xs text-red-300 font-mono overflow-x-auto" style="white-space: pre-wrap;">{{ result.stderr|linebreaksbr }}</pre>
-                        {% else %}
-                            <p class="text-gray-500 italic">No stderr output.</p>
-                        {% endif %}
+        <article class="shell-panel rounded-[1.5rem] p-6">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h2 class="text-2xl font-semibold text-white">{{ result.command.name }}</h2>
+                    <div class="mt-3 flex flex-wrap gap-3">
+                        <span class="ui-badge ui-badge-muted">Target {{ result.target }}</span>
+                        <span class="ui-badge {% if result.status == 'SUCCESS' %}ui-badge-success{% else %}ui-badge-danger{% endif %}">{{ result.status }}</span>
+                        <span class="ui-badge ui-badge-muted">{{ result.created_at|date:'Y-m-d H:i:s' }}</span>
                     </div>
                 </div>
-                {% if result.findings %}
-                    <div class="mt-3 bg-gray-900 border border-gray-700 p-3 rounded">
-                        <h3 class="text-sm text-gray-300 font-semibold">Findings</h3>
-                        <pre class="text-xs text-cyan-300 font-mono overflow-x-auto" style="white-space: pre-wrap;">{{ result.findings|pprint }}</pre>
-                    </div>
-                {% endif %}
+                <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 font-mono text-xs text-slate-400">Command ID {{ result.command.id }}</div>
             </div>
+
+            <div class="mt-6 grid gap-4 xl:grid-cols-2">
+                <div class="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+                    <div class="ui-label">stdout</div>
+                    {% if result.stdout %}
+                    <pre class="mt-2 text-xs leading-6 text-emerald-300">{{ result.stdout|linebreaksbr }}</pre>
+                    {% else %}
+                    <p class="mt-2 text-sm text-slate-500">No stdout output.</p>
+                    {% endif %}
+                </div>
+                <div class="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+                    <div class="ui-label">stderr</div>
+                    {% if result.stderr %}
+                    <pre class="mt-2 text-xs leading-6 text-rose-300">{{ result.stderr|linebreaksbr }}</pre>
+                    {% else %}
+                    <p class="mt-2 text-sm text-slate-500">No stderr output.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if result.findings %}
+            <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+                <div class="ui-label">Findings</div>
+                <pre class="mt-2 text-xs leading-6 text-cyan-300">{{ result.findings|pprint }}</pre>
+            </div>
+            {% endif %}
+        </article>
         {% endfor %}
     </div>
     {% else %}
-        <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 text-gray-400 text-center">
-            No command execution results available yet for this attack state.
-        </div>
+    <section class="shell-panel rounded-[1.5rem] px-6 py-12 text-center text-slate-400">
+        No command execution results are available yet for this operation.
+    </section>
     {% endif %}
 </div>
 {% endblock %}

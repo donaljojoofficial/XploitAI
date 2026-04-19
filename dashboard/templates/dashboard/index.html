@@ -3,351 +3,274 @@
 {% block title %}Mission Control - XploitAI{% endblock %}
 
 {% block content %}
-    <div x-data="{ startModalOpen: false }">
-        <!-- Status Overview -->
-        <div class="mb-8">
-            <div class="glass-panel border border-slate-600/50 rounded-xl p-6 shadow-xl">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                    <div class="flex-1">
-                        <h4 class="text-3xl font-bold mb-2 bg-gradient-to-r from-cyber-primary to-cyber-secondary bg-clip-text text-transparent">
-                            System Status: 
-                            {% if attack_state.autonomy_status == 'RUNNING' %}
-                                <span class="status-running px-4 py-2 rounded-lg border border-cyber-accent/50 bg-green-900/20 text-cyber-accent animate-pulse shadow-[0_0_15px_rgba(0,255,136,0.3)]">
-                                     RUNNING
-                                </span>
-                            {% elif attack_state.autonomy_status == 'PLANNING' %}
-                                <span class="status-planning px-4 py-2 rounded-lg border border-cyber-info/50 bg-blue-900/20 text-cyber-info shadow-[0_0_15px_rgba(51,136,255,0.3)]">
-                                     PLANNING...
-                                </span>
-                            {% elif waiting_for_approval %}
-                                <span class="status-warning px-4 py-2 rounded-lg border border-cyber-warning/50 bg-orange-900/20 text-cyber-warning shadow-[0_0_15px_rgba(255,170,0,0.3)]">
-                                    ⏸ WAITING FOR APPROVAL
-                                </span>
-                            {% else %}
-                                <span class="px-4 py-2 rounded-lg border border-slate-600/50 bg-slate-800/50 text-slate-400">
-                                     {{ attack_state.autonomy_status|default:"IDLE" }}
-                                </span>
-                            {% endif %}
-                        </h4>
-                        <div class="text-sm text-slate-400 font-mono mb-4">Phase: {{ attack_state.current_phase|default:"N/A" }}</div>
-                        {% if plan_view and plan_view.current_step %}
-                        <div class="text-sm text-cyber-info font-mono mb-4">
-                            Current Step: {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}Unknown Step{% endif %}
-                        </div>
-                        {% elif plan_view and plan_view.steps %}
-                        <div class="text-sm text-slate-400 font-mono mb-4">
-                            Plan Progress: {{ plan_view.summary.completed }}/{{ plan_view.summary.total }} completed
-                        </div>
-                        {% endif %}
-                        
-                        {% if active_context %}
-                            <div class="flex items-center gap-3 p-4 bg-slate-800/50 rounded-lg border border-slate-600/50">
-                                <div class="w-3 h-3 rounded-full bg-cyber-info animate-pulse"></div>
-                                <div class="text-sm">
-                                    <span class="text-cyber-info font-bold">Active Context:</span>
-                                    <span class="text-white ml-2">{{ active_context.attacker_executor.name }}</span>
-                                    <span class="text-slate-500 mx-2">→</span>
-                                    <span class="text-white">{{ active_context.target.name }}</span>
-                                </div>
-                            </div>
-                        {% endif %}
-
-                        {% if plan_view and plan_view.phase_reviews %}
-                            {% with last_review=plan_view.phase_reviews|last %}
-                            <div class="mt-4 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4">
-                                <div class="text-xs uppercase tracking-[0.2em] text-cyan-300">Latest Phase Review</div>
-                                <div class="mt-2 text-sm text-slate-200">{{ last_review.review }}</div>
-                            </div>
-                            {% endwith %}
-                        {% endif %}
-
-                        {% if attack_state %}
-                            <div class="mt-6 flex flex-wrap gap-3">
-                                <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-primary/50 hover:shadow-[0_0_20px_rgba(0,245,255,0.3)] transition-all">
-                                     View Operation
-                                </a>
-                                <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-info/50 hover:shadow-[0_0_20px_rgba(51,136,255,0.3)] transition-all">
-                                     View Plan
-                                </a>
-                                <a href="{% url 'dashboard_attack_phase_reviews' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyan-500/50 text-cyan-300 hover:shadow-[0_0_20px_rgba(34,211,238,0.25)] transition-all">
-                                    Phase Reviews
-                                </a>
-                                <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-warning/50 hover:shadow-[0_0_20px_rgba(255,170,0,0.3)] transition-all">
-                                     Replay
-                                </a>
-                                {% if attack_state.autonomy_status == 'RUNNING' or attack_state.autonomy_status == 'PLANNING' %}
-                                <form action="{% url 'stop_attack' attack_state.pk %}" method="post" class="inline-block">
-                                    {% csrf_token %}
-                                    <button type="submit" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-danger/50 bg-red-900/20 text-cyber-danger hover:shadow-[0_0_20px_rgba(255,51,102,0.35)] transition-all">
-                                         Stop Autonomy
-                                    </button>
-                                </form>
-                                {% endif %}
-                                {% if waiting_for_approval %}
-                                <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="inline-block">
-                                    {% csrf_token %}
-                                    <button type="submit" class="btn-cyber px-4 py-2 rounded-lg border border-cyber-accent/50 bg-green-900/20 text-cyber-accent hover:shadow-[0_0_20px_rgba(0,255,136,0.3)] transition-all">
-                                        {% if plan_view.phase_transition_pending %}Approve Next Phase{% else %}Approve & Resume{% endif %}
-                                    </button>
-                                </form>
-                                {% endif %}
-                            </div>
-                        {% endif %}
+<div x-data="{ startModalOpen: false }" class="space-y-8">
+    <section class="shell-panel overflow-hidden rounded-[1.75rem] border border-white/10">
+        <div class="relative p-8 md:p-10">
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(79,209,255,0.16),transparent_26%),radial-gradient(circle_at_top_right,rgba(82,199,154,0.12),transparent_22%)]"></div>
+            <div class="relative flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
+                <div class="max-w-4xl space-y-6">
+                    <div class="section-title">Mission Control</div>
+                    <div>
+                        <h1 class="headline-gradient text-4xl font-extrabold tracking-tight md:text-5xl">Centralized security operations with clear real-time control.</h1>
+                        <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                            Monitor autonomous activity, review active context, approve phase transitions, and launch new tests from a single professional workspace.
+                        </p>
                     </div>
-                    
-                    <div class="flex-shrink-0">
-                        {% if has_active_target %}
-                            <button type="button" @click="startModalOpen = true" class="group relative px-8 py-4 bg-gradient-to-r from-cyber-primary to-cyber-secondary text-slate-900 font-bold rounded-xl shadow-2xl shadow-cyber-primary/30 hover:shadow-cyber-primary/50 transition-all duration-300 transform hover:scale-105 hover:shadow-[0_0_30px_rgba(0,245,255,0.5)]">
-                                <span class="relative z-10"> Initiate Test</span>
-                                <div class="absolute inset-0 bg-gradient-to-r from-cyber-secondary to-cyber-primary opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"></div>
-                            </button>
+
+                    <div class="flex flex-wrap gap-3">
+                        {% if attack_state.autonomy_status == 'RUNNING' %}
+                        <span class="ui-badge ui-badge-success">Running</span>
+                        {% elif attack_state.autonomy_status == 'PLANNING' %}
+                        <span class="ui-badge ui-badge-info">Planning</span>
+                        {% elif waiting_for_approval %}
+                        <span class="ui-badge ui-badge-warning">Waiting for Approval</span>
                         {% else %}
-                            <div class="text-center">
-                                <button class="px-8 py-4 bg-slate-700/50 text-slate-500 font-bold rounded-xl cursor-not-allowed border border-slate-600/50" disabled>
-                                     System Not Ready
-                                </button>
-                                <div class="text-cyber-danger text-sm mt-2 font-mono">
-                                    {% if not has_active_target %}No Active Target Configured{% endif %}
-                                </div>
-                            </div>
+                        <span class="ui-badge ui-badge-muted">{{ attack_state.autonomy_status|default:"Idle" }}</span>
                         {% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <!-- Recent Activity -->
-            <div class="lg:col-span-8">
-                <div class="glass-panel border border-slate-600/50 rounded-xl shadow-xl overflow-hidden">
-                    <div class="bg-gradient-to-r from-slate-800/50 to-transparent px-6 py-4 border-b border-slate-600/50">
-                        <h5 class="font-bold text-white text-lg flex items-center gap-3">
-                            <span class="w-3 h-3 rounded-full bg-cyber-info animate-pulse"></span>
-                            Live Activity Feed
-                        </h5>
-                    </div>
-                    <div id="activity-list" class="max-h-[500px] overflow-y-auto">
-                        {% include "dashboard/partials/activity_items.html" %}
-                        {% if not actions %}
-                            <div class="p-8 text-center text-slate-500 italic">
-                                <div class="text-6xl mb-4">📡</div>
-                                <div class="text-lg font-semibold mb-2">No Signal Detected</div>
-                                <div class="text-sm">Awaiting first transmission...</div>
-                            </div>
+                        <span class="ui-badge ui-badge-muted">Phase {{ attack_state.current_phase|default:"N/A" }}</span>
+
+                        {% if plan_view and plan_view.current_step %}
+                        <span class="ui-badge ui-badge-info">
+                            Current Step
+                            {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}Unknown Step{% endif %}
+                        </span>
                         {% endif %}
                     </div>
-                    {% if actions|length >= 50 %}
-                    <div class="p-4 text-center border-t border-slate-600/50 bg-slate-800/50">
-                        <button id="load-more-btn" class="text-sm text-cyber-primary hover:text-white transition-colors font-medium" onclick="loadMoreActivity()">
-                            ⟳ Load More Activity
-                        </button>
+
+                    {% if active_context %}
+                    <div class="rounded-3xl border border-white/10 bg-slate-950/45 p-5">
+                        <div class="section-title">Active Context</div>
+                        <div class="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-200">
+                            <span class="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 font-medium">{{ active_context.attacker_executor.name }}</span>
+                            <span class="text-slate-500">&rarr;</span>
+                            <span class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 font-medium">{{ active_context.target.name }}</span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                        <div class="ui-kpi">
+                            <div class="section-title">Targets</div>
+                            <div class="mt-2 text-3xl font-bold text-white">{{ targets.count }}</div>
+                            <div class="mt-1 text-sm text-slate-400">Configured environments</div>
+                        </div>
+                        <div class="ui-kpi">
+                            <div class="section-title">Executors</div>
+                            <div class="mt-2 text-3xl font-bold text-white">{{ executors.count }}</div>
+                            <div class="mt-1 text-sm text-slate-400">Available nodes</div>
+                        </div>
+                        <div class="ui-kpi">
+                            <div class="section-title">Alerts</div>
+                            <div class="mt-2 text-3xl font-bold text-white">{{ alerts.count }}</div>
+                            <div class="mt-1 text-sm text-slate-400">Open defender alerts</div>
+                        </div>
+                        <div class="ui-kpi">
+                            <div class="section-title">Plan Progress</div>
+                            <div class="mt-2 text-3xl font-bold text-white">{% if plan_view and plan_view.steps %}{{ plan_view.summary.completed }}/{{ plan_view.summary.total }}{% else %}0/0{% endif %}</div>
+                            <div class="mt-1 text-sm text-slate-400">Completed steps</div>
+                        </div>
+                    </div>
+
+                    {% if attack_state %}
+                    <div class="flex flex-wrap gap-3">
+                        <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="ui-btn ui-btn-primary">Open Operation</a>
+                        <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="ui-btn ui-btn-secondary">View Plan</a>
+                        <a href="{% url 'dashboard_attack_phase_reviews' attack_state.pk %}" class="ui-btn ui-btn-secondary">Phase Reviews</a>
+                        <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="ui-btn ui-btn-secondary">Replay</a>
+                        {% if attack_state.autonomy_status == 'RUNNING' or attack_state.autonomy_status == 'PLANNING' %}
+                        <form action="{% url 'stop_attack' attack_state.pk %}" method="post" class="inline-block">
+                            {% csrf_token %}
+                            <button type="submit" class="ui-btn ui-btn-danger">Stop Autonomy</button>
+                        </form>
+                        {% endif %}
+                        {% if waiting_for_approval %}
+                        <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="inline-block">
+                            {% csrf_token %}
+                            <button type="submit" class="ui-btn ui-btn-success">{% if plan_view.phase_transition_pending %}Approve Next Phase{% else %}Approve and Resume{% endif %}</button>
+                        </form>
+                        {% endif %}
                     </div>
                     {% endif %}
                 </div>
-            </div>
 
-            <!-- Alerts & Infrastructure -->
-            <div class="lg:col-span-4 space-y-6">
-                <!-- Defender Alerts -->
-                <div class="glass-panel border border-slate-600/50 rounded-xl shadow-xl overflow-hidden">
-                    <div class="bg-gradient-to-r from-red-900/20 to-transparent px-6 py-4 border-b border-slate-600/50 flex justify-between items-center">
-                        <h5 class="font-bold text-cyber-danger text-lg flex items-center gap-3">
-                            <span class="w-3 h-3 rounded-full bg-cyber-danger animate-pulse"></span>
-                            Security Alerts
-                        </h5>
-                        <span class="text-xs bg-cyber-danger/20 text-cyber-danger px-3 py-1 rounded-full border border-cyber-danger/30">{{ alerts.count }} Active</span>
-                    </div>
-                    <div class="divide-y divide-slate-700/50">
-                        {% for alert in alerts %}
-                        <div class="p-4 hover:bg-slate-700/30 transition-colors group">
-                            <div class="flex justify-between items-start mb-2">
-                                <h6 class="text-white font-semibold group-hover:text-cyber-danger transition-colors">{{ alert.title }}</h6>
-                                <span class="text-xs px-2 py-1 rounded-full bg-red-900/30 text-red-400 border border-red-500/50 font-medium">{{ alert.severity }}</span>
-                            </div>
-                            <div class="text-slate-400 text-sm flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full bg-cyber-danger animate-pulse"></span>
-                                {{ alert.created_at|timesince }} ago
-                            </div>
-                        </div>
-                        {% empty %}
-                        <div class="p-6 text-center text-slate-500">
-                            <div class="text-4xl mb-2">🛡️</div>
-                            <div class="font-semibold">All Clear</div>
-                            <div class="text-sm">No security threats detected</div>
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
+                <div class="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-6">
+                    <div class="section-title">Launch Control</div>
+                    <h2 class="mt-3 text-2xl font-semibold text-white">Start a new autonomous test</h2>
+                    <p class="mt-3 text-sm leading-7 text-slate-400">
+                        Use the current target inventory and configured AI providers to initiate a fresh run without leaving the dashboard.
+                    </p>
 
-                <!-- Infrastructure Status -->
-                <div class="glass-panel border border-slate-600/50 rounded-xl shadow-xl overflow-hidden">
-                    <div class="bg-gradient-to-r from-slate-800/50 to-transparent px-6 py-4 border-b border-slate-600/50">
-                        <h5 class="font-bold text-white text-lg flex items-center gap-3">
-                            <span class="w-3 h-3 rounded-full bg-cyber-info animate-pulse"></span>
-                            Infrastructure Status
-                        </h5>
-                    </div>
-                    <div class="p-6 space-y-6">
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="text-center p-4 bg-slate-800/50 rounded-lg border border-slate-600/50">
-                                <div class="text-2xl mb-2">🤖</div>
-                                <div class="text-sm text-slate-400">Executors</div>
-                                <div class="text-2xl font-bold text-cyber-info">{{ executors.count }}</div>
-                            </div>
-                            <div class="text-center p-4 bg-slate-800/50 rounded-lg border border-slate-600/50">
-                                <div class="text-2xl mb-2">🎯</div>
-                                <div class="text-sm text-slate-400">Targets</div>
-                                <div class="text-2xl font-bold text-cyber-primary">{{ targets.count }}</div>
+                    <div class="mt-6 space-y-3">
+                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Readiness</div>
+                            <div class="mt-2 text-sm text-slate-200">
+                                {% if has_active_target %}
+                                At least one active target is available for launch.
+                                {% else %}
+                                No active target is configured yet.
+                                {% endif %}
                             </div>
                         </div>
-                        
-                        <div class="space-y-3">
-                            <a href="{% url 'target_management' %}" class="btn-cyber w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg border border-cyber-primary/50 hover:shadow-[0_0_20px_rgba(0,245,255,0.3)] transition-all">
-                                <span>🎯</span>
-                                <span>Manage Targets</span>
-                            </a>
-                            <a href="{% url 'executor_management' %}" class="btn-cyber w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg border border-cyber-info/50 hover:shadow-[0_0_20px_rgba(51,136,255,0.3)] transition-all">
-                                <span>🤖</span>
-                                <span>Manage Executors</span>
-                            </a>
-                        </div>
+
+                        {% if has_active_target %}
+                        <button type="button" @click="startModalOpen = true" class="ui-btn ui-btn-primary w-full !py-4">Initiate Test</button>
+                        {% else %}
+                        <button type="button" class="ui-btn ui-btn-secondary w-full !py-4 opacity-60" disabled>System Not Ready</button>
+                        {% endif %}
                     </div>
                 </div>
             </div>
         </div>
+    </section>
 
-        <!-- Start Attack Modal -->
-        <div x-show="startModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" x-cloak>
-            <div class="glass-panel border border-slate-600/50 rounded-xl w-full max-w-2xl p-8 shadow-2xl" @click.away="startModalOpen = false">
-                <form action="{% url 'dashboard_start_attack' %}" method="post">
-                    {% csrf_token %}
-                    <div class="flex justify-between items-center mb-6">
-                        <h5 class="text-2xl font-bold text-white flex items-center gap-3">
-                            <span class="w-4 h-4 rounded-full bg-cyber-primary animate-pulse"></span>
-                            Configure Autonomous Attack
-                        </h5>
-                        <button type="button" @click="startModalOpen = false" class="text-slate-400 hover:text-white text-2xl transition-colors">&times;</button>
-                    </div>
-                    
-                    <div class="space-y-6">
-                        <!-- Attacker Machine Selection -->
-                        <div>
-                            <label for="executorSelect" class="block text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full bg-cyber-info animate-pulse"></span>
-                                Attacker Machine
-                            </label>
-                            {% if connected_executors %}
-                                <select class="w-full bg-slate-800/50 border border-slate-600/50 text-white rounded-lg p-3 focus:border-cyber-info focus:ring-1 focus:ring-cyber-info outline-none transition-colors" id="executorSelect" name="executor_id">
-                                    <option value="">Local executor (default)</option>
-                                    {% for executor in connected_executors %}
-                                        <option value="{{ executor.id }}" class="bg-slate-800">{{ executor.name }} ({{ executor.ip_address }})</option>
-                                    {% endfor %}
-                                </select>
-                            {% else %}
-                                <div class="bg-slate-800/50 border border-slate-600/50 rounded-lg p-4 text-slate-300">
-                                    <div class="flex items-center gap-3 mb-2">
-                                        <span class="w-3 h-3 rounded-full bg-cyber-warning animate-pulse"></span>
-                                        <span class="font-semibold">Local-only Mode</span>
-                                    </div>
-                                    <div class="text-sm">No external executors available; running in local-only mode.</div>
-                                </div>
-                                <input type="hidden" name="executor_id" value="" />
-                            {% endif %}
-                        </div>
-
-                        <!-- Target Selection -->
-                        <div>
-                            <label for="targetSelect" class="block text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full bg-cyber-primary animate-pulse"></span>
-                                Target Machine
-                            </label>
-                            <select class="w-full bg-slate-800/50 border border-slate-600/50 text-white rounded-lg p-3 focus:border-cyber-primary focus:ring-1 focus:ring-cyber-primary outline-none transition-colors" id="targetSelect" name="target_id" required>
-                                {% for target in active_targets %}
-                                    <option value="{{ target.id }}" class="bg-slate-800">{{ target.name }} ({{ target.base_url|default:target.ip_address }})</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <!-- AI Brain Selection -->
-                        <div>
-                            <label for="llmProviderSelect" class="block text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full bg-cyber-secondary animate-pulse"></span>
-                                AI Brain
-                            </label>
-                            <select class="w-full bg-slate-800/50 border border-slate-600/50 text-white rounded-lg p-3 focus:border-cyber-secondary focus:ring-1 focus:ring-cyber-secondary outline-none transition-colors" id="llmProviderSelect" name="llm_provider">
-                                <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Multi-Adapter Router (Recommended)</option>
-                                <option value="gemini" {% if default_llm_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
-                                <option value="openai" {% if default_llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
-                                <option value="groq" {% if default_llm_provider == 'groq' %}selected{% endif %}>Groq</option>
-                                <option value="nvidia" {% if default_llm_provider == 'nvidia' %}selected{% endif %}>NVIDIA</option>
-                                <option value="hybrid" {% if default_llm_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq</option>
-                                <option value="lmstudio" {% if default_llm_provider == 'lmstudio' %}selected{% endif %}>LM Studio Only (Slow Local)</option>
-                            </select>
-                            <p class="text-xs text-slate-400 mt-2">
-                                Multi-Adapter Router uses the available cloud adapters first for planning and attack steps, then falls back safely. Choose LM Studio only if you want a local-only run.
-                            </p>
-                        </div>
-
-                        <!-- Warning Notice -->
-                        <div class="p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
-                            <div class="flex items-start gap-3">
-                                <span class="w-3 h-3 rounded-full bg-cyber-danger animate-pulse mt-0.5"></span>
-                                <div>
-                                    <span class="font-bold text-cyber-danger">WARNING:</span>
-                                    <p class="text-slate-300 text-sm mt-1">Starting autonomy will override any existing active sessions. This action cannot be undone.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex justify-end gap-4 mt-8">
-                        <button type="button" class="px-6 py-3 text-slate-300 hover:text-white transition-colors font-medium" @click="startModalOpen = false">
-                            Cancel
-                        </button>
-                        <button type="submit" class="group relative px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold rounded-lg shadow-lg shadow-red-900/30 hover:shadow-red-900/50 transition-all duration-300 transform hover:scale-105">
-                            <span class="relative z-10"> Initiate Test</span>
-                            <div class="absolute inset-0 bg-gradient-to-r from-red-700 to-red-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></div>
-                        </button>
-                    </div>
-                </form>
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.95fr)]">
+        <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+            <div class="border-b border-white/10 px-6 py-5">
+                <div class="section-title">Live Activity</div>
+                <h2 class="mt-2 text-2xl font-semibold text-white">Recent operation feed</h2>
             </div>
+            <div id="activity-list" class="max-h-[560px] overflow-y-auto">
+                {% include "dashboard/partials/activity_items.html" %}
+                {% if not actions %}
+                <div class="px-6 py-10 text-center text-slate-500">
+                    <div class="text-lg font-semibold text-slate-300">No activity captured yet</div>
+                    <div class="mt-2 text-sm">Start a test to populate the live feed.</div>
+                </div>
+                {% endif %}
+            </div>
+            {% if actions|length >= 50 %}
+            <div class="border-t border-white/10 px-6 py-4">
+                <button id="load-more-btn" class="ui-btn ui-btn-secondary w-full sm:w-auto" onclick="loadMoreActivity()">Load More Activity</button>
+            </div>
+            {% endif %}
+        </section>
+
+        <div class="space-y-6">
+            <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+                <div class="border-b border-white/10 px-6 py-5">
+                    <div class="section-title">Security Alerts</div>
+                    <div class="mt-2 flex items-center justify-between gap-3">
+                        <h2 class="text-xl font-semibold text-white">Defender signals</h2>
+                        <span class="ui-badge {% if alerts.count %}ui-badge-danger{% else %}ui-badge-success{% endif %}">
+                            {{ alerts.count }} active
+                        </span>
+                    </div>
+                </div>
+                <div class="divide-y divide-white/5">
+                    {% for alert in alerts %}
+                    <div class="px-6 py-4">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <div class="font-semibold text-white">{{ alert.title }}</div>
+                                <div class="mt-2 text-sm text-slate-400">{{ alert.created_at|timesince }} ago</div>
+                            </div>
+                            <span class="ui-badge ui-badge-danger">{{ alert.severity }}</span>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <div class="px-6 py-8 text-center text-slate-400">
+                        <div class="font-semibold text-white">No current security alerts</div>
+                        <div class="mt-2 text-sm">The system has not raised a defender alert in the recent activity window.</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+                <div class="border-b border-white/10 px-6 py-5">
+                    <div class="section-title">Operations</div>
+                    <h2 class="mt-2 text-xl font-semibold text-white">Quick access</h2>
+                </div>
+                <div class="space-y-3 p-6">
+                    <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary w-full justify-between">Manage Targets <span class="text-slate-500">{{ targets.count }}</span></a>
+                    <a href="{% url 'executor_management' %}" class="ui-btn ui-btn-secondary w-full justify-between">Manage Executors <span class="text-slate-500">{{ executors.count }}</span></a>
+                    <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary w-full">Open Test History</a>
+                </div>
+            </section>
         </div>
     </div>
+
+    <div x-show="startModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
+        <div class="shell-panel w-full max-w-2xl rounded-[1.75rem] p-8" @click.away="startModalOpen = false">
+            <form action="{% url 'dashboard_start_attack' %}" method="post" class="space-y-6">
+                {% csrf_token %}
+                <div class="flex items-start justify-between gap-6">
+                    <div>
+                        <div class="section-title">New Autonomous Test</div>
+                        <h3 class="mt-2 text-2xl font-semibold text-white">Configure and launch</h3>
+                        <p class="mt-2 text-sm leading-7 text-slate-400">Select executor, target, and AI provider for the next run.</p>
+                    </div>
+                    <button type="button" @click="startModalOpen = false" class="rounded-xl border border-white/10 px-3 py-2 text-slate-400 transition hover:text-white">Close</button>
+                </div>
+
+                <div class="grid gap-5 md:grid-cols-2">
+                    <div>
+                        <label for="executorSelect" class="ui-label">Attacker Machine</label>
+                        {% if connected_executors %}
+                        <select id="executorSelect" name="executor_id">
+                            <option value="">Local executor (default)</option>
+                            {% for executor in connected_executors %}
+                            <option value="{{ executor.id }}">{{ executor.name }} ({{ executor.ip_address }})</option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <div class="rounded-2xl border border-amber-400/15 bg-amber-400/10 p-4 text-sm text-amber-100">No connected external executor is available. The run will use the local executor.</div>
+                        <input type="hidden" name="executor_id" value="">
+                        {% endif %}
+                    </div>
+
+                    <div>
+                        <label for="targetSelect" class="ui-label">Target Machine</label>
+                        <select id="targetSelect" name="target_id" required>
+                            {% for target in active_targets %}
+                            <option value="{{ target.id }}">{{ target.name }} ({{ target.base_url|default:target.ip_address }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="llmProviderSelect" class="ui-label">AI Provider</label>
+                    <select id="llmProviderSelect" name="llm_provider">
+                        <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Multi-Adapter Router (Recommended)</option>
+                        <option value="gemini" {% if default_llm_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
+                        <option value="openai" {% if default_llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
+                        <option value="groq" {% if default_llm_provider == 'groq' %}selected{% endif %}>Groq</option>
+                        <option value="nvidia" {% if default_llm_provider == 'nvidia' %}selected{% endif %}>NVIDIA</option>
+                        <option value="hybrid" {% if default_llm_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq</option>
+                        <option value="lmstudio" {% if default_llm_provider == 'lmstudio' %}selected{% endif %}>LM Studio Only (Slow Local)</option>
+                    </select>
+                    <p class="mt-2 text-sm text-slate-400">The router will prefer available cloud adapters and fall back safely. Choose LM Studio only for local-only runs.</p>
+                </div>
+
+                <div class="rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm text-rose-100">
+                    Starting autonomy will override any currently active session. Use this action only when you are ready to begin a new run.
+                </div>
+
+                <div class="flex flex-wrap justify-end gap-3">
+                    <button type="button" class="ui-btn ui-btn-secondary" @click="startModalOpen = false">Cancel</button>
+                    <button type="submit" class="ui-btn ui-btn-primary">Initiate Test</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
-    <script>
-        // Auto-refresh if planning
-        const autonomyStatus = "{{ attack_state.autonomy_status|escapejs }}";
-        if (autonomyStatus === 'PLANNING') {
-            setTimeout(function() {
-                window.location.reload();
-            }, 5000); // 5 seconds
+<script>
+    function loadMoreActivity() {
+        const button = document.getElementById('load-more-btn');
+        if (button) {
+            button.disabled = true;
+            button.textContent = 'No additional activity loader is configured.';
         }
+    }
 
-        let activityOffset = 50;
-        function loadMoreActivity() {
-            const btn = document.getElementById('load-more-btn');
-            btn.disabled = true;
-            btn.innerText = 'Loading...';
-            
-            fetch(`{% url 'dashboard_load_activity' %}?offset=${activityOffset}`)
-                .then(response => response.text())
-                .then(html => {
-                    if (html.trim()) {
-                        document.getElementById('activity-list').insertAdjacentHTML('beforeend', html);
-                        activityOffset += 50;
-                        btn.disabled = false;
-                        btn.innerText = 'Load More';
-                    } else {
-                        btn.style.display = 'none';
-                    }
-                })
-                .catch(err => {
-                    console.error('Error loading activity:', err);
-                    btn.disabled = false;
-                    btn.innerText = 'Retry Load More';
-                });
-        }
-    </script>
+    const dashboardStatus = "{{ attack_state.autonomy_status|default:''|escapejs }}";
+    if (dashboardStatus === "RUNNING" || dashboardStatus === "PLANNING") {
+        setTimeout(() => window.location.reload(), 4000);
+    }
+</script>
 {% endblock %}

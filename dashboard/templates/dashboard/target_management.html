@@ -3,92 +3,104 @@
 {% block title %}Manage Targets | XploitAI{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex justify-between items-end">
-    <div>
-        <h1 class="text-3xl font-bold text-white mb-2 tracking-tight">TARGET_MANAGEMENT</h1>
-        <p class="text-sm text-gray-400 font-mono">Configure and manage active simulation targets.</p>
-    </div>
-</div>
-
-{% if messages %}
-<div class="mb-6 space-y-2">
-    {% for message in messages %}
-    <div class="p-4 rounded border {% if message.tags == 'success' %}bg-accent/10 border-accent/20 text-accent{% else %}bg-gray-800 border-gray-700 text-gray-200{% endif %} text-sm font-mono flex items-center gap-3">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-        {{ message }}
-    </div>
-    {% endfor %}
-</div>
-{% endif %}
-
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Targets List -->
-    <div class="lg:col-span-2 space-y-4">
-        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Registered Targets</h2>
-        
-        {% for target in targets %}
-        <div class="bg-gray-800 border border-gray-700 p-5 rounded-lg flex justify-between items-center hover:border-gray-600 transition-colors group">
-            <div class="flex items-center gap-4">
-                <div class="w-2 h-2 rounded-full {% if target.is_active %}bg-accent animate-pulse{% else %}bg-gray-600{% endif %}"></div>
-                <div>
-                    <h3 class="text-lg font-bold text-white tracking-tight">{{ target.name }}</h3>
-                    <div class="text-xs text-gray-400 font-mono mt-1 flex items-center gap-3">
-                        <span class="flex items-center gap-1">
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
-                            {{ target.base_url|default:target.ip_address }}
-                        </span>
-                        <span class="px-2 py-0.5 bg-gray-700 rounded text-[10px]">{{ target.operating_system|default:"Unknown OS" }}</span>
-                        {% if target.vulnerability_profile %}
-                        <span class="px-2 py-0.5 bg-gray-700 text-info rounded text-[10px]">{{ target.vulnerability_profile }}</span>
-                        {% endif %}
-                    </div>
-                </div>
+<div class="space-y-8">
+    <section class="shell-panel rounded-[1.6rem] p-8">
+        <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+                <div class="section-title">Target Management</div>
+                <h1 class="mt-2 text-4xl font-extrabold tracking-tight text-white">Manage target inventory</h1>
+                <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-400 md:text-base">
+                    Register environments, review active targets, and keep the simulation catalog clean and ready for future runs.
+                </p>
             </div>
-            
-            <form method="POST" onsubmit="return confirm('Are you sure you want to delete this target?');" class="opacity-0 group-hover:opacity-100 transition-opacity">
-                {% csrf_token %}
-                <input type="hidden" name="target_id" value="{{ target.id }}">
-                <button type="submit" name="delete_target" class="text-red-400 hover:text-red-300 p-2 hover:bg-gray-700 rounded transition-colors" title="Delete Target">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                </button>
-            </form>
+            <div class="ui-kpi min-w-[180px]">
+                <div class="section-title">Registered</div>
+                <div class="mt-2 text-3xl font-bold text-white">{{ targets|length }}</div>
+            </div>
         </div>
-        {% empty %}
-        <div class="bg-gray-800 border border-gray-700 border-dashed rounded-lg p-8 text-center">
-            <p class="text-gray-500 font-mono text-sm">No targets registered. Add one to get started.</p>
-        </div>
+    </section>
+
+    {% if messages %}
+    <div class="space-y-3">
+        {% for message in messages %}
+        <div class="alert {% if message.tags == 'success' %}alert-success{% else %}alert-warning{% endif %}">{{ message }}</div>
         {% endfor %}
     </div>
+    {% endif %}
 
-    <!-- Add Target Form -->
-    <div>
-        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Add New Target</h2>
-        <div class="bg-gray-800 border border-gray-700 p-6 rounded-lg">
-            <form method="POST" class="space-y-4 font-mono text-sm">
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.9fr)]">
+        <section class="shell-panel rounded-[1.5rem] p-6">
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    <div class="section-title">Current Targets</div>
+                    <h2 class="mt-2 text-2xl font-semibold text-white">Registered environments</h2>
+                </div>
+            </div>
+
+            <div class="mt-6 space-y-4">
+                {% for target in targets %}
+                <div class="table-like-row flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <div class="h-3 w-3 rounded-full {% if target.is_active %}bg-emerald-400{% else %}bg-slate-500{% endif %}"></div>
+                            <h3 class="text-xl font-semibold text-white">{{ target.name }}</h3>
+                            {% if target.is_active %}
+                            <span class="ui-badge ui-badge-success">Active</span>
+                            {% else %}
+                            <span class="ui-badge ui-badge-muted">Inactive</span>
+                            {% endif %}
+                        </div>
+                        <div class="mt-4 flex flex-wrap gap-3 text-sm text-slate-400">
+                            <span class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">{{ target.base_url|default:target.ip_address }}</span>
+                            <span class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">{{ target.operating_system|default:"Unknown OS" }}</span>
+                            {% if target.vulnerability_profile %}
+                            <span class="rounded-full border border-cyan-400/15 bg-cyan-400/10 px-3 py-1.5 text-cyan-200">{{ target.vulnerability_profile }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <form method="POST" onsubmit="return confirm('Are you sure you want to delete this target?');" class="shrink-0">
+                        {% csrf_token %}
+                        <input type="hidden" name="target_id" value="{{ target.id }}">
+                        <button type="submit" name="delete_target" class="ui-btn ui-btn-danger">Delete Target</button>
+                    </form>
+                </div>
+                {% empty %}
+                <div class="rounded-[1.25rem] border border-dashed border-white/10 bg-white/5 px-6 py-12 text-center">
+                    <div class="text-xl font-semibold text-white">No targets registered</div>
+                    <p class="mt-2 text-sm text-slate-400">Add a target from the form on the right to make it available for simulation.</p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="shell-panel rounded-[1.5rem] p-6">
+            <div class="section-title">New Target</div>
+            <h2 class="mt-2 text-2xl font-semibold text-white">Add target</h2>
+            <form method="POST" class="mt-6 space-y-5">
                 {% csrf_token %}
-                
                 {% for field in form %}
                 {% if field.name == 'is_active' %}
-                <div class="flex items-center gap-2 pt-2">
-                    {{ field }}
-                    <label class="text-gray-300 text-xs">Active (Available for simulations)</label>
+                <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                    <label class="flex items-center gap-3 text-sm text-slate-300">
+                        {{ field }}
+                        <span>Make this target immediately available for simulations</span>
+                    </label>
                 </div>
                 {% else %}
                 <div>
-                    <label class="block text-gray-400 mb-1 text-xs">{{ field.label }}</label>
+                    <label class="ui-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
                     {{ field }}
+                    {% if field.errors %}
+                    <div class="mt-2 text-sm text-rose-300">{{ field.errors.0 }}</div>
+                    {% endif %}
                 </div>
                 {% endif %}
                 {% endfor %}
-                
-                <div class="pt-4 mt-4 border-t border-gray-700">
-                    <button type="submit" class="w-full bg-accent hover:bg-accent-hover text-black font-bold py-2 px-4 rounded transition-colors flex justify-center items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                        REGISTER TARGET
-                    </button>
-                </div>
+
+                <button type="submit" class="ui-btn ui-btn-primary w-full">Register Target</button>
             </form>
-        </div>
+        </section>
     </div>
 </div>
 {% endblock %}

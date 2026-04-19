@@ -3,212 +3,178 @@
 {% block title %}Configuration - XploitAI{% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-        <h1 class="h2">System Configuration</h1>
-    </div>
+<div class="space-y-8">
+    <section class="shell-panel rounded-[1.6rem] p-8">
+        <div class="section-title">Platform Configuration</div>
+        <h1 class="mt-2 text-4xl font-extrabold tracking-tight text-white">AI provider settings</h1>
+        <p class="mt-4 max-w-4xl text-sm leading-7 text-slate-400 md:text-base">
+            Manage API credentials, routing defaults, host endpoints, and local LM Studio behavior. Credentials are stored in <code class="font-mono text-cyan-200">ai_config.json</code> unless overridden by environment variables.
+        </p>
+    </section>
 
-    <div class="row">
-        <div class="col-md-6">
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-dark text-white">
-                    <h5 class="my-0 fw-normal"><i class="bi bi-key"></i> LLM API Keys</h5>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted small">
-                        Keys are stored locally in <code>ai_config.json</code>. Environment variables take precedence if set.
-                    </p>
-                    <form method="post">
-                        {% csrf_token %}
-                        
-                        <div class="mb-3">
-                            <label for="geminiKey" class="form-label">Google Gemini API Key</label>
-                            <div class="flex">
-                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-google"></i></span>
-                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="geminiKey" name="gemini_key" placeholder="{% if has_gemini_key %}Current key set (leave blank to keep){% else %}Enter Gemini API Key{% endif %}" autocomplete="off">
-                            </div>
-                            <div class="form-text">Required for Gemini Adapter.</div>
-                        </div>
+    <form method="post" class="space-y-6">
+        {% csrf_token %}
 
-                        <div class="mb-3">
-                            <label for="geminiModel" class="form-label">Gemini Model Version</label>
-                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="geminiModel" name="gemini_model">
-                                <option value="gemini-2.0-flash" {% if gemini_model == 'gemini-2.0-flash' %}selected{% endif %}>Gemini 2.0 Flash</option>
-                                <option value="gemini-2.5-flash" {% if gemini_model == 'gemini-2.5-flash' %}selected{% endif %}>Gemini 2.5 Flash</option>
-                                <option value="gemini-2.5-flash-lite" {% if gemini_model == 'gemini-2.5-flash-lite' %}selected{% endif %}>Gemini 2.5 Flash Lite</option>
-                                <option value="gemini-2.5-pro" {% if gemini_model == 'gemini-2.5-pro' %}selected{% endif %}>Gemini 2.5 Pro</option>
-                                <option value="gemini-2.0-flash-lite" {% if gemini_model == 'gemini-2.0-flash-lite' %}selected{% endif %}>Gemini 2.0 Flash Lite</option>
-                            </select>
-                            <div class="form-text">Select the specific model version to use.</div>
-                            <div class="mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('gemini')">Test Gemini Connection</button>
-                                <span id="gemini-status" class="ms-2 small"></span>
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="openaiKey" class="form-label">OpenAI API Key</label>
-                            <div class="flex">
-                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-cpu"></i></span>
-                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="openaiKey" name="openai_key" placeholder="{% if has_openai_key %}Current key set (leave blank to keep){% else %}Enter OpenAI API Key{% endif %}" autocomplete="off">
-                            </div>
-                            <div class="form-text">Required for OpenAI Adapter.</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="openaiModel" class="form-label">OpenAI Model</label>
-                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="openaiModel" name="openai_model" value="{{ openai_model }}">
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="openaiHost" class="form-label">OpenAI Host</label>
-                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="openaiHost" name="openai_host" value="{{ openai_host }}">
-                            <div class="form-text">Use default <code>https://api.openai.com</code> unless using a compatible proxy.</div>
-                            <div class="mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('openai')">Test OpenAI Connection</button>
-                                <span id="openai-status" class="ms-2 small"></span>
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="groqKey" class="form-label">Groq API Key</label>
-                            <div class="flex">
-                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-lightning-charge"></i></span>
-                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="groqKey" name="groq_key" placeholder="{% if has_groq_key %}Current key set (leave blank to keep){% else %}Enter Groq API Key{% endif %}" autocomplete="off">
-                            </div>
-                            <div class="form-text">Required for Groq Adapter.</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="groqModel" class="form-label">Groq Model Version</label>
-                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="groqModel" name="groq_model">
-                                {% for model in groq_known_models %}
-                                    <option value="{{ model }}" {% if groq_model == model %}selected{% endif %}>{{ model }}</option>
-                                {% endfor %}
-                            </select>
-                            <div class="form-text">Select the specific model version to use.</div>
-                            <div class="mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('groq')">Test Groq Connection</button>
-                                <span id="groq-status" class="ms-2 small"></span>
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="nvidiaKey" class="form-label">NVIDIA API Key</label>
-                            <div class="flex">
-                                <span class="inline-flex items-center px-3 text-gray-400 bg-gray-800 border border-r-0 border-gray-700 rounded-l"><i class="bi bi-nvidia"></i></span>
-                                <input type="password" class="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded-r p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="nvidiaKey" name="nvidia_key" placeholder="{% if has_nvidia_key %}Current key set (leave blank to keep){% else %}Enter NVIDIA API Key{% endif %}" autocomplete="off">
-                            </div>
-                            <div class="form-text">Default key for the NVIDIA adapter.</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="nvidiaModel" class="form-label">NVIDIA Model</label>
-                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="nvidiaModel" name="nvidia_model" value="{{ nvidia_model }}">
-                            <div class="form-text">Example: <code>mistralai/mistral-small-4-119b-2603</code>.</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="nvidiaHost" class="form-label">NVIDIA Host</label>
-                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="nvidiaHost" name="nvidia_host" value="{{ nvidia_host }}">
-                            <div class="form-text">Usually <code>https://integrate.api.nvidia.com</code>.</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <div class="form-text">Per-model keys should be added in <code>.env</code> using the model name as the env suffix.</div>
-                            <div class="form-text">Example for <code>mistralai/mistral-small-4-119b-2603</code>:
-                                <code>NVIDIA_API_KEY_MISTRALAI_MISTRAL_SMALL_4_119B_2603=nvapi-...</code>
-                            </div>
-                            <div class="mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('nvidia')">Test NVIDIA Connection</button>
-                                <span id="nvidia-status" class="ms-2 small"></span>
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="defaultProvider" class="form-label">Default AI Brain</label>
-                            <select class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="defaultProvider" name="default_provider">
-                                <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Multi-Adapter Router (Recommended)</option>
-                                <option value="gemini" {% if default_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
-                                <option value="openai" {% if default_provider == 'openai' %}selected{% endif %}>OpenAI</option>
-                                <option value="groq" {% if default_provider == 'groq' %}selected{% endif %}>Groq</option>
-                                <option value="nvidia" {% if default_provider == 'nvidia' %}selected{% endif %}>NVIDIA</option>
-                                <option value="hybrid" {% if default_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq</option>
-                                <option value="lmstudio" {% if default_provider == 'lmstudio' %}selected{% endif %}>LM Studio Only (Slow Local)</option>
-                            </select>
-                            <div class="form-text">Recommended for new attacks: Multi-Adapter Router. LM Studio remains available as an explicit local-only choice.</div>
-                        </div>
-
-                        <hr class="my-4">
-                        <h6 class="mb-3">LM Studio (Local) Settings</h6>
-
-                        <div class="mb-3">
-                            <label for="lmstudioHost" class="form-label">LM Studio Host</label>
-                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioHost" name="lmstudio_host" value="{{ lmstudio_host }}">
-                            <div class="form-text">OpenAI-compatible server base URL (usually <code>http://localhost:1234</code>).</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="lmstudioModel" class="form-label">LM Studio Model</label>
-                            <input type="text" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioModel" name="lmstudio_model" value="{{ lmstudio_model }}">
-                            <div class="form-text">Must match the loaded model identifier in LM Studio.</div>
-                            <div class="mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkStatus('lmstudio')">Test LM Studio Connection</button>
-                                <span id="lmstudio-status" class="ms-2 small"></span>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="lmstudioTimeoutSeconds" class="form-label">Request Timeout (seconds)</label>
-                                <input type="number" min="5" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioTimeoutSeconds" name="lmstudio_timeout_seconds" value="{{ lmstudio_timeout_seconds }}">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="lmstudioPlanTimeoutSeconds" class="form-label">Plan Timeout (seconds)</label>
-                                <input type="number" min="10" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioPlanTimeoutSeconds" name="lmstudio_plan_timeout_seconds" value="{{ lmstudio_plan_timeout_seconds }}">
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="lmstudioTimeoutRetries" class="form-label">Timeout Retries</label>
-                                <input type="number" min="0" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioTimeoutRetries" name="lmstudio_timeout_retries" value="{{ lmstudio_timeout_retries }}">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="lmstudioCooldownSeconds" class="form-label">Connection Error Cooldown (seconds)</label>
-                                <input type="number" min="1" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioCooldownSeconds" name="lmstudio_retry_cooldown_seconds" value="{{ lmstudio_retry_cooldown_seconds }}">
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="lmstudioMaxTokensDecision" class="form-label">Max Tokens (Decision)</label>
-                                <input type="number" min="32" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioMaxTokensDecision" name="lmstudio_max_tokens_decision" value="{{ lmstudio_max_tokens_decision }}">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="lmstudioMaxTokensPlan" class="form-label">Max Tokens (Plan)</label>
-                                <input type="number" min="64" step="1" class="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded p-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none" id="lmstudioMaxTokensPlan" name="lmstudio_max_tokens_plan" value="{{ lmstudio_max_tokens_plan }}">
-                            </div>
-                        </div>
-                        <div class="form-text mb-3">Timeouts no longer trigger cooldown; cooldown applies to connection errors only.</div>
-
-                        <button type="submit" class="btn btn-primary">Save Configuration</button>
-                    </form>
+        <section class="shell-panel rounded-[1.5rem] p-6">
+            <div class="section-title">Default Routing</div>
+            <div class="mt-6 grid gap-5 md:grid-cols-2">
+                <div>
+                    <label for="defaultProvider" class="ui-label">Default AI Provider</label>
+                    <select id="defaultProvider" name="default_provider">
+                        <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Multi-Adapter Router (Recommended)</option>
+                        <option value="gemini" {% if default_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
+                        <option value="openai" {% if default_provider == 'openai' %}selected{% endif %}>OpenAI</option>
+                        <option value="groq" {% if default_provider == 'groq' %}selected{% endif %}>Groq</option>
+                        <option value="nvidia" {% if default_provider == 'nvidia' %}selected{% endif %}>NVIDIA</option>
+                        <option value="hybrid" {% if default_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq</option>
+                        <option value="lmstudio" {% if default_provider == 'lmstudio' %}selected{% endif %}>LM Studio Only</option>
+                    </select>
                 </div>
             </div>
+        </section>
+
+        <section class="grid gap-6 xl:grid-cols-2">
+            <div class="shell-panel rounded-[1.5rem] p-6">
+                <div class="section-title">Google Gemini</div>
+                <div class="mt-5 space-y-5">
+                    <div>
+                        <label for="geminiKey" class="ui-label">API Key</label>
+                        <input type="password" id="geminiKey" name="gemini_key" placeholder="{% if has_gemini_key %}Current key set (leave blank to keep){% else %}Enter Gemini API key{% endif %}" autocomplete="off">
+                    </div>
+                    <div>
+                        <label for="geminiModel" class="ui-label">Model Version</label>
+                        <select id="geminiModel" name="gemini_model">
+                            <option value="gemini-2.0-flash" {% if gemini_model == 'gemini-2.0-flash' %}selected{% endif %}>Gemini 2.0 Flash</option>
+                            <option value="gemini-2.5-flash" {% if gemini_model == 'gemini-2.5-flash' %}selected{% endif %}>Gemini 2.5 Flash</option>
+                            <option value="gemini-2.5-flash-lite" {% if gemini_model == 'gemini-2.5-flash-lite' %}selected{% endif %}>Gemini 2.5 Flash Lite</option>
+                            <option value="gemini-2.5-pro" {% if gemini_model == 'gemini-2.5-pro' %}selected{% endif %}>Gemini 2.5 Pro</option>
+                            <option value="gemini-2.0-flash-lite" {% if gemini_model == 'gemini-2.0-flash-lite' %}selected{% endif %}>Gemini 2.0 Flash Lite</option>
+                        </select>
+                    </div>
+                    <button type="button" class="ui-btn ui-btn-secondary" onclick="checkStatus('gemini')">Test Gemini Connection</button>
+                    <div id="gemini-status" class="text-sm text-slate-500"></div>
+                </div>
+            </div>
+
+            <div class="shell-panel rounded-[1.5rem] p-6">
+                <div class="section-title">OpenAI</div>
+                <div class="mt-5 space-y-5">
+                    <div>
+                        <label for="openaiKey" class="ui-label">API Key</label>
+                        <input type="password" id="openaiKey" name="openai_key" placeholder="{% if has_openai_key %}Current key set (leave blank to keep){% else %}Enter OpenAI API key{% endif %}" autocomplete="off">
+                    </div>
+                    <div>
+                        <label for="openaiModel" class="ui-label">Model</label>
+                        <input type="text" id="openaiModel" name="openai_model" value="{{ openai_model }}">
+                    </div>
+                    <div>
+                        <label for="openaiHost" class="ui-label">Host</label>
+                        <input type="text" id="openaiHost" name="openai_host" value="{{ openai_host }}">
+                    </div>
+                    <button type="button" class="ui-btn ui-btn-secondary" onclick="checkStatus('openai')">Test OpenAI Connection</button>
+                    <div id="openai-status" class="text-sm text-slate-500"></div>
+                </div>
+            </div>
+
+            <div class="shell-panel rounded-[1.5rem] p-6">
+                <div class="section-title">Groq</div>
+                <div class="mt-5 space-y-5">
+                    <div>
+                        <label for="groqKey" class="ui-label">API Key</label>
+                        <input type="password" id="groqKey" name="groq_key" placeholder="{% if has_groq_key %}Current key set (leave blank to keep){% else %}Enter Groq API key{% endif %}" autocomplete="off">
+                    </div>
+                    <div>
+                        <label for="groqModel" class="ui-label">Model Version</label>
+                        <select id="groqModel" name="groq_model">
+                            {% for model in groq_known_models %}
+                            <option value="{{ model }}" {% if groq_model == model %}selected{% endif %}>{{ model }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="button" class="ui-btn ui-btn-secondary" onclick="checkStatus('groq')">Test Groq Connection</button>
+                    <div id="groq-status" class="text-sm text-slate-500"></div>
+                </div>
+            </div>
+
+            <div class="shell-panel rounded-[1.5rem] p-6">
+                <div class="section-title">NVIDIA</div>
+                <div class="mt-5 space-y-5">
+                    <div>
+                        <label for="nvidiaKey" class="ui-label">API Key</label>
+                        <input type="password" id="nvidiaKey" name="nvidia_key" placeholder="{% if has_nvidia_key %}Current key set (leave blank to keep){% else %}Enter NVIDIA API key{% endif %}" autocomplete="off">
+                    </div>
+                    <div>
+                        <label for="nvidiaModel" class="ui-label">Model</label>
+                        <input type="text" id="nvidiaModel" name="nvidia_model" value="{{ nvidia_model }}">
+                    </div>
+                    <div>
+                        <label for="nvidiaHost" class="ui-label">Host</label>
+                        <input type="text" id="nvidiaHost" name="nvidia_host" value="{{ nvidia_host }}">
+                    </div>
+                    <button type="button" class="ui-btn ui-btn-secondary" onclick="checkStatus('nvidia')">Test NVIDIA Connection</button>
+                    <div id="nvidia-status" class="text-sm text-slate-500"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="shell-panel rounded-[1.5rem] p-6">
+            <div class="section-title">LM Studio</div>
+            <div class="mt-6 grid gap-5 md:grid-cols-2">
+                <div>
+                    <label for="lmstudioHost" class="ui-label">Host</label>
+                    <input type="text" id="lmstudioHost" name="lmstudio_host" value="{{ lmstudio_host }}">
+                </div>
+                <div>
+                    <label for="lmstudioModel" class="ui-label">Model</label>
+                    <input type="text" id="lmstudioModel" name="lmstudio_model" value="{{ lmstudio_model }}">
+                </div>
+                <div>
+                    <label for="lmstudioTimeoutSeconds" class="ui-label">Request Timeout (seconds)</label>
+                    <input type="number" min="5" step="1" id="lmstudioTimeoutSeconds" name="lmstudio_timeout_seconds" value="{{ lmstudio_timeout_seconds }}">
+                </div>
+                <div>
+                    <label for="lmstudioPlanTimeoutSeconds" class="ui-label">Plan Timeout (seconds)</label>
+                    <input type="number" min="10" step="1" id="lmstudioPlanTimeoutSeconds" name="lmstudio_plan_timeout_seconds" value="{{ lmstudio_plan_timeout_seconds }}">
+                </div>
+                <div>
+                    <label for="lmstudioTimeoutRetries" class="ui-label">Timeout Retries</label>
+                    <input type="number" min="0" step="1" id="lmstudioTimeoutRetries" name="lmstudio_timeout_retries" value="{{ lmstudio_timeout_retries }}">
+                </div>
+                <div>
+                    <label for="lmstudioCooldownSeconds" class="ui-label">Connection Error Cooldown (seconds)</label>
+                    <input type="number" min="1" step="1" id="lmstudioCooldownSeconds" name="lmstudio_retry_cooldown_seconds" value="{{ lmstudio_retry_cooldown_seconds }}">
+                </div>
+                <div>
+                    <label for="lmstudioMaxTokensDecision" class="ui-label">Max Tokens (Decision)</label>
+                    <input type="number" min="32" step="1" id="lmstudioMaxTokensDecision" name="lmstudio_max_tokens_decision" value="{{ lmstudio_max_tokens_decision }}">
+                </div>
+                <div>
+                    <label for="lmstudioMaxTokensPlan" class="ui-label">Max Tokens (Plan)</label>
+                    <input type="number" min="64" step="1" id="lmstudioMaxTokensPlan" name="lmstudio_max_tokens_plan" value="{{ lmstudio_max_tokens_plan }}">
+                </div>
+            </div>
+            <div class="mt-5 flex flex-wrap items-center gap-4">
+                <button type="button" class="ui-btn ui-btn-secondary" onclick="checkStatus('lmstudio')">Test LM Studio Connection</button>
+                <div id="lmstudio-status" class="text-sm text-slate-500"></div>
+            </div>
+        </section>
+
+        <div class="flex justify-end">
+            <button type="submit" class="ui-btn ui-btn-primary">Save Configuration</button>
         </div>
-    </div>
+    </form>
 </div>
 
 <script>
 function checkStatus(provider) {
     const statusSpan = document.getElementById(provider + '-status');
-    statusSpan.className = 'ms-2 small text-warning';
-    statusSpan.innerText = 'Testing...';
-    
+    statusSpan.className = 'text-sm text-slate-400';
+    statusSpan.innerText = 'Testing connection...';
+
     let apiKey = '';
     let model = '';
     let host = '';
-    
+
     if (provider === 'gemini') {
         apiKey = document.getElementById('geminiKey').value;
         model = document.getElementById('geminiModel').value;
@@ -224,7 +190,6 @@ function checkStatus(provider) {
         model = document.getElementById('nvidiaModel').value;
         host = document.getElementById('nvidiaHost').value;
     } else if (provider === 'lmstudio') {
-        apiKey = '';
         model = document.getElementById('lmstudioModel').value;
         host = document.getElementById('lmstudioHost').value;
     }
@@ -244,11 +209,11 @@ function checkStatus(provider) {
     })
     .then(response => response.json())
     .then(data => {
-        statusSpan.className = data.success ? 'ms-2 small text-success' : 'ms-2 small text-danger';
+        statusSpan.className = data.success ? 'text-sm text-emerald-300' : 'text-sm text-rose-300';
         statusSpan.innerText = data.message;
     })
-    .catch(error => {
-        statusSpan.className = 'ms-2 small text-danger';
+    .catch(() => {
+        statusSpan.className = 'text-sm text-rose-300';
         statusSpan.innerText = 'Network error.';
     });
 }
