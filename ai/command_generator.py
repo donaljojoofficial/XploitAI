@@ -84,6 +84,11 @@ class CommandGenerator:
         from ai.llm.local_rule_engine import LocalRuleEngine
         from ai.llm.task_router import TaskRouterAdapter
 
+        if not self.use_llm:
+            self.llm_client = LocalRuleEngine()
+            logger.info("CommandGenerator initialized in rule-only mode.")
+            return
+
         if llm_provider == "auto":
             llm_provider = get_config("DEFAULT_LLM_PROVIDER", "gemini")
 

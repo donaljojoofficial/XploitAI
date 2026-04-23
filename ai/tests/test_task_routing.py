@@ -207,6 +207,29 @@ class AIPlannerTaskKeyTests(SimpleTestCase):
         self.assertNotIn("local", adapter.adapters_by_name)
         self.assertEqual(adapter.task_routes["plan.initial"][0], "nvidia")
         self.assertEqual(adapter.task_routes["plan.initial"][1], "groq")
+        self.assertNotIn("gemini", adapter.task_routes["plan.initial"])
+        self.assertNotIn("lmstudio", adapter.task_routes["plan.initial"])
+
+    def test_plan_adapter_for_specific_provider_does_not_include_others(self):
+        self.planner._discover_adapters = lambda: {
+            "nvidia": RecordingAdapter("nvidia"),
+            "gemini": RecordingAdapter("gemini"),
+            "local": RecordingAdapter("local"),
+        }
+
+        adapter = self.planner._get_plan_adapter("nvidia")
+
+        self.assertEqual(adapter.name, "nvidia")
+
+    def test_requested_adapter_names_for_specific_provider_are_limited(self):
+        self.planner.provider = "nvidia"
+
+        self.assertEqual(self.planner._requested_adapter_names(), {"nvidia"})
+
+    def test_requested_adapter_names_for_hybrid_are_limited(self):
+        self.planner.provider = "hybrid"
+
+        self.assertEqual(self.planner._requested_adapter_names(), {"nvidia", "groq"})
 
     def test_resolve_proposed_command_name_maps_legacy_aliases(self):
         available_commands = [

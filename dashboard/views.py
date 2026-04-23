@@ -89,6 +89,8 @@ def _step_summary(steps: list[dict[str, Any]]) -> dict[str, int]:
         "failed": sum(1 for step in steps if step.get("status") == "failed"),
         "running": sum(1 for step in steps if step.get("status") == "running"),
         "pending": sum(1 for step in steps if step.get("status") == "pending"),
+        "attempts": sum(int(step.get("attempt_count") or 0) for step in steps),
+        "alternatives": sum(1 for step in steps if step.get("alternative_pending")),
     }
 
 
@@ -115,7 +117,7 @@ def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
             item = deepcopy(step)
             action_name = item.get("action_type") or item.get("action") or ""
             matched_result = latest_result_by_command.get(action_name, {})
-            item["status"] = _status_from_result(matched_result.get("status") or "SUCCESS")
+            item["status"] = item.get("status") or _status_from_result(matched_result.get("status") or "SUCCESS")
             item.setdefault("step_number", step_index)
             if matched_result.get("stdout_excerpt") and not item.get("output_excerpt"):
                 item["output_excerpt"] = matched_result.get("stdout_excerpt")
@@ -194,13 +196,14 @@ def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
                 "findings": _summarize_findings(state_data.get("findings") or {}),
                 "outputs": [
                     {
-                        "command": getattr(result.command, "name", "unknown"),
-                        "status": result.status,
-                        "stdout_excerpt": (result.stdout or "")[:400],
-                        "stderr_excerpt": (result.stderr or "")[:240],
-                        "findings": result.findings or {},
+                        "command": history_item.get("command") or step.get("action_type") or step.get("action") or "unknown",
+                        "status": history_item.get("status") or ("SUCCESS" if step.get("status") == "completed" else "FAILED"),
+                        "stdout_excerpt": history_item.get("stdout_excerpt") or "",
+                        "stderr_excerpt": history_item.get("stderr_excerpt") or "",
+                        "findings": history_item.get("findings") or step.get("last_findings") or {},
                     }
-                    for result in state.execution_results.select_related("command").order_by("-created_at")[:10]
+                    for step in (active_plan_view.get("steps") or [])
+                    for history_item in (step.get("execution_history") or [])
                 ],
                 "source": "active_plan",
             }
@@ -270,7 +273,13 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         action_name = item.get("action_type") or item.get("action") or ""
         match = latest_by_command.get(action_name)
 
-        if match and match.status == "SUCCESS":
+        if item.get("status") == "completed":
+            item["status"] = "completed"
+        elif item.get("status") == "failed":
+            item["status"] = "failed"
+        elif item.get("status") == "running":
+            item["status"] = "running"
+        elif match and match.status == "SUCCESS":
             item["status"] = "completed"
         elif match and match.status == "FAILED":
             item["status"] = "failed"
@@ -307,15 +316,19 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             item["required_tools"] = []
 
         item.setdefault("step_number", idx + 1)
+        item.setdefault("attempt_count", len(item.get("execution_history") or []))
+        item.setdefault("command_retry_count", 0)
+        if not item.get("output_excerpt"):
+            item["output_excerpt"] = item.get("last_output_excerpt") or item.get("last_error_excerpt") or ""
         steps.append(item)
 
     # Mark a single active step when attack is running/planning.
     unresolved_idx = next(
-        (i for i, s in enumerate(steps) if s["status"] in ("pending", "failed")),
+        (i for i, s in enumerate(steps) if s["status"] in ("pending", "failed", "running")),
         None,
     )
     if unresolved_idx is not None and state.autonomy_status in ("RUNNING", "PLANNING"):
-        if steps[unresolved_idx]["status"] != "completed":
+        if steps[unresolved_idx]["status"] in ("pending", "failed"):
             steps[unresolved_idx]["status"] = "running"
 
     completed_count = sum(1 for s in steps if s["status"] == "completed")
@@ -457,12 +470,20 @@ def _get_global_context() -> dict[str, Any]:
     }
 
 
-@login_required(login_url='login')
 def index(request: HttpRequest) -> HttpResponse:
     """
-    Displays the main dashboard using a Django template.
-    Shows the latest simulation by default.
+    Displays a public landing page for signed-out visitors and the
+    authenticated dashboard for signed-in users.
     """
+    if not request.user.is_authenticated:
+        attack_state = AttackState.objects.order_by('-updated_at').first()
+        landing_context = {
+            'latest_attack': attack_state,
+            'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
+            **_get_global_context(),
+        }
+        return render(request, 'dashboard/landing.html', landing_context)
+
     attack_state = AttackState.objects.order_by('-updated_at').first()
 
     plan_view = None

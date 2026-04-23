@@ -70,6 +70,70 @@ class ExecutionService:
         attack_state.current_plan = plan
         attack_state.save(update_fields=["current_plan"])
 
+    def _update_step_execution_state(
+        self,
+        action_name: str,
+        *,
+        status: str,
+        command: str = "",
+        command_id: int | None = None,
+        command_retries: int = 0,
+        stdout: str = "",
+        stderr: str = "",
+        findings: dict | None = None,
+    ) -> None:
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        plan = attack_state.current_plan or {}
+        steps = plan.get("steps") or []
+        target_step = None
+
+        for step in steps:
+            step_name = step.get("action_type") or step.get("action")
+            if step_name != action_name:
+                continue
+            if str(step.get("status") or "").lower() != "completed":
+                target_step = step
+                break
+
+        if target_step is None:
+            return
+
+        target_step.setdefault("execution_history", [])
+        target_step.setdefault("attempt_count", 0)
+        target_step.setdefault("command_retry_count", 0)
+
+        if command:
+            target_step["resolved_command"] = command
+            target_step["resolved_tools"] = infer_required_tools(command)
+        if command_id:
+            target_step["command_id"] = command_id
+
+        normalized_status = str(status or "pending").lower()
+        if normalized_status == "running":
+            target_step["status"] = "running"
+        else:
+            target_step["attempt_count"] = int(target_step.get("attempt_count") or 0) + 1
+            target_step["command_retry_count"] = int(target_step.get("command_retry_count") or 0) + max(command_retries, 0)
+            target_step["status"] = "completed" if normalized_status == "success" else "failed"
+            target_step["alternative_pending"] = normalized_status != "success"
+            target_step["last_output_excerpt"] = (stdout or "")[:400]
+            target_step["last_error_excerpt"] = (stderr or "")[:240]
+            target_step["last_findings"] = findings or {}
+            target_step["execution_history"].append(
+                {
+                    "attempt_number": target_step["attempt_count"],
+                    "command_retry_count": max(command_retries, 0),
+                    "command": command or target_step.get("resolved_command") or "",
+                    "status": "SUCCESS" if normalized_status == "success" else "FAILED",
+                    "stdout_excerpt": (stdout or "")[:400],
+                    "stderr_excerpt": (stderr or "")[:240],
+                    "findings": findings or {},
+                }
+            )
+
+        attack_state.current_plan = plan
+        attack_state.save(update_fields=["current_plan"])
+
     def _store_phase_review_and_pause(self, current_phase: str) -> bool:
         attack_state = AttackState.objects.get(id=self.attack_state_id)
         next_phase = self.planner.peek_next_phase_with_commands(self.state_manager, attack_state)
@@ -232,10 +296,18 @@ class ExecutionService:
 
             command = normalize_command_targets(command, command_parameters)
             self._persist_step_command(command_obj.name, command)
+            self._update_step_execution_state(
+                command_obj.name,
+                status="running",
+                command=command,
+                command_id=command_id,
+            )
 
             result = None
             final_status = "FAILED"
+            attempts_used = 0
             for attempt in range(self.max_retries + 1):
+                attempts_used = attempt + 1
                 result = run_command(command)
                 if result and result.get("returncode") == 0:
                     final_status = "SUCCESS"
@@ -273,6 +345,17 @@ class ExecutionService:
                     if is_meaningful_action_success(command_obj.name, findings, stdout)
                     else "FAILED"
                 )
+
+            self._update_step_execution_state(
+                command_obj.name,
+                status=final_status,
+                command=command,
+                command_id=command_id,
+                command_retries=max(attempts_used - 1, 0),
+                stdout=stdout,
+                stderr=stderr,
+                findings=findings,
+            )
 
             review_reason = self.planner.review_execution(
                 self.state_manager,

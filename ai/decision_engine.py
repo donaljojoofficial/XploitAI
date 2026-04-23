@@ -49,16 +49,20 @@ class DecisionEngine:
     
     def __init__(self, provider: str = "auto"):
         self.llm_adapter = None
-        
+        requested_provider = (provider or "auto").lower()
         adapters = []
         adapters_by_name = {}
-        
-        if provider == "auto":
+
+        if requested_provider == "auto":
             from core.config import get_config
-            provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
+            configured_provider = get_config("DEFAULT_LLM_PROVIDER", "fallback")
+            requested_provider = (configured_provider or "fallback").lower()
+
+        if requested_provider == "fallback":
+            requested_provider = "auto"
 
         # Local provider has no external dependency
-        if provider == "local":
+        if requested_provider == "local":
             from ai.llm.local_rule_engine import LocalRuleEngine
             self.llm_adapter = LocalRuleEngine()
             logger.info("DecisionEngine initialized with LocalRuleEngine.")
@@ -125,33 +129,42 @@ class DecisionEngine:
                     logger.error(f"Failed to initialize NvidiaAdapter: {e}")
             return None
 
-        if provider == "gemini":
+        if requested_provider == "gemini":
             adapter = _init_gemini()
             if adapter:
                 adapters.append(adapter)
                 adapters_by_name["gemini"] = adapter
-        elif provider == "openai":
+        elif requested_provider == "openai":
             adapter = _init_openai()
             if adapter:
                 adapters.append(adapter)
                 adapters_by_name["openai"] = adapter
-        elif provider == "groq":
+        elif requested_provider == "groq":
             adapter = _init_groq()
             if adapter:
                 adapters.append(adapter)
                 adapters_by_name["groq"] = adapter
-        elif provider == "nvidia":
+        elif requested_provider == "nvidia":
             adapter = _init_nvidia()
             if adapter:
                 adapters.append(adapter)
                 adapters_by_name["nvidia"] = adapter
-        elif provider == "lmstudio":
+        elif requested_provider == "lmstudio":
             adapter = _init_lmstudio()
             if adapter:
                 adapters.append(adapter)
                 adapters_by_name["lmstudio"] = adapter
+        elif requested_provider == "hybrid":
+            nv = _init_nvidia()
+            if nv:
+                adapters.append(nv)
+                adapters_by_name["nvidia"] = nv
+            gr = _init_groq()
+            if gr:
+                adapters.append(gr)
+                adapters_by_name["groq"] = gr
         else:
-            # Auto / Fallback mode
+            # Auto mode
             g = _init_gemini()
             if g:
                 adapters.append(g)

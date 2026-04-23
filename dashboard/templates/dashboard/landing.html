@@ -1,0 +1,163 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}XploitAI - Autonomous Security Operations{% endblock %}
+
+{% block content %}
+<div class="space-y-8 pb-10">
+    <section class="shell-panel overflow-hidden rounded-[2rem] border border-white/10">
+        <div class="relative isolate px-6 py-10 sm:px-8 lg:px-12 lg:py-14">
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(79,209,255,0.16),transparent_28%),radial-gradient(circle_at_85%_20%,rgba(82,199,154,0.14),transparent_24%),linear-gradient(135deg,rgba(255,255,255,0.03),transparent_58%)]"></div>
+            <div class="absolute -right-16 top-16 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl"></div>
+            <div class="absolute bottom-0 left-1/3 h-44 w-44 rounded-full bg-emerald-400/10 blur-3xl"></div>
+
+            <div class="relative grid gap-10 xl:grid-cols-[minmax(0,1.2fr)_420px] xl:items-center">
+                <div class="max-w-4xl space-y-7">
+                    <div class="section-title">Autonomous Security Platform</div>
+                    <div class="space-y-4">
+                        <h1 class="headline-gradient text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+                            Professional offensive security orchestration with human control built in.
+                        </h1>
+                        <p class="max-w-3xl text-base leading-8 text-slate-300 sm:text-lg">
+                            XploitAI unifies target management, executor coordination, AI-guided planning, and approval-aware execution in one operations-grade workspace.
+                        </p>
+                    </div>
+
+                    <div class="flex flex-col gap-3 sm:flex-row">
+                        <a href="{% url 'register' %}" class="ui-btn ui-btn-primary !px-6 !py-4">Create Account</a>
+                        <a href="{% url 'login' %}" class="ui-btn ui-btn-secondary !px-6 !py-4">Sign In</a>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-3">
+                        <div class="rounded-[1.4rem] border border-white/10 bg-slate-950/45 p-5">
+                            <div class="text-[11px] uppercase tracking-[0.24em] text-slate-500">Targets</div>
+                            <div class="mt-3 text-3xl font-bold text-white">{{ targets.count }}</div>
+                            <p class="mt-2 text-sm leading-6 text-slate-400">Configured environments ready for controlled testing.</p>
+                        </div>
+                        <div class="rounded-[1.4rem] border border-white/10 bg-slate-950/45 p-5">
+                            <div class="text-[11px] uppercase tracking-[0.24em] text-slate-500">Executors</div>
+                            <div class="mt-3 text-3xl font-bold text-white">{{ executors.count }}</div>
+                            <p class="mt-2 text-sm leading-6 text-slate-400">Distributed operators and local execution paths in one fabric.</p>
+                        </div>
+                        <div class="rounded-[1.4rem] border border-white/10 bg-slate-950/45 p-5">
+                            <div class="text-[11px] uppercase tracking-[0.24em] text-slate-500">Recent Runs</div>
+                            <div class="mt-3 text-3xl font-bold text-white">{{ recent_attacks|length }}</div>
+                            <p class="mt-2 text-sm leading-6 text-slate-400">Latest autonomous sessions surfaced for operator review.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-strong rounded-[1.75rem] p-6 shadow-shell">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <div class="section-title">Live Operations Snapshot</div>
+                            <h2 class="mt-2 text-2xl font-semibold text-white">Console preview</h2>
+                        </div>
+                        <span class="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">
+                            {{ default_llm_provider|upper }}
+                        </span>
+                    </div>
+
+                    <div class="mt-6 space-y-4">
+                        <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
+                            <div class="flex items-center justify-between gap-4">
+                                <div>
+                                    <div class="text-sm font-semibold text-white">Approval-aware execution</div>
+                                    <div class="mt-1 text-sm text-slate-400">Phase reviews and resumable operator decisions.</div>
+                                </div>
+                                <div class="rounded-2xl border border-emerald-400/15 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Active</div>
+                            </div>
+                        </div>
+
+                        <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Current Context</div>
+                            {% if active_context %}
+                            <div class="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-200">
+                                <span class="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5">{{ active_context.attacker_executor.name }}</span>
+                                <span class="text-slate-500">&rarr;</span>
+                                <span class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">{{ active_context.target.name }}</span>
+                            </div>
+                            {% else %}
+                            <p class="mt-3 text-sm leading-6 text-slate-400">No active session is running right now. Operators can authenticate to launch a new controlled test.</p>
+                            {% endif %}
+                        </div>
+
+                        <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
+                            <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Most Recent Run</div>
+                            {% if latest_attack %}
+                            <div class="mt-3 flex items-center justify-between gap-4">
+                                <div>
+                                    <div class="text-base font-semibold text-white">{{ latest_attack.current_phase|default:"Mission Control" }}</div>
+                                    <div class="mt-1 text-sm text-slate-400">Updated {{ latest_attack.updated_at|timesince }} ago</div>
+                                </div>
+                                <span class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200">
+                                    {{ latest_attack.autonomy_status|default:"Idle" }}
+                                </span>
+                            </div>
+                            {% else %}
+                            <p class="mt-3 text-sm leading-6 text-slate-400">No autonomous runs have been captured yet.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="grid gap-6 lg:grid-cols-3">
+        <article class="shell-panel rounded-[1.6rem] p-6">
+            <div class="section-title">Why Teams Use It</div>
+            <h2 class="mt-3 text-2xl font-semibold text-white">Built for operator confidence</h2>
+            <p class="mt-4 text-sm leading-7 text-slate-400">A clear control surface for launching, reviewing, and supervising autonomous workflows without losing situational awareness.</p>
+        </article>
+        <article class="shell-panel rounded-[1.6rem] p-6">
+            <div class="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200 w-fit">01</div>
+            <h3 class="mt-5 text-xl font-semibold text-white">Mission-first dashboard</h3>
+            <p class="mt-3 text-sm leading-7 text-slate-400">Track status, context, and live activity in one place instead of juggling disconnected tooling.</p>
+        </article>
+        <article class="shell-panel rounded-[1.6rem] p-6">
+            <div class="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200 w-fit">02</div>
+            <h3 class="mt-5 text-xl font-semibold text-white">Approval checkpoints</h3>
+            <p class="mt-3 text-sm leading-7 text-slate-400">Pause at important transitions, inspect results, and resume only when the operator is satisfied.</p>
+        </article>
+    </section>
+
+    <section class="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <div class="shell-panel rounded-[1.75rem] p-7 sm:p-8">
+            <div class="section-title">Workflow</div>
+            <h2 class="mt-3 text-3xl font-semibold text-white">A cleaner path from planning to execution</h2>
+
+            <div class="mt-8 grid gap-4 md:grid-cols-3">
+                <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-5">
+                    <div class="text-sm font-semibold text-white">1. Configure</div>
+                    <p class="mt-3 text-sm leading-6 text-slate-400">Set up targets, executors, and the preferred AI provider for the session.</p>
+                </div>
+                <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-5">
+                    <div class="text-sm font-semibold text-white">2. Supervise</div>
+                    <p class="mt-3 text-sm leading-6 text-slate-400">Review the generated plan, monitor activity, and inspect alerts as they arrive.</p>
+                </div>
+                <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-5">
+                    <div class="text-sm font-semibold text-white">3. Approve</div>
+                    <p class="mt-3 text-sm leading-6 text-slate-400">Resume phase transitions with confidence using built-in review and replay tooling.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="shell-panel rounded-[1.75rem] p-7 sm:p-8">
+            <div class="section-title">Access</div>
+            <h2 class="mt-3 text-3xl font-semibold text-white">Start with a focused operator account</h2>
+            <p class="mt-4 text-sm leading-7 text-slate-400">Sign in if you already have credentials, or create a new account and activate it by email before entering the console.</p>
+
+            <div class="mt-8 space-y-4">
+                <a href="{% url 'login' %}" class="ui-btn ui-btn-secondary w-full justify-between !py-4">
+                    Sign In
+                    <span class="text-slate-500">Existing operators</span>
+                </a>
+                <a href="{% url 'register' %}" class="ui-btn ui-btn-primary w-full justify-between !py-4">
+                    Register
+                    <span class="text-slate-950/80">New workspace access</span>
+                </a>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

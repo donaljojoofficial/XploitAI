@@ -118,6 +118,7 @@ class AIPlanner:
 
     def __init__(self, provider: str = "auto"):
         self.provider = (provider or "auto").lower()
+        self._adapters_by_name = self._discover_adapters()
         self.adapter = self._get_adapter(provider)
         self.plan_adapter = self._get_plan_adapter(provider)
         self.review_adapter = self._get_review_adapter(provider)
@@ -128,9 +129,9 @@ class AIPlanner:
 
     def _get_adapter(self, provider: str) -> BaseLLMAdapter:
         requested_provider = (provider or "auto").lower()
+        adapters_by_name = self._available_adapters()
 
         if requested_provider == "hybrid":
-            adapters_by_name = self._discover_adapters()
             if "groq" in adapters_by_name:
                 return adapters_by_name["groq"]
             if "nvidia" in adapters_by_name:
@@ -140,8 +141,6 @@ class AIPlanner:
         if requested_provider == "local":
             from ai.llm.local_rule_engine import LocalRuleEngine
             return LocalRuleEngine()
-
-        adapters_by_name = self._discover_adapters()
 
         if requested_provider not in {"auto", "fallback"} and requested_provider in adapters_by_name:
             from ai.llm.task_router import TaskRouterAdapter
@@ -155,7 +154,7 @@ class AIPlanner:
 
     def _get_plan_adapter(self, provider: str) -> BaseLLMAdapter:
         requested_provider = (provider or "auto").lower()
-        adapters_by_name = self._ai_only_adapters(self._discover_adapters())
+        adapters_by_name = self._ai_only_adapters(self._available_adapters())
 
         if requested_provider == "local":
             return None
@@ -166,13 +165,13 @@ class AIPlanner:
 
             from ai.llm.task_router import TaskRouterAdapter
             hybrid_routes = {
-                "plan": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
-                "plan.initial": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
-                "plan.reconnaissance": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
-                "plan.enumeration": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
-                "plan.exploitation": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
-                "plan.privilege_escalation": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
-                "plan.proof_of_compromise": ["nvidia", "groq", "openai", "gemini", "lmstudio"],
+                "plan": ["nvidia", "groq"],
+                "plan.initial": ["nvidia", "groq"],
+                "plan.reconnaissance": ["nvidia", "groq"],
+                "plan.enumeration": ["nvidia", "groq"],
+                "plan.exploitation": ["nvidia", "groq"],
+                "plan.privilege_escalation": ["nvidia", "groq"],
+                "plan.proof_of_compromise": ["nvidia", "groq"],
             }
             return TaskRouterAdapter(adapters_by_name, task_routes=hybrid_routes)
 
@@ -187,49 +186,67 @@ class AIPlanner:
 
     def _get_review_adapter(self, provider: str) -> BaseLLMAdapter:
         requested_provider = (provider or "auto").lower()
-        adapters_by_name = self._discover_adapters()
+        adapters_by_name = self._available_adapters()
 
         if requested_provider == "hybrid":
             return adapters_by_name.get("nvidia") or adapters_by_name["local"]
 
         return self.adapter
 
+    def _available_adapters(self) -> Dict[str, BaseLLMAdapter]:
+        return getattr(self, "_adapters_by_name", self._discover_adapters())
+
+    def _requested_adapter_names(self, provider: Optional[str] = None) -> set[str]:
+        requested_provider = (provider or self.provider or "auto").lower()
+        if requested_provider in {"auto", "fallback"}:
+            return {"gemini", "groq", "nvidia", "lmstudio"}
+        if requested_provider == "hybrid":
+            return {"nvidia", "groq"}
+        if requested_provider == "local":
+            return set()
+        return {requested_provider}
+
     def _discover_adapters(self) -> Dict[str, BaseLLMAdapter]:
         adapters_by_name: Dict[str, BaseLLMAdapter] = {}
+        requested_names = self._requested_adapter_names()
 
-        try:
-            from ai.llm.gemini import GeminiAdapter
+        if "gemini" in requested_names:
+            try:
+                from ai.llm.gemini import GeminiAdapter
 
-            gemini = GeminiAdapter()
-            if gemini._client:
-                adapters_by_name["gemini"] = gemini
-        except Exception:
-            pass
+                gemini = GeminiAdapter()
+                if gemini._client:
+                    adapters_by_name["gemini"] = gemini
+            except Exception:
+                pass
 
-        try:
-            from ai.llm.groq_adapter import GroqAdapter
+        if "groq" in requested_names:
+            try:
+                from ai.llm.groq_adapter import GroqAdapter
 
-            groq = GroqAdapter()
-            if groq._client:
-                adapters_by_name["groq"] = groq
-        except Exception:
-            pass
+                groq = GroqAdapter()
+                if groq._client:
+                    adapters_by_name["groq"] = groq
+            except Exception:
+                pass
 
-        try:
-            from ai.llm.nvidia_adapter import NvidiaAdapter
+        if "nvidia" in requested_names:
+            try:
+                from ai.llm.nvidia_adapter import NvidiaAdapter
 
-            nvidia = NvidiaAdapter()
-            if nvidia._available:
-                adapters_by_name["nvidia"] = nvidia
-        except Exception:
-            pass
+                nvidia = NvidiaAdapter()
+                if nvidia._available:
+                    adapters_by_name["nvidia"] = nvidia
+            except Exception:
+                pass
 
-        try:
-            lmstudio = LMStudioAdapter()
-            if lmstudio._available:
-                adapters_by_name["lmstudio"] = lmstudio
-        except Exception:
-            pass
+        if "lmstudio" in requested_names:
+            try:
+                lmstudio = LMStudioAdapter()
+                if lmstudio._available:
+                    adapters_by_name["lmstudio"] = lmstudio
+            except Exception:
+                pass
 
         from ai.llm.local_rule_engine import LocalRuleEngine
 
@@ -582,6 +599,12 @@ class AIPlanner:
             "resolved_command": resolved_command,
             "resolved_tools": resolved_tools,
             "command_id": command_id,
+            "phase": self._normalize_phase_name(attack_state.current_phase),
+            "status": "pending",
+            "attempt_count": 0,
+            "command_retry_count": 0,
+            "alternative_pending": False,
+            "execution_history": [],
         }
 
     def _ensure_active_phase_plan(
@@ -1033,7 +1056,10 @@ class AIPlanner:
             if step.get("action_type") or step.get("action")
         ]
         recent_results = list(
-            ExecutionResult.objects.filter(attack_state=attack_state)
+            ExecutionResult.objects.filter(
+                attack_state=attack_state,
+                command__name__in=phase_commands,
+            )
             .select_related("command")
             .order_by("-created_at")[:5]
         )
@@ -1120,6 +1146,9 @@ class AIPlanner:
         steps = (attack_state.current_plan or {}).get("steps") or []
         if not steps:
             return False
+        explicit_statuses = [str(step.get("status") or "").lower() for step in steps]
+        if any(status for status in explicit_statuses):
+            return all(status == "completed" for status in explicit_statuses if status)
         return self._next_step_hint(attack_state) is None
 
     def peek_next_phase_with_commands(
@@ -1152,6 +1181,19 @@ class AIPlanner:
         """
         steps = (attack_state.current_plan or {}).get("steps") or []
         if not steps:
+            return None
+
+        explicit_statuses = [str(step.get("status") or "").lower() for step in steps]
+        if any(status for status in explicit_statuses):
+            for step in steps:
+                step_action = step.get("action_type") or step.get("action")
+                step_status = str(step.get("status") or "").lower()
+                if not step_action or step_status == "completed":
+                    continue
+                return {
+                    "action_type": step_action,
+                    "parameters": step.get("parameters", {}) or {},
+                }
             return None
 
         from core.models import ExecutionResult

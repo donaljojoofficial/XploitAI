@@ -73,11 +73,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const logsStatus = "{{ attack_state.autonomy_status|escapejs }}";
-    if (logsStatus === "RUNNING" || logsStatus === "PLANNING") {
-        setTimeout(() => window.location.reload(), 4000);
-    }
-</script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

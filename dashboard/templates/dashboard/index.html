@@ -267,10 +267,5 @@
             button.textContent = 'No additional activity loader is configured.';
         }
     }
-
-    const dashboardStatus = "{{ attack_state.autonomy_status|default:''|escapejs }}";
-    if (dashboardStatus === "RUNNING" || dashboardStatus === "PLANNING") {
-        setTimeout(() => window.location.reload(), 4000);
-    }
 </script>
 {% endblock %}
