@@ -32,12 +32,20 @@
                         Test History
                     </a>
                     <a href="{% url 'dashboard_attack_phase_reviews' attack_state.id %}" class="rounded-2xl border border-cyan-500/30 bg-slate-900/60 px-4 py-3 text-sm text-cyan-300 hover:border-cyan-300/60 hover:text-white">
-                        Phase Reviews
+                        Level Reviews
                     </a>
                     <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
-                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Phase</div>
-                        <div class="mt-1 font-mono text-sm text-white">{{ attack_state.current_phase }}</div>
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Level</div>
+                        <div class="mt-1 font-mono text-sm text-white">
+                            {% if plan_view.level.index %}{{ plan_view.level.index }}{% else %}?{% endif %} · {{ attack_state.current_phase }}
+                        </div>
                     </div>
+                    {% if plan_view.level.kill_chain_label %}
+                    <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Kill Chain</div>
+                        <div class="mt-1 font-mono text-sm text-white">{{ plan_view.level.kill_chain_label }}</div>
+                    </div>
+                    {% endif %}
                     <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
                         <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Status</div>
                         <div class="mt-1 font-mono text-sm text-white">{{ attack_state.autonomy_status }}</div>
@@ -79,13 +87,17 @@
     </section>
     {% endif %}
 
-    {% if plan_view and plan_view.phase_reviews %}
+    {% if plan_view and plan_view.level_history %}
     <section class="glass-panel rounded-2xl border border-cyan-500/20 p-6">
-        <div class="text-[11px] uppercase tracking-[0.25em] text-cyan-300">Phase Reviews</div>
+        <div class="text-[11px] uppercase tracking-[0.25em] text-cyan-300">Level Reviews</div>
         <div class="mt-4 grid gap-4">
-            {% for review in plan_view.phase_reviews %}
+            {% for review in plan_view.level_history %}
             <div class="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
-                <div class="text-sm font-mono text-white">{{ review.phase }}{% if review.next_phase %} &rarr; {{ review.next_phase }}{% endif %}</div>
+                <div class="text-sm font-mono text-white">
+                    {% if review.level.index %}Level {{ review.level.index }} · {% endif %}{{ review.phase }}
+                    {% if review.level.kill_chain_label %}<span class="text-cyan-300">({{ review.level.kill_chain_label }})</span>{% endif %}
+                    {% if review.next_phase %} &rarr; {{ review.next_phase }}{% endif %}
+                </div>
                 <div class="mt-2 text-sm leading-7 text-slate-300">{{ review.review }}</div>
             </div>
             {% endfor %}
@@ -103,6 +115,9 @@
                     <div class="rounded-full border border-slate-600 px-3 py-1 text-xs font-mono text-slate-300">{{ phase.summary.completed }}/{{ phase.summary.total }} complete</div>
                     {% if phase.next_phase %}
                     <div class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-mono text-cyan-300">Next: {{ phase.next_phase }}</div>
+                    {% endif %}
+                    {% if phase.kill_chain_label %}
+                    <div class="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-mono text-indigo-200">{{ phase.kill_chain_label }}</div>
                     {% endif %}
                     {% if phase.source == "active_plan" %}
                     <div class="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-mono text-amber-300">Active Phase</div>
@@ -166,7 +181,12 @@
                                         </div>
                                         {% if step.command_retry_count %}
                                         <div class="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs leading-6 text-amber-200">
-                                            Command retries used: {{ step.command_retry_count }}
+                                            Command retries used: {{ step.command_retry_count }} / {{ step.max_retries }}
+                                        </div>
+                                        {% endif %}
+                                        {% if step.cooldown_pending %}
+                                        <div class="mt-3 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-xs leading-6 text-cyan-200">
+                                            Retry cooldown active before next attempt.
                                         </div>
                                         {% endif %}
                                         {% if step.alternative_pending %}

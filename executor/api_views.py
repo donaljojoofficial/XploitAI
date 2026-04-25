@@ -118,7 +118,7 @@ def get_tasks(request):
             "action_name": task.action_name,
             "command": cmd,
             "parameters": params,
-            "limits": {}
+            "limits": params.get("limits", {}) if isinstance(params, dict) else {}
         }], safe=False)
     except Exception as e:
         logger.error(f"Get tasks error: {e}")

@@ -3,6 +3,7 @@ import logging
 import threading
 import time
 import os
+from typing import Any, Optional
 
 from ai.planner import AIPlanner
 from ai.command_generator import CommandGenerator
@@ -16,6 +17,15 @@ from parser.output_parser import (
 )
 from state.state_manager import StateManager
 from core.models import AttackState, Command, ExecutionResult
+from core.levels import (
+    DEFAULT_LEVEL_LIMITS,
+    DEFAULT_STEP_MAX_RETRIES,
+    DEFAULT_STEP_RETRY_COOLDOWN_SECONDS,
+    build_runtime_profile,
+    canonical_kill_chain_label,
+    normalize_phase_name,
+    parse_positive_int,
+)
 from services.command_template_utils import (
     build_target_context,
     infer_required_tools,
@@ -41,6 +51,7 @@ class ExecutionService:
         max_retries: int = 1,
         max_commands_per_phase: int = 3,
         llm_provider: str = "auto",
+        runtime_profile: Optional[dict[str, Any]] = None,
     ):
         self.attack_state_id = attack_state_id
         self.max_steps = max_steps
@@ -56,6 +67,66 @@ class ExecutionService:
         )
         self.output_analyzer = OutputAnalysisService()
         self.phase_command_counts = {}
+        self.runtime_profile = build_runtime_profile(runtime_profile or {})
+
+    def _get_retry_config(self, step: dict | None) -> tuple[int, int]:
+        step = step or {}
+        max_retries = parse_positive_int(
+            step.get("max_retries", self.runtime_profile.get("max_retries", DEFAULT_STEP_MAX_RETRIES)),
+            DEFAULT_STEP_MAX_RETRIES,
+        )
+        cooldown = parse_positive_int(
+            step.get("retry_cooldown_seconds", self.runtime_profile.get("retry_cooldown_seconds", DEFAULT_STEP_RETRY_COOLDOWN_SECONDS)),
+            DEFAULT_STEP_RETRY_COOLDOWN_SECONDS,
+        )
+        return max_retries, cooldown
+
+    def _find_plan_step(self, attack_state: AttackState, action_name: str) -> Optional[dict]:
+        for step in (attack_state.current_plan or {}).get("steps") or []:
+            step_name = step.get("action_type") or step.get("action")
+            if step_name != action_name:
+                continue
+            if str(step.get("status") or "").lower() != "completed":
+                return step
+        return None
+
+    def _record_level_runtime(self, *, success: bool) -> None:
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        plan = attack_state.current_plan or {}
+        runtime = plan.get("runtime") if isinstance(plan.get("runtime"), dict) else {}
+        runtime["level_started_at"] = runtime.get("level_started_at") or time.time()
+        runtime["total_attempts"] = int(runtime.get("total_attempts") or 0) + 1
+        if not success:
+            runtime["total_failures"] = int(runtime.get("total_failures") or 0) + 1
+        runtime.setdefault("paused_by_limits", False)
+        plan["runtime"] = runtime
+        attack_state.current_plan = plan
+        attack_state.save(update_fields=["current_plan"])
+
+    def _level_limit_reason(self, attack_state: AttackState) -> Optional[str]:
+        plan = attack_state.current_plan or {}
+        runtime = plan.get("runtime") if isinstance(plan.get("runtime"), dict) else {}
+        limits = plan.get("limits") if isinstance(plan.get("limits"), dict) else {}
+        merged_limits = dict(DEFAULT_LEVEL_LIMITS)
+        merged_limits.update(
+            {
+                key: parse_positive_int(limits.get(key, default), default)
+                for key, default in DEFAULT_LEVEL_LIMITS.items()
+            }
+        )
+
+        total_attempts = int(runtime.get("total_attempts") or 0)
+        total_failures = int(runtime.get("total_failures") or 0)
+        level_started_at = float(runtime.get("level_started_at") or time.time())
+        elapsed = max(time.time() - level_started_at, 0.0)
+
+        if total_attempts >= merged_limits["max_step_attempts_per_level"]:
+            return f"Level rate limit reached: {total_attempts} attempts used."
+        if total_failures >= merged_limits["max_level_failures"]:
+            return f"Level failure cap reached: {total_failures} failed attempts."
+        if elapsed >= float(merged_limits["max_level_runtime_seconds"]):
+            return f"Level runtime cap reached: {int(elapsed)}s elapsed."
+        return None
 
     def _persist_step_command(self, action_name: str, command: str):
         attack_state = AttackState.objects.get(id=self.attack_state_id)
@@ -81,6 +152,8 @@ class ExecutionService:
         stdout: str = "",
         stderr: str = "",
         findings: dict | None = None,
+        schedule_retry: bool = False,
+        next_allowed_at: float = 0,
     ) -> None:
         attack_state = AttackState.objects.get(id=self.attack_state_id)
         plan = attack_state.current_plan or {}
@@ -111,11 +184,23 @@ class ExecutionService:
         normalized_status = str(status or "pending").lower()
         if normalized_status == "running":
             target_step["status"] = "running"
+            target_step["cooldown_pending"] = False
         else:
             target_step["attempt_count"] = int(target_step.get("attempt_count") or 0) + 1
             target_step["command_retry_count"] = int(target_step.get("command_retry_count") or 0) + max(command_retries, 0)
-            target_step["status"] = "completed" if normalized_status == "success" else "failed"
-            target_step["alternative_pending"] = normalized_status != "success"
+            target_step["next_allowed_at"] = float(next_allowed_at or 0)
+            if normalized_status == "success":
+                target_step["status"] = "completed"
+                target_step["alternative_pending"] = False
+                target_step["cooldown_pending"] = False
+            elif schedule_retry:
+                target_step["status"] = "pending"
+                target_step["alternative_pending"] = False
+                target_step["cooldown_pending"] = True
+            else:
+                target_step["status"] = "failed"
+                target_step["alternative_pending"] = True
+                target_step["cooldown_pending"] = False
             target_step["last_output_excerpt"] = (stdout or "")[:400]
             target_step["last_error_excerpt"] = (stderr or "")[:240]
             target_step["last_findings"] = findings or {}
@@ -124,10 +209,11 @@ class ExecutionService:
                     "attempt_number": target_step["attempt_count"],
                     "command_retry_count": max(command_retries, 0),
                     "command": command or target_step.get("resolved_command") or "",
-                    "status": "SUCCESS" if normalized_status == "success" else "FAILED",
+                    "status": "SUCCESS" if normalized_status == "success" else ("RETRY_SCHEDULED" if schedule_retry else "FAILED"),
                     "stdout_excerpt": (stdout or "")[:400],
                     "stderr_excerpt": (stderr or "")[:240],
                     "findings": findings or {},
+                    "next_allowed_at": float(next_allowed_at or 0),
                 }
             )
 
@@ -146,7 +232,15 @@ class ExecutionService:
         reviews = attack_state.state_data.get("phase_reviews", [])
         if not isinstance(reviews, list):
             reviews = []
-        reviews.append(
+        level_history = attack_state.state_data.get("level_history", [])
+        if not isinstance(level_history, list):
+            level_history = []
+
+        level_meta = (attack_state.current_plan or {}).get("level") if isinstance((attack_state.current_plan or {}).get("level"), dict) else {}
+        if level_meta:
+            level_meta["status"] = "completed"
+        plan_runtime = (attack_state.current_plan or {}).get("runtime") if isinstance((attack_state.current_plan or {}).get("runtime"), dict) else {}
+        review_item = (
             {
                 "phase": current_phase,
                 "review": (review or {}).get("summary", ""),
@@ -154,10 +248,32 @@ class ExecutionService:
                 "next_phase": next_phase,
                 "completed_at": time.time(),
                 "findings": (attack_state.state_data.get("findings") or {}).copy(),
+                "level": {
+                    "index": level_meta.get("index"),
+                    "phase_name": normalize_phase_name(current_phase),
+                    "kill_chain_label": level_meta.get("kill_chain_label") or canonical_kill_chain_label(current_phase),
+                },
+                "metrics": {
+                    "attempts": int(plan_runtime.get("total_attempts") or 0),
+                    "failures": int(plan_runtime.get("total_failures") or 0),
+                },
             }
         )
+        reviews.append(review_item)
+        level_history.append(review_item)
         attack_state.state_data["phase_reviews"] = reviews
-        attack_state.state_data.pop("phase_transition_pending", None)
+        attack_state.state_data["level_history"] = level_history
+        transition_payload = {
+            "from_phase": current_phase,
+            "to_phase": next_phase,
+            "next_phase": next_phase,
+            "review": review_item.get("review", ""),
+            "key_evidence": ((review or {}).get("key_evidence") or []),
+            "level": review_item.get("level", {}),
+        }
+        attack_state.state_data["phase_transition_pending"] = transition_payload
+        attack_state.state_data["level_transition_pending"] = transition_payload
+        attack_state.state_data["progression_mode"] = "manual"
         attack_state.state_data["plan_approved"] = False
         attack_state.current_phase = next_phase
         attack_state.current_plan = {}
@@ -173,7 +289,7 @@ class ExecutionService:
             return True
 
         self.stop_assessment(
-            f"Phase '{current_phase}' reviewed. Plan for '{next_phase}' generated and waiting for approval."
+            f"Level '{current_phase}' reviewed. Plan for '{next_phase}' generated and waiting for approval."
         )
         return True
 
@@ -296,6 +412,23 @@ class ExecutionService:
 
             command = normalize_command_targets(command, command_parameters)
             self._persist_step_command(command_obj.name, command)
+            attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
+            step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
+            if step_state:
+                retry_budget, retry_cooldown = self._get_retry_config(step_state)
+                step_state["max_retries"] = retry_budget
+                step_state["retry_cooldown_seconds"] = retry_cooldown
+                next_allowed_at = float(step_state.get("next_allowed_at") or 0)
+                if next_allowed_at > time.time():
+                    wait_seconds = max(next_allowed_at - time.time(), 0.0)
+                    logger.info(
+                        "Step '%s' is in retry cooldown for %.1fs.",
+                        command_obj.name,
+                        wait_seconds,
+                    )
+                    time.sleep(min(wait_seconds, 1.0))
+                    continue
+
             self._update_step_execution_state(
                 command_obj.name,
                 status="running",
@@ -303,21 +436,8 @@ class ExecutionService:
                 command_id=command_id,
             )
 
-            result = None
-            final_status = "FAILED"
-            attempts_used = 0
-            for attempt in range(self.max_retries + 1):
-                attempts_used = attempt + 1
-                result = run_command(command)
-                if result and result.get("returncode") == 0:
-                    final_status = "SUCCESS"
-                    break
-                logger.warning(
-                    f"Command '{command_obj.name}' (id={command_id}) failed "
-                    f"(attempt {attempt + 1}/{self.max_retries + 1})."
-                )
-                if attempt < self.max_retries:
-                    time.sleep(1)
+            result = run_command(command)
+            final_status = "SUCCESS" if result and result.get("returncode") == 0 else "FAILED"
 
             if not result:
                 self.stop_assessment(f"Command '{command_obj.name}' returned no result.")
@@ -346,16 +466,50 @@ class ExecutionService:
                     else "FAILED"
                 )
 
+            should_retry = False
+            scheduled_retry_count = 0
+            next_retry_at = 0.0
+            attack_state_for_retry = AttackState.objects.get(id=self.attack_state_id)
+            step_state = self._find_plan_step(attack_state_for_retry, command_obj.name)
+            if step_state and final_status != "SUCCESS":
+                max_retries, retry_cooldown = self._get_retry_config(step_state)
+                retries_used = int(step_state.get("command_retry_count") or 0)
+                should_retry = retries_used < max_retries
+                if should_retry:
+                    scheduled_retry_count = 1
+                    next_retry_at = time.time() + float(retry_cooldown)
+                    logger.info(
+                        "Scheduling retry for '%s' (%s/%s).",
+                        command_obj.name,
+                        retries_used + 1,
+                        max_retries,
+                    )
+
             self._update_step_execution_state(
                 command_obj.name,
                 status=final_status,
                 command=command,
                 command_id=command_id,
-                command_retries=max(attempts_used - 1, 0),
+                command_retries=scheduled_retry_count,
                 stdout=stdout,
                 stderr=stderr,
                 findings=findings,
+                schedule_retry=should_retry,
+                next_allowed_at=next_retry_at,
             )
+            self._record_level_runtime(success=final_status == "SUCCESS")
+
+            refreshed_for_limits = AttackState.objects.get(id=self.attack_state_id)
+            limit_reason = self._level_limit_reason(refreshed_for_limits)
+            if limit_reason:
+                plan = refreshed_for_limits.current_plan or {}
+                runtime = plan.get("runtime") if isinstance(plan.get("runtime"), dict) else {}
+                runtime["paused_by_limits"] = True
+                plan["runtime"] = runtime
+                refreshed_for_limits.current_plan = plan
+                refreshed_for_limits.save(update_fields=["current_plan"])
+                self.stop_assessment(limit_reason)
+                return
 
             review_reason = self.planner.review_execution(
                 self.state_manager,
@@ -392,6 +546,13 @@ class ExecutionService:
                     return
 
             if final_status == "FAILED":
+                if should_retry:
+                    logger.info(
+                        "Command '%s' failed; retry has been scheduled with cooldown.",
+                        command_obj.name,
+                    )
+                    time.sleep(1)
+                    continue
                 logger.info(
                     "Command '%s' failed or produced no meaningful evidence; marking it unavailable and asking AI for another command for the same step.",
                     command_obj.name,

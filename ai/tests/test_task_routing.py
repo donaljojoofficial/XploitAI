@@ -306,6 +306,8 @@ class AIPlannerPlanProgressionTests(TestCase):
         planner._resolve_proposed_command_name = AIPlanner._resolve_proposed_command_name.__get__(planner, AIPlanner)
         planner._normalize_command_name = AIPlanner._normalize_command_name.__get__(planner, AIPlanner)
         planner._all_commands = AIPlanner._all_commands.__get__(planner, AIPlanner)
+        planner._phase_level_index = AIPlanner._phase_level_index.__get__(planner, AIPlanner)
+        planner._level_metadata = AIPlanner._level_metadata.__get__(planner, AIPlanner)
 
     def test_next_step_hint_skips_failed_exhausted_step(self):
         discovery = Phase.objects.create(name="discovery", description="Discovery")
@@ -576,3 +578,53 @@ class AIPlannerPlanProgressionTests(TestCase):
             "curl -I http://127.0.0.1:4280/",
         )
         self.assertTrue(state.current_plan["steps"][0]["resolved_tools"])
+
+    def test_ensure_initial_plan_persists_level_and_retry_contract(self):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        header = Command.objects.create(
+            phase=reconnaissance,
+            name="HTTPHeaderFetch",
+            description="Headers",
+            command_template="curl -I {target_url}",
+        )
+
+        state = AttackState.objects.create(
+            name="Level contract",
+            current_phase="RECONNAISSANCE",
+            state_data={
+                "target": "http://127.0.0.1:4280/",
+                "runtime_profile": {
+                    "max_retries": 2,
+                    "retry_cooldown_seconds": 2,
+                    "limits": {
+                        "max_step_attempts_per_level": 5,
+                        "max_level_failures": 3,
+                        "max_level_runtime_seconds": 300,
+                    },
+                },
+            },
+        )
+
+        from state.state_manager import StateManager
+
+        planner = AIPlanner.__new__(AIPlanner)
+        planner.last_plan_error = None
+        planner.plan_adapter = PlanRecordingAdapter([header.name])
+        planner._plan_task_key = AIPlanner._plan_task_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_key = AIPlanner._normalize_phase_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_name = AIPlanner._normalize_phase_name.__get__(planner, AIPlanner)
+        planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
+        planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
+        planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
+        planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+        self._bind_plan_generation_helpers(planner)
+
+        ready = planner.ensure_initial_plan(StateManager(state.id))
+        state.refresh_from_db()
+
+        self.assertTrue(ready)
+        self.assertEqual(state.current_plan["level"]["phase_name"], "reconnaissance")
+        self.assertEqual(state.current_plan["level"]["kill_chain_label"], "RECONNAISSANCE")
+        self.assertEqual(state.current_plan["limits"]["max_step_attempts_per_level"], 5)
+        self.assertEqual(state.current_plan["steps"][0]["max_retries"], 2)
+        self.assertEqual(state.current_plan["steps"][0]["retry_cooldown_seconds"], 2)

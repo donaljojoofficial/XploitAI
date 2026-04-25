@@ -13,7 +13,7 @@
                     <div>
                         <h1 class="headline-gradient text-4xl font-extrabold tracking-tight md:text-5xl">Centralized security operations with clear real-time control.</h1>
                         <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
-                            Monitor autonomous activity, review active context, approve phase transitions, and launch new tests from a single professional workspace.
+                            Monitor autonomous activity, review level transitions, and launch new tests from a single professional workspace.
                         </p>
                     </div>
 
@@ -28,7 +28,10 @@
                         <span class="ui-badge ui-badge-muted">{{ attack_state.autonomy_status|default:"Idle" }}</span>
                         {% endif %}
 
-                        <span class="ui-badge ui-badge-muted">Phase {{ attack_state.current_phase|default:"N/A" }}</span>
+                        <span class="ui-badge ui-badge-muted">Level {{ attack_state.current_phase|default:"N/A" }}</span>
+                        {% if plan_view.level.kill_chain_label %}
+                        <span class="ui-badge ui-badge-info">{{ plan_view.level.kill_chain_label }}</span>
+                        {% endif %}
 
                         {% if plan_view and plan_view.current_step %}
                         <span class="ui-badge ui-badge-info">
@@ -76,7 +79,7 @@
                     <div class="flex flex-wrap gap-3">
                         <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="ui-btn ui-btn-primary">Open Operation</a>
                         <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="ui-btn ui-btn-secondary">View Plan</a>
-                        <a href="{% url 'dashboard_attack_phase_reviews' attack_state.pk %}" class="ui-btn ui-btn-secondary">Phase Reviews</a>
+                        <a href="{% url 'dashboard_attack_phase_reviews' attack_state.pk %}" class="ui-btn ui-btn-secondary">Level Reviews</a>
                         <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="ui-btn ui-btn-secondary">Replay</a>
                         {% if attack_state.autonomy_status == 'RUNNING' or attack_state.autonomy_status == 'PLANNING' %}
                         <form action="{% url 'stop_attack' attack_state.pk %}" method="post" class="inline-block">
@@ -87,7 +90,7 @@
                         {% if waiting_for_approval %}
                         <form action="{% url 'approve_plan' attack_state.pk %}" method="post" class="inline-block">
                             {% csrf_token %}
-                            <button type="submit" class="ui-btn ui-btn-success">{% if plan_view.phase_transition_pending %}Approve Next Phase{% else %}Approve and Resume{% endif %}</button>
+                            <button type="submit" class="ui-btn ui-btn-success">{% if plan_view.level_transition_pending %}Approve and Continue to Next Level{% else %}Approve and Resume{% endif %}</button>
                         </form>
                         {% endif %}
                     </div>
@@ -243,6 +246,13 @@
                     </select>
                     <p class="mt-2 text-sm text-slate-400">The router will prefer available cloud adapters and fall back safely. Choose LM Studio only for local-only runs.</p>
                 </div>
+
+                <input type="hidden" name="progression_mode" value="manual">
+                <input type="hidden" name="max_retries" value="2">
+                <input type="hidden" name="retry_cooldown_seconds" value="2">
+                <input type="hidden" name="max_step_attempts_per_level" value="5">
+                <input type="hidden" name="max_level_failures" value="3">
+                <input type="hidden" name="max_level_runtime_seconds" value="300">
 
                 <div class="rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm text-rose-100">
                     Starting autonomy will override any currently active session. Use this action only when you are ready to begin a new run.

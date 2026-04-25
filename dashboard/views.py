@@ -40,6 +40,11 @@ from services.command_template_utils import (
     render_command_template,
 )
 from core.config import get_config, set_config
+from core.levels import (
+    build_runtime_profile,
+    canonical_kill_chain_label,
+    normalize_phase_name,
+)
 from ai.llm.groq_adapter import GroqAdapter
 
 logger = logging.getLogger(__name__)
@@ -96,7 +101,7 @@ def _step_summary(steps: list[dict[str, Any]]) -> dict[str, int]:
 
 def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
     state_data = state.state_data or {}
-    phase_reviews = state_data.get("phase_reviews", [])
+    phase_reviews = state_data.get("level_history") or state_data.get("phase_reviews", [])
     phases: list[dict[str, Any]] = []
     reviewed_phase_keys: set[str] = set()
 
@@ -152,6 +157,8 @@ def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
             {
                 "phase": review_phase or f"Phase {index}",
                 "phase_display": _display_phase_name(review_phase or f"Phase {index}"),
+                "level": review.get("level") if isinstance(review, dict) else {},
+                "kill_chain_label": ((review.get("level") or {}).get("kill_chain_label") if isinstance(review, dict) else "") or canonical_kill_chain_label(review_phase),
                 "next_phase": review.get("next_phase") if isinstance(review, dict) else "",
                 "review": review.get("review", "") if isinstance(review, dict) else "",
                 "details": details,
@@ -184,10 +191,13 @@ def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
     )
 
     if should_append_active_phase:
+        current_level = (state.current_plan or {}).get("level") if isinstance((state.current_plan or {}).get("level"), dict) else {}
         phases.append(
             {
                 "phase": active_phase,
                 "phase_display": _display_phase_name(active_phase),
+                "level": current_level,
+                "kill_chain_label": current_level.get("kill_chain_label") or canonical_kill_chain_label(active_phase),
                 "next_phase": "",
                 "review": "",
                 "details": {},
@@ -237,12 +247,20 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
                 "total": 0,
                 "completed": 0,
                 "failed": 0,
+                "running": 0,
                 "pending": 0,
+                "attempts": 0,
+                "alternatives": 0,
             },
             "current_step": None,
             "all_done": False,
-            "phase_reviews": (state.state_data or {}).get("phase_reviews", []),
-            "phase_transition_pending": (state.state_data or {}).get("phase_transition_pending"),
+            "level": plan.get("level") or {},
+            "limits": plan.get("limits") or {},
+            "runtime": plan.get("runtime") or {},
+            "phase_reviews": (state.state_data or {}).get("level_history") or (state.state_data or {}).get("phase_reviews", []),
+            "level_history": (state.state_data or {}).get("level_history") or (state.state_data or {}).get("phase_reviews", []),
+            "phase_transition_pending": (state.state_data or {}).get("phase_transition_pending") or (state.state_data or {}).get("level_transition_pending"),
+            "level_transition_pending": (state.state_data or {}).get("level_transition_pending") or (state.state_data or {}).get("phase_transition_pending"),
         }
 
     results = (
@@ -318,6 +336,13 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         item.setdefault("step_number", idx + 1)
         item.setdefault("attempt_count", len(item.get("execution_history") or []))
         item.setdefault("command_retry_count", 0)
+        item.setdefault("max_retries", 2)
+        item.setdefault("retry_cooldown_seconds", 2)
+        item.setdefault("next_allowed_at", 0)
+        item["cooldown_pending"] = (
+            float(item.get("next_allowed_at") or 0) > timezone.now().timestamp()
+            and item.get("status") in {"pending", "running"}
+        )
         if not item.get("output_excerpt"):
             item["output_excerpt"] = item.get("last_output_excerpt") or item.get("last_error_excerpt") or ""
         steps.append(item)
@@ -339,6 +364,12 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
 
     return {
         "rationale": plan.get("rationale", ""),
+        "level": plan.get("level") or {
+            "phase_name": normalize_phase_name(plan.get("phase") or state.current_phase),
+            "kill_chain_label": canonical_kill_chain_label(plan.get("phase") or state.current_phase),
+        },
+        "limits": plan.get("limits") or {},
+        "runtime": plan.get("runtime") or {},
         "steps": steps,
         "summary": {
             "total": len(steps),
@@ -346,11 +377,15 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             "failed": failed_count,
             "running": running_count,
             "pending": pending_count,
+            "attempts": sum(int(s.get("attempt_count") or 0) for s in steps),
+            "alternatives": sum(1 for s in steps if s.get("alternative_pending")),
         },
         "current_step": current_step,
         "all_done": completed_count == len(steps),
-        "phase_reviews": (state.state_data or {}).get("phase_reviews", []),
-        "phase_transition_pending": (state.state_data or {}).get("phase_transition_pending"),
+        "phase_reviews": (state.state_data or {}).get("level_history") or (state.state_data or {}).get("phase_reviews", []),
+        "level_history": (state.state_data or {}).get("level_history") or (state.state_data or {}).get("phase_reviews", []),
+        "phase_transition_pending": (state.state_data or {}).get("phase_transition_pending") or (state.state_data or {}).get("level_transition_pending"),
+        "level_transition_pending": (state.state_data or {}).get("level_transition_pending") or (state.state_data or {}).get("phase_transition_pending"),
     }
 
 
@@ -359,11 +394,13 @@ def _launch_assessment(state: AttackState) -> None:
     state_data = state.state_data or {}
     execution_mode = state_data.get('execution_mode', 'local')
     llm_provider = state_data.get('llm_provider', 'auto')
+    runtime_profile = build_runtime_profile(state_data.get("runtime_profile") or {})
 
     if execution_mode == 'remote':
         remote_service = RemoteExecutionService(
             attack_state_id=state.id,
             llm_provider=llm_provider,
+            runtime_profile=runtime_profile,
         )
         remote_service.start_assessment()
         return
@@ -371,6 +408,7 @@ def _launch_assessment(state: AttackState) -> None:
     execution_service = ExecutionService(
         attack_state_id=state.id,
         llm_provider=llm_provider,
+        runtime_profile=runtime_profile,
     )
     execution_service.start_assessment()
 
@@ -625,7 +663,7 @@ def attack_phase_reviews(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         'attack_state': state,
         'plan_view': plan_view,
-        'phase_reviews': (state.state_data or {}).get('phase_reviews', []),
+        'phase_reviews': (state.state_data or {}).get('level_history') or (state.state_data or {}).get('phase_reviews', []),
         **_get_global_context(),
     }
     return render(request, 'dashboard/phase_reviews.html', context)
@@ -660,6 +698,18 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     executor_id = request.POST.get('executor_id')
     target_id = request.POST.get('target_id')
     llm_provider = request.POST.get('llm_provider', 'auto')
+    progression_mode = (request.POST.get("progression_mode", "manual") or "manual").strip().lower()
+    runtime_profile = build_runtime_profile(
+        {
+            "max_retries": request.POST.get("max_retries"),
+            "retry_cooldown_seconds": request.POST.get("retry_cooldown_seconds"),
+            "limits": {
+                "max_step_attempts_per_level": request.POST.get("max_step_attempts_per_level"),
+                "max_level_failures": request.POST.get("max_level_failures"),
+                "max_level_runtime_seconds": request.POST.get("max_level_runtime_seconds"),
+            },
+        }
+    )
 
     if not target_id:
         return redirect('dashboard_index')
@@ -691,6 +741,9 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                 "llm_provider": llm_provider,
                 "execution_mode": "remote",
                 "executor_id": selected_executor.id,
+                "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
+                "runtime_profile": runtime_profile,
+                "level_history": [],
             },
         )
     else:
@@ -705,6 +758,9 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                 "findings": {},
                 "llm_provider": llm_provider,
                 "execution_mode": "local",
+                "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
+                "runtime_profile": runtime_profile,
+                "level_history": [],
             },
         )
 
@@ -712,6 +768,8 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     if not state.state_data:
         state.state_data = {}
     state.state_data['llm_provider'] = llm_provider
+    state.state_data['progression_mode'] = state.state_data.get('progression_mode') or "manual"
+    state.state_data['runtime_profile'] = build_runtime_profile(state.state_data.get('runtime_profile') or runtime_profile)
     state.save(update_fields=['state_data'])
 
     # Create or update context for UI display
@@ -749,6 +807,7 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     state.state_data['plan_approved'] = True
     state.state_data.pop('auto_approve_generated_plan', None)
     state.state_data.pop('phase_transition_pending', None)
+    state.state_data.pop('level_transition_pending', None)
     state.save(update_fields=['state_data'])
 
     # Auto-resume the attack

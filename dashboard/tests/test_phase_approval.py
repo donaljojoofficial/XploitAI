@@ -24,7 +24,13 @@ class PhaseApprovalFlowTests(TestCase):
             current_phase="RECONNAISSANCE",
             state_data={
                 "phase_reviews": [{"phase": "reconnaissance", "review": "done"}],
+                "level_history": [{"phase": "reconnaissance", "review": "done"}],
                 "phase_transition_pending": {
+                    "from_phase": "reconnaissance",
+                    "next_phase": "discovery",
+                    "review": "move on",
+                },
+                "level_transition_pending": {
                     "from_phase": "reconnaissance",
                     "next_phase": "discovery",
                     "review": "move on",
@@ -37,8 +43,13 @@ class PhaseApprovalFlowTests(TestCase):
 
         self.assertEqual(view_state["steps"], [])
         self.assertEqual(len(view_state["phase_reviews"]), 1)
+        self.assertEqual(len(view_state["level_history"]), 1)
         self.assertEqual(
             view_state["phase_transition_pending"]["next_phase"],
+            "discovery",
+        )
+        self.assertEqual(
+            view_state["level_transition_pending"]["next_phase"],
             "discovery",
         )
 
@@ -72,6 +83,7 @@ class PhaseApprovalFlowTests(TestCase):
         self.assertEqual(state.current_phase, "discovery")
         self.assertTrue(state.state_data["plan_approved"])
         self.assertNotIn("phase_transition_pending", state.state_data)
+        self.assertNotIn("level_transition_pending", state.state_data)
         launch_assessment.assert_called_once()
 
     @patch("dashboard.views._launch_assessment")
