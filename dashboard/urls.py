@@ -4,6 +4,7 @@ from . import views
 from . import views_targets
 from . import views_main
 from . import views_executors
+from . import api
 from . import auth
 
 urlpatterns = [
@@ -19,8 +20,10 @@ urlpatterns = [
     # Dashboard routes (root level)
     path("", views.index, name="dashboard_index"),
     path("history/", views.test_history, name="dashboard_test_history"),
+    path("assistant/", views.assistant_page, name="dashboard_assistant"),
     path("start/", views.start_attack, name="dashboard_start_attack"),
     path("attack/<int:pk>/", views.attack_detail, name="dashboard_attack_detail"),
+    path("attack/<int:pk>/phases/<str:phase_key>/", views.attack_phase_detail, name="dashboard_attack_phase_detail"),
     path("attack/<int:pk>/replay/", views.attack_replay, name="dashboard_attack_replay"),
     path("attack/<int:pk>/plan/", views.attack_plan, name="dashboard_attack_plan"),
     path("attack/<int:pk>/phase-reviews/", views.attack_phase_reviews, name="dashboard_attack_phase_reviews"),
@@ -40,4 +43,6 @@ urlpatterns = [
     # Configuration + settings (mounted separately under /settings/)
     path("configuration/", views.configuration, name="configuration"),
     path("check_status/", views.check_llm_status, name="check_llm_status"),
+    path("attack-chat/ask/", api.attack_chat_ask, name="dashboard_attack_chat_ask"),
+    path("attack-chat/reset/", api.attack_chat_reset, name="dashboard_attack_chat_reset"),
 ]

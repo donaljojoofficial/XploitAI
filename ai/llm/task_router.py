@@ -31,6 +31,8 @@ class TaskRouterAdapter(BaseLLMAdapter):
         "plan.privilege_escalation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
         "plan.proof_of_compromise": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
         "explain": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
+        "chat": ["nvidia", "groq", "openai", "gemini", "lmstudio", "local"],
+        "chat.explain_run": ["nvidia", "groq", "openai", "gemini", "lmstudio", "local"],
         "generate": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
         "narrative": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
     }
@@ -125,6 +127,9 @@ class TaskRouterAdapter(BaseLLMAdapter):
 
     def generate(self, prompt: str) -> Optional[str]:
         return self._pipeline("generate").generate(prompt)
+
+    def generate_for_task(self, prompt: str, task_key: Optional[str] = None) -> Optional[str]:
+        return self._pipeline(task_key or "chat").generate(prompt)
 
     def generate_stream(self, prompt: str) -> Iterator[str]:
         yield from self._pipeline("generate").generate_stream(prompt)

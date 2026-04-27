@@ -18,20 +18,25 @@ from __future__ import annotations
 import json
 import logging
 from copy import deepcopy
+from datetime import timedelta
 from typing import Any
 
 from django.shortcuts import render, get_object_or_404, redirect
 from . import auth
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
+from django.urls import reverse
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext, Command
 from ai.command_generator import CommandGenerator
+from executor import ssh_executor
 from services.execution_service import ExecutionService
 from services.remote_execution_service import RemoteExecutionService
+from services.ssh_execution_service import SSHExecutionService
 from services.reporting_service import AttackReportService
 from services.command_template_utils import (
     build_target_context,
@@ -44,22 +49,55 @@ from core.config import get_config, set_config
 from core.levels import (
     build_runtime_profile,
     canonical_kill_chain_label,
+    dashboard_phase_catalog,
+    dashboard_phase_display_name,
+    dashboard_phase_index,
+    dashboard_phase_key,
+    dashboard_phase_meta,
+    is_valid_dashboard_phase,
+    next_dashboard_phase,
     normalize_phase_name,
     pentest_stage_label,
+    previous_dashboard_phase,
 )
 from ai.llm.groq_adapter import GroqAdapter
 
 logger = logging.getLogger(__name__)
+EXECUTOR_HEARTBEAT_THRESHOLD_SECONDS = 30
 
 def _normalize_phase_key(value: Any) -> str:
-    return str(value or "").strip().lower()
+    return dashboard_phase_key(value)
 
 
 def _display_phase_name(value: Any) -> str:
+    mapped = dashboard_phase_display_name(value)
+    if mapped != "Unknown Phase":
+        return mapped
     text = str(value or "").strip()
     if not text:
         return "Unknown Phase"
     return text.replace("_", " ").title()
+
+
+def _phase_badge_status(state: AttackState, phase_key: str, phase_payload: dict[str, Any] | None = None) -> str:
+    payload = phase_payload or {}
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    if phase_key == "completed":
+        return "completed" if (state.state_data or {}).get("report_artifacts") else "pending"
+    if payload.get("is_current"):
+        if state.autonomy_status in {"RUNNING", "PLANNING"}:
+            return "running"
+        if summary.get("failed"):
+            return "failed"
+        if summary.get("total") and summary.get("completed") == summary.get("total"):
+            return "completed"
+    if payload.get("source") == "review":
+        return "completed"
+    return "pending"
+
+
+def _phase_filter_match(event_phase: Any, phase_key: str) -> bool:
+    return _normalize_phase_key(event_phase) == _normalize_phase_key(phase_key)
 
 
 def _summarize_findings(findings: Any) -> list[dict[str, Any]]:
@@ -426,6 +464,158 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
     }
 
 
+def _is_failed_stop_reason(stop_reason: str) -> bool:
+    reason = str(stop_reason or "").lower()
+    if not reason:
+        return False
+    failure_tokens = ("failed", "failure", "error", "halt", "stopped")
+    safe_tokens = ("waiting for approval", "plan completed", "resuming execution")
+    return any(token in reason for token in failure_tokens) and not any(token in reason for token in safe_tokens)
+
+
+def _build_phase_cards(state: AttackState | None) -> dict[str, Any]:
+    catalog = dashboard_phase_catalog()
+    if not state:
+        return {
+            "cards": [
+                {
+                    **phase,
+                    "phase_key": phase["key"],
+                    "status": "pending",
+                    "is_current": False,
+                    "is_started": False,
+                    "is_skipped_by_start": False,
+                    "summary": {"total": 0, "completed": 0, "failed": 0, "running": 0, "pending": 0, "attempts": 0, "alternatives": 0},
+                    "review": "",
+                    "findings_count": 0,
+                    "outputs_count": 0,
+                    "detail_url": "",
+                }
+                for phase in catalog
+            ],
+            "aggregate": {"completed": 0, "running": 0, "failed": 0, "pending": len(catalog), "selected_run": None},
+        }
+
+    history = _build_attack_run_history(state)
+    start_phase = _normalize_phase_key((state.state_data or {}).get("start_phase") or state.current_phase)
+    start_phase_idx = dashboard_phase_index(start_phase)
+    current_phase_key = _normalize_phase_key((state.current_plan or {}).get("phase") or state.current_phase)
+    phases_by_key = {
+        _normalize_phase_key(item.get("phase")): item
+        for item in history.get("phases", [])
+        if _normalize_phase_key(item.get("phase"))
+    }
+
+    cards: list[dict[str, Any]] = []
+    for phase in catalog:
+        phase_key = phase["key"]
+        payload = phases_by_key.get(phase_key, {})
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else _step_summary([])
+        is_current = phase_key == current_phase_key
+        is_started = bool(payload) or is_current
+        is_skipped_by_start = start_phase_idx > -1 and dashboard_phase_index(phase_key) < start_phase_idx
+        status = _phase_badge_status(state, phase_key, {**payload, "summary": summary, "is_current": is_current})
+        if phase_key == "completed" and state.autonomy_status == "STOPPED" and "plan completed" in str(state.stop_reason or "").lower():
+            status = "completed"
+        if is_current and state.autonomy_status == "STOPPED" and summary.get("failed") and _is_failed_stop_reason(state.stop_reason):
+            status = "failed"
+        cards.append(
+            {
+                **phase,
+                "phase_key": phase_key,
+                "display_name": phase["display_name"],
+                "status": status,
+                "is_current": is_current,
+                "is_started": is_started,
+                "is_skipped_by_start": is_skipped_by_start,
+                "summary": summary,
+                "review": payload.get("review", ""),
+                "findings_count": len(payload.get("findings", [])),
+                "outputs_count": len(payload.get("outputs", [])),
+                "detail_url": reverse("dashboard_attack_phase_detail", kwargs={"pk": state.pk, "phase_key": phase_key}),
+                "source": payload.get("source", ""),
+            }
+        )
+
+    aggregate = {
+        "completed": sum(1 for card in cards if card["status"] == "completed"),
+        "running": sum(1 for card in cards if card["status"] == "running"),
+        "failed": sum(1 for card in cards if card["status"] == "failed"),
+        "pending": sum(1 for card in cards if card["status"] == "pending"),
+        "selected_run": state,
+    }
+    return {"cards": cards, "aggregate": aggregate}
+
+
+def _build_phase_detail_payload(state: AttackState, phase_key: str) -> dict[str, Any]:
+    normalized_phase = _normalize_phase_key(phase_key)
+    if not is_valid_dashboard_phase(normalized_phase):
+        raise Http404("Unknown phase")
+
+    history = _build_attack_run_history(state)
+    selected = next(
+        (item for item in history.get("phases", []) if _normalize_phase_key(item.get("phase")) == normalized_phase),
+        None,
+    )
+    plan_view = _build_plan_view_state(state)
+    start_phase = _normalize_phase_key((state.state_data or {}).get("start_phase") or state.current_phase)
+    start_phase_idx = dashboard_phase_index(start_phase)
+    phase_idx = dashboard_phase_index(normalized_phase)
+    is_current = normalized_phase == _normalize_phase_key((state.current_plan or {}).get("phase") or state.current_phase)
+    if normalized_phase == "completed":
+        selected = {
+            "phase": "completed",
+            "phase_display": dashboard_phase_display_name("completed"),
+            "summary": {
+                "total": history.get("summary", {}).get("total", 0),
+                "completed": history.get("summary", {}).get("completed", 0),
+                "failed": history.get("summary", {}).get("failed", 0),
+                "running": history.get("summary", {}).get("running", 0),
+                "pending": history.get("summary", {}).get("pending", 0),
+                "attempts": history.get("summary", {}).get("attempts", 0),
+                "alternatives": history.get("summary", {}).get("alternatives", 0),
+            },
+            "review": state.stop_reason or "",
+            "details": {"summary": state.stop_reason or ""},
+            "findings": [],
+            "outputs": [],
+            "steps": [],
+            "source": "synthetic",
+        }
+
+    selected = selected or {
+        "phase": normalized_phase,
+        "phase_display": dashboard_phase_display_name(normalized_phase),
+        "summary": _step_summary([]),
+        "review": "",
+        "details": {},
+        "findings": [],
+        "outputs": [],
+        "steps": [],
+        "source": "",
+    }
+    selected["status"] = _phase_badge_status(state, normalized_phase, {"summary": selected.get("summary", {}), "is_current": is_current, "source": selected.get("source")})
+    if is_current and state.autonomy_status == "STOPPED" and selected.get("summary", {}).get("failed") and _is_failed_stop_reason(state.stop_reason):
+        selected["status"] = "failed"
+    selected["is_current"] = is_current
+    selected["is_started"] = bool(selected.get("source")) or is_current or normalized_phase == "completed"
+    selected["is_skipped_by_start"] = start_phase_idx > -1 and phase_idx > -1 and phase_idx < start_phase_idx
+    selected["findings_count"] = len(selected.get("findings", []))
+    selected["outputs_count"] = len(selected.get("outputs", []))
+    selected["previous_phase"] = previous_dashboard_phase(normalized_phase)
+    selected["next_phase"] = next_dashboard_phase(normalized_phase)
+    selected["empty_state"] = not any([selected.get("steps"), selected.get("outputs"), selected.get("review"), selected.get("findings")]) and not normalized_phase == "completed"
+    selected["meta"] = dashboard_phase_meta(normalized_phase) or {"display_name": _display_phase_name(normalized_phase), "description": ""}
+    selected["plan_view"] = plan_view if is_current else {}
+    selected["timeline"] = [
+        event for event in _get_unified_events(state)
+        if _phase_filter_match((event.get("data") or {}).get("phase"), normalized_phase)
+    ]
+    selected["report_artifacts"] = plan_view.get("report_artifacts", [])
+    selected["latest_report"] = plan_view.get("last_report")
+    return selected
+
+
 def _launch_assessment(state: AttackState) -> None:
     """Start the appropriate assessment service for the state's execution mode."""
     state_data = state.state_data or {}
@@ -442,12 +632,44 @@ def _launch_assessment(state: AttackState) -> None:
         remote_service.start_assessment()
         return
 
+    if execution_mode == 'ssh':
+        ssh_service = SSHExecutionService(
+            attack_state_id=state.id,
+            llm_provider=llm_provider,
+            runtime_profile=runtime_profile,
+        )
+        ssh_service.start_assessment()
+        return
+
     execution_service = ExecutionService(
         attack_state_id=state.id,
         llm_provider=llm_provider,
         runtime_profile=runtime_profile,
     )
     execution_service.start_assessment()
+
+
+def _verify_executor_is_live(executor: AttackerExecutor) -> tuple[bool, str]:
+    if executor.is_ssh_executor:
+        if not executor.is_remote_ready:
+            return False, f"SSH executor '{executor.name}' is missing required connection details."
+        ok, reason = ssh_executor.probe_connection(executor)
+        if not ok:
+            return False, f"SSH executor '{executor.name}' is not reachable: {reason}"
+        return True, reason
+
+    if executor.status != AttackerExecutor.Status.CONNECTED:
+        return False, f"Executor '{executor.name}' is disconnected."
+    if not executor.last_heartbeat:
+        return False, f"Executor '{executor.name}' has no heartbeat yet."
+
+    delta = timezone.now() - executor.last_heartbeat
+    if delta > timedelta(seconds=EXECUTOR_HEARTBEAT_THRESHOLD_SECONDS):
+        return False, (
+            f"Executor '{executor.name}' heartbeat is stale "
+            f"({int(delta.total_seconds())}s old)."
+        )
+    return True, "Executor heartbeat is fresh."
 
 
 def _get_unified_events(state: AttackState) -> list[dict]:
@@ -529,7 +751,7 @@ def _get_global_context() -> dict[str, Any]:
     active_context = AttackContext.objects.filter(status__in=['READY', 'RUNNING']).first()
     recent_attacks = AttackState.objects.order_by('-created_at')[:5]
 
-    connected_executors = executors.filter(status=AttackerExecutor.Status.CONNECTED)
+    connected_executors = [executor for executor in executors if executor.is_remote_ready]
     active_targets = targets.filter(is_active=True)
 
     return {
@@ -538,7 +760,7 @@ def _get_global_context() -> dict[str, Any]:
         'recent_attacks': recent_attacks,
         'connected_executors': connected_executors,
         'active_targets': active_targets,
-        'has_connected_executor': connected_executors.exists(),
+        'has_connected_executor': bool(connected_executors),
         'has_local_executor': True,
         'has_active_target': active_targets.exists(),
         'active_context': active_context,
@@ -559,7 +781,13 @@ def index(request: HttpRequest) -> HttpResponse:
         }
         return render(request, 'dashboard/landing.html', landing_context)
 
-    attack_state = AttackState.objects.order_by('-updated_at').first()
+    selected_attack_id = request.GET.get("attack_id")
+    chat_phase_key = _normalize_phase_key(request.GET.get("chat_phase") or "")
+    attacks_queryset = AttackState.objects.order_by('-updated_at')
+    if selected_attack_id and str(selected_attack_id).isdigit():
+        attack_state = attacks_queryset.filter(pk=int(selected_attack_id)).first() or attacks_queryset.first()
+    else:
+        attack_state = attacks_queryset.first()
 
     plan_view = None
     if attack_state:
@@ -580,6 +808,9 @@ def index(request: HttpRequest) -> HttpResponse:
     if attack_state and attack_state.autonomy_status == "STOPPED" and "waiting for approval" in attack_state.stop_reason.lower():
         waiting_for_approval = True
 
+    phase_dashboard = _build_phase_cards(attack_state)
+    current_phase_card = next((card for card in phase_dashboard["cards"] if card.get("is_current")), None)
+
     context = {
         'attack_state': attack_state,
         'actions': actions,
@@ -588,6 +819,12 @@ def index(request: HttpRequest) -> HttpResponse:
         'plan_completed': plan_completed,
         'waiting_for_approval': waiting_for_approval,
         'plan_view': plan_view,
+        'phase_map': dashboard_phase_catalog(),
+        'phase_dashboard': phase_dashboard,
+        'current_phase_card': current_phase_card,
+        'selected_attack_id': attack_state.pk if attack_state else None,
+        'all_attacks': list(attacks_queryset[:20]),
+        'chat_phase_key': chat_phase_key,
         'latest_report': (plan_view or {}).get('last_report'),
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
         **_get_global_context(),
@@ -644,6 +881,47 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_detail.html', context)
+
+
+@login_required(login_url='login')
+def attack_phase_detail(request: HttpRequest, pk: int, phase_key: str) -> HttpResponse:
+    state = get_object_or_404(AttackState, pk=pk)
+    selected_tab = (request.GET.get("tab") or "overview").strip().lower()
+    if selected_tab not in {"overview", "plan", "outputs", "review", "timeline"}:
+        selected_tab = "overview"
+    phase_detail = _build_phase_detail_payload(state, phase_key)
+    context = {
+        "attack_state": state,
+        "phase_detail": phase_detail,
+        "selected_tab": selected_tab,
+        "phase_dashboard": _build_phase_cards(state),
+        **_get_global_context(),
+    }
+    return render(request, "dashboard/attack_phase_detail.html", context)
+
+
+@login_required(login_url='login')
+def assistant_page(request: HttpRequest) -> HttpResponse:
+    selected_attack_id = request.GET.get("attack_id")
+    chat_phase_key = _normalize_phase_key(request.GET.get("chat_phase") or "")
+    attacks_queryset = AttackState.objects.order_by('-updated_at')
+    if selected_attack_id and str(selected_attack_id).isdigit():
+        attack_state = attacks_queryset.filter(pk=int(selected_attack_id)).first() or attacks_queryset.first()
+    else:
+        attack_state = attacks_queryset.first()
+
+    plan_view = _build_plan_view_state(attack_state) if attack_state else None
+    context = {
+        "attack_state": attack_state,
+        "all_attacks": list(attacks_queryset[:20]),
+        "selected_attack_id": attack_state.pk if attack_state else None,
+        "chat_phase_key": chat_phase_key,
+        "phase_map": dashboard_phase_catalog(),
+        "phase_dashboard": _build_phase_cards(attack_state),
+        "latest_report": (plan_view or {}).get("last_report"),
+        **_get_global_context(),
+    }
+    return render(request, "dashboard/assistant.html", context)
 
 
 @login_required(login_url='login')
@@ -758,6 +1036,8 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     executor_id = request.POST.get('executor_id')
     target_id = request.POST.get('target_id')
     llm_provider = request.POST.get('llm_provider', 'auto')
+    requested_start_phase = normalize_phase_name(request.POST.get("start_phase") or "reconnaissance")
+    start_phase = requested_start_phase if is_valid_dashboard_phase(requested_start_phase, executable_only=True) else "reconnaissance"
     progression_mode = (request.POST.get("progression_mode", "manual") or "manual").strip().lower()
     runtime_profile = build_runtime_profile(
         {
@@ -783,23 +1063,28 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     
     if executor_id:
         selected_executor = get_object_or_404(AttackerExecutor, pk=executor_id)
-        # Check if the selected executor is connected
-        if selected_executor.status == AttackerExecutor.Status.CONNECTED:
+        is_live, live_reason = _verify_executor_is_live(selected_executor)
+        if is_live:
             use_remote_executor = True
+        else:
+            messages.error(request, live_reason)
+            return redirect('dashboard_index')
 
     # Create new Attack State
     if use_remote_executor:
+        execution_mode = 'ssh' if selected_executor and selected_executor.is_ssh_executor else 'remote'
         state = AttackState.objects.create(
             name=f"Remote Run {selected_executor.name} {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            current_phase="RECONNAISSANCE",
+            current_phase=start_phase,
             autonomy_status="IDLE",
             state_data={
                 "target": target_reference,
-                "current_phase": "reconnaissance",
+                "current_phase": start_phase,
+                "start_phase": start_phase,
                 "completed_actions": [],
                 "findings": {},
                 "llm_provider": llm_provider,
-                "execution_mode": "remote",
+                "execution_mode": execution_mode,
                 "executor_id": selected_executor.id,
                 "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
                 "plan_command_lock": True,
@@ -813,11 +1098,12 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     else:
         state = AttackState.objects.create(
             name=f"Local Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            current_phase="RECONNAISSANCE",
+            current_phase=start_phase,
             autonomy_status="IDLE",
             state_data={
                 "target": target_reference,
-                "current_phase": "reconnaissance",
+                "current_phase": start_phase,
+                "start_phase": start_phase,
                 "completed_actions": [],
                 "findings": {},
                 "llm_provider": llm_provider,
@@ -841,7 +1127,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     state.save(update_fields=['state_data'])
 
     # Create or update context for UI display
-    if selected_executor:
+    if selected_executor and use_remote_executor:
         AttackContext.objects.filter(status__in=['READY', 'RUNNING']).update(
             status='STOPPED',
             stop_reason='Superseded by new attack start',

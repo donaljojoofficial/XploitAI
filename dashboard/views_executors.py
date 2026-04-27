@@ -2,15 +2,28 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from core.models import AttackerExecutor
+from .forms import AttackerExecutorForm
 
 @login_required(login_url='login')
 def executor_management(request):
     """
     View to list registered attacker executors and manage their status.
     """
+    form = AttackerExecutorForm()
     if request.method == 'POST':
+        if 'save_executor' in request.POST:
+            form = AttackerExecutorForm(request.POST)
+            if form.is_valid():
+                executor = form.save(commit=False)
+                if executor.executor_type == AttackerExecutor.ExecutorType.SSH:
+                    executor.status = AttackerExecutor.Status.DISCONNECTED
+                executor.save()
+                messages.success(request, f"Executor '{executor.name}' saved.")
+                return redirect('executor_management')
+            messages.warning(request, "Please correct the executor form and try again.")
+
         # Handle Deletion (Cleanup of stale executors)
-        if 'delete_executor' in request.POST:
+        elif 'delete_executor' in request.POST:
             executor_id = request.POST.get('executor_id')
             executor = get_object_or_404(AttackerExecutor, pk=executor_id)
             executor.delete()
@@ -22,5 +35,6 @@ def executor_management(request):
     
     context = {
         'executors': executors,
+        'executor_form': form,
     }
     return render(request, 'dashboard/executor_management.html', context)

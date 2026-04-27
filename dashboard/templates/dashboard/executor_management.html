@@ -27,17 +27,88 @@
     </div>
     {% endif %}
 
+    <section class="shell-panel rounded-[1.5rem] p-8">
+        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+                <div class="section-title">Add Executor</div>
+                <h2 class="mt-2 text-2xl font-semibold text-white">Configure a daemon or SSH executor</h2>
+                <p class="mt-2 max-w-3xl text-sm leading-7 text-slate-400">
+                    Use SSH executors for direct remote command execution from the controller, or keep daemon executors for heartbeat-driven agent nodes.
+                </p>
+            </div>
+        </div>
+
+        <form method="POST" class="mt-8 space-y-6">
+            {% csrf_token %}
+            <input type="hidden" name="save_executor" value="1">
+            <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                <div>
+                    <label class="ui-label" for="{{ executor_form.name.id_for_label }}">Name</label>
+                    {{ executor_form.name }}
+                    {% for error in executor_form.name.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="ui-label" for="{{ executor_form.executor_type.id_for_label }}">Executor Type</label>
+                    {{ executor_form.executor_type }}
+                    {% for error in executor_form.executor_type.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="ui-label" for="{{ executor_form.ip_address.id_for_label }}">IP Address</label>
+                    {{ executor_form.ip_address }}
+                    {% for error in executor_form.ip_address.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="ui-label" for="{{ executor_form.ssh_port.id_for_label }}">SSH Port</label>
+                    {{ executor_form.ssh_port }}
+                    {% for error in executor_form.ssh_port.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="ui-label" for="{{ executor_form.ssh_username.id_for_label }}">SSH Username</label>
+                    {{ executor_form.ssh_username }}
+                    {% for error in executor_form.ssh_username.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="ui-label" for="{{ executor_form.ssh_auth_type.id_for_label }}">SSH Auth Type</label>
+                    {{ executor_form.ssh_auth_type }}
+                    {% for error in executor_form.ssh_auth_type.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="ui-label" for="{{ executor_form.ssh_password.id_for_label }}">SSH Password</label>
+                    {{ executor_form.ssh_password }}
+                    {% for error in executor_form.ssh_password.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="ui-label" for="{{ executor_form.ssh_private_key_path.id_for_label }}">Private Key Path</label>
+                    {{ executor_form.ssh_private_key_path }}
+                    {% for error in executor_form.ssh_private_key_path.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="ui-label" for="{{ executor_form.ssh_working_directory.id_for_label }}">Remote Working Directory</label>
+                    {{ executor_form.ssh_working_directory }}
+                    {% for error in executor_form.ssh_working_directory.errors %}<p class="mt-2 text-sm text-rose-300">{{ error }}</p>{% endfor %}
+                </div>
+            </div>
+            {% for error in executor_form.non_field_errors %}<p class="text-sm text-rose-300">{{ error }}</p>{% endfor %}
+            <div class="flex justify-end">
+                <button type="submit" class="ui-btn ui-btn-primary !px-5 !py-3">Save Executor</button>
+            </div>
+        </form>
+    </section>
+
     <section class="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {% for executor in executors %}
         <article class="shell-panel rounded-[1.5rem] p-6">
             <div class="flex items-start justify-between gap-4">
                 <div>
                     <div class="flex items-center gap-3">
-                        <div class="h-3 w-3 rounded-full {% if executor.status == 'CONNECTED' %}bg-emerald-400{% else %}bg-rose-400{% endif %}"></div>
+                        <div class="h-3 w-3 rounded-full {% if executor.is_remote_ready %}bg-emerald-400{% else %}bg-rose-400{% endif %}"></div>
                         <h2 class="text-xl font-semibold text-white">{{ executor.name }}</h2>
                     </div>
                     <div class="mt-3">
-                        {% if executor.status == 'CONNECTED' %}
+                        <span class="ui-badge ui-badge-muted">{{ executor.executor_type }}</span>
+                        {% if executor.is_ssh_executor and executor.is_remote_ready %}
+                        <span class="ui-badge ui-badge-success">SSH Ready</span>
+                        {% elif executor.status == 'CONNECTED' %}
                         <span class="ui-badge ui-badge-success">Connected</span>
                         {% else %}
                         <span class="ui-badge ui-badge-danger">{{ executor.status }}</span>
@@ -54,23 +125,29 @@
 
             <div class="mt-6 space-y-3 text-sm text-slate-300">
                 <div class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <span class="text-slate-500">IP Address</span>
-                    <span class="font-mono">{{ executor.ip_address }}</span>
+                    <span class="text-slate-500">{% if executor.is_ssh_executor %}Connection{% else %}IP Address{% endif %}</span>
+                    <span class="font-mono">{{ executor.connection_display }}</span>
                 </div>
                 <div class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <span class="text-slate-500">Status</span>
-                    <span class="font-semibold {% if executor.status == 'CONNECTED' %}text-emerald-300{% else %}text-rose-300{% endif %}">{{ executor.status }}</span>
+                    <span class="text-slate-500">Availability</span>
+                    <span class="font-semibold {% if executor.is_remote_ready %}text-emerald-300{% else %}text-rose-300{% endif %}">{% if executor.is_ssh_executor and executor.is_remote_ready %}READY{% else %}{{ executor.status }}{% endif %}</span>
                 </div>
                 <div class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <span class="text-slate-500">Last Heartbeat</span>
-                    <span>{{ executor.last_heartbeat|timesince|default:"Never" }} ago</span>
+                    <span class="text-slate-500">{% if executor.is_ssh_executor %}Auth Mode{% else %}Last Heartbeat{% endif %}</span>
+                    <span>{% if executor.is_ssh_executor %}{{ executor.ssh_auth_type }}{% else %}{{ executor.last_heartbeat|timesince|default:"Never" }} ago{% endif %}</span>
                 </div>
+                {% if executor.is_ssh_executor %}
+                <div class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                    <span class="text-slate-500">Remote Directory</span>
+                    <span class="font-mono">{{ executor.ssh_working_directory|default:"-" }}</span>
+                </div>
+                {% endif %}
             </div>
         </article>
         {% empty %}
         <div class="shell-panel col-span-full rounded-[1.5rem] px-6 py-12 text-center">
             <div class="text-xl font-semibold text-white">No executor nodes detected</div>
-            <p class="mt-2 text-sm text-slate-400">Connect an executor agent to begin remote operations.</p>
+            <p class="mt-2 text-sm text-slate-400">Add an SSH executor or connect an executor agent to begin remote operations.</p>
         </div>
         {% endfor %}
     </section>

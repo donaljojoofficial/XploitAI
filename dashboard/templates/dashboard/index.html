@@ -4,6 +4,14 @@
 
 {% block content %}
 <div x-data="{ startModalOpen: false }" class="space-y-8">
+    {% if messages %}
+    <div class="space-y-3">
+        {% for message in messages %}
+        <div class="alert {% if message.tags == 'success' %}alert-success{% elif message.tags == 'error' %}alert-error{% else %}alert-warning{% endif %}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     <section class="shell-panel overflow-hidden rounded-[1.75rem] border border-white/10">
         <div class="relative p-8 md:p-10">
             <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(79,209,255,0.16),transparent_26%),radial-gradient(circle_at_top_right,rgba(82,199,154,0.12),transparent_22%)]"></div>
@@ -11,9 +19,9 @@
                 <div class="max-w-4xl space-y-6">
                     <div class="section-title">Mission Control</div>
                     <div>
-                        <h1 class="headline-gradient text-4xl font-extrabold tracking-tight md:text-5xl">Centralized security operations with clear real-time control.</h1>
+                        <h1 class="headline-gradient text-4xl font-extrabold tracking-tight md:text-5xl">Phase-centric pentest control for every run.</h1>
                         <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
-                            Monitor autonomous activity, review level transitions, and launch new tests from a single professional workspace.
+                            Track the full pentest lifecycle, inspect one phase at a time, and launch a run from the exact starting phase you need.
                         </p>
                     </div>
 
@@ -28,7 +36,7 @@
                         <span class="ui-badge ui-badge-muted">{{ attack_state.autonomy_status|default:"Idle" }}</span>
                         {% endif %}
 
-                        <span class="ui-badge ui-badge-muted">Level {{ attack_state.current_phase|default:"N/A" }}</span>
+                        <span class="ui-badge ui-badge-muted">Phase {{ attack_state.current_phase|default:"N/A" }}</span>
                         {% if plan_view.level.kill_chain_label %}
                         <span class="ui-badge ui-badge-info">{{ plan_view.level.kill_chain_label }}</span>
                         {% endif %}
@@ -69,17 +77,19 @@
                             <div class="mt-1 text-sm text-slate-400">Open defender alerts</div>
                         </div>
                         <div class="ui-kpi">
-                            <div class="section-title">Plan Progress</div>
-                            <div class="mt-2 text-3xl font-bold text-white">{% if plan_view and plan_view.steps %}{{ plan_view.summary.completed }}/{{ plan_view.summary.total }}{% else %}0/0{% endif %}</div>
-                            <div class="mt-1 text-sm text-slate-400">Completed steps</div>
+                            <div class="section-title">Phase Progress</div>
+                            <div class="mt-2 text-3xl font-bold text-white">{% if phase_dashboard %}{{ phase_dashboard.aggregate.completed }}/{{ phase_dashboard.cards|length }}{% else %}0/0{% endif %}</div>
+                            <div class="mt-1 text-sm text-slate-400">Completed phases</div>
                         </div>
                     </div>
 
                     {% if attack_state %}
                     <div class="flex flex-wrap gap-3">
-                        <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="ui-btn ui-btn-primary">Open Operation</a>
-                        <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="ui-btn ui-btn-secondary">View Plan</a>
-                        <a href="{% url 'dashboard_attack_phase_reviews' attack_state.pk %}" class="ui-btn ui-btn-secondary">Level Reviews</a>
+                        {% if current_phase_card %}
+                        <a href="{{ current_phase_card.detail_url }}" class="ui-btn ui-btn-primary">Open Current Phase</a>
+                        {% endif %}
+                        <a href="{% url 'dashboard_attack_detail' attack_state.pk %}" class="ui-btn ui-btn-secondary">Operation View</a>
+                        <a href="{% url 'dashboard_attack_plan' attack_state.pk %}" class="ui-btn ui-btn-secondary">Full Plan</a>
                         <a href="{% url 'dashboard_attack_replay' attack_state.pk %}" class="ui-btn ui-btn-secondary">Replay</a>
                         {% if attack_state.autonomy_status == 'RUNNING' or attack_state.autonomy_status == 'PLANNING' %}
                         <form action="{% url 'stop_attack' attack_state.pk %}" method="post" class="inline-block">
@@ -98,23 +108,26 @@
                 </div>
 
                 <div class="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-6">
-                    <div class="section-title">Launch Control</div>
-                    <h2 class="mt-3 text-2xl font-semibold text-white">Start a new autonomous test</h2>
+                    <div class="section-title">Run Selection</div>
+                    <h2 class="mt-3 text-2xl font-semibold text-white">Choose the run in focus</h2>
                     <p class="mt-3 text-sm leading-7 text-slate-400">
-                        Use the current target inventory and configured AI providers to initiate a fresh run without leaving the dashboard.
+                        Switch the dashboard between recent runs while keeping the phase map and launch controls nearby.
                     </p>
 
                     <div class="mt-6 space-y-3">
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Readiness</div>
-                            <div class="mt-2 text-sm text-slate-200">
-                                {% if has_active_target %}
-                                At least one active target is available for launch.
-                                {% else %}
-                                No active target is configured yet.
-                                {% endif %}
+                        <form action="{% url 'dashboard_index' %}" method="get" class="space-y-3">
+                            {% if chat_phase_key %}
+                            <input type="hidden" name="chat_phase" value="{{ chat_phase_key }}">
+                            {% endif %}
+                            <div>
+                                <label for="attackSelect" class="ui-label">Selected Run</label>
+                                <select id="attackSelect" name="attack_id" onchange="this.form.submit()">
+                                    {% for run in all_attacks %}
+                                    <option value="{{ run.id }}" {% if selected_attack_id == run.id %}selected{% endif %}>{{ run.name }} ({{ run.current_phase }})</option>
+                                    {% endfor %}
+                                </select>
                             </div>
-                        </div>
+                        </form>
 
                         {% if has_active_target %}
                         <button type="button" @click="startModalOpen = true" class="ui-btn ui-btn-primary w-full !py-4">Initiate Test</button>
@@ -122,6 +135,104 @@
                         <button type="button" class="ui-btn ui-btn-secondary w-full !py-4 opacity-60" disabled>System Not Ready</button>
                         {% endif %}
                     </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+        <div class="border-b border-white/10 px-6 py-5">
+            <div class="section-title">Pentest Phase Map</div>
+            <h2 class="mt-2 text-2xl font-semibold text-white">Default execution order</h2>
+        </div>
+        <div class="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
+            {% for phase in phase_map %}
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="text-sm font-semibold text-white">{{ phase.display_name }}</div>
+                    <span class="ui-badge ui-badge-muted">{{ forloop.counter }}</span>
+                </div>
+                <p class="mt-3 text-sm leading-7 text-slate-400">{{ phase.description }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+        <div class="border-b border-white/10 px-6 py-5">
+            <div class="section-title">Run Phase Status</div>
+            <h2 class="mt-2 text-2xl font-semibold text-white">{% if attack_state %}{{ attack_state.name }}{% else %}No selected run{% endif %}</h2>
+        </div>
+        <div class="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
+            {% for card in phase_dashboard.cards %}
+            <a href="{{ card.detail_url|default:'#' }}" class="rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-cyan-400/30">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <div class="text-sm font-semibold text-white">{{ card.display_name }}</div>
+                        <p class="mt-2 text-sm leading-6 text-slate-400">{{ card.description }}</p>
+                    </div>
+                    <span class="ui-badge {% if card.status == 'completed' %}ui-badge-success{% elif card.status == 'running' %}ui-badge-info{% elif card.status == 'failed' %}ui-badge-danger{% else %}ui-badge-muted{% endif %}">{{ card.status }}</span>
+                </div>
+                <div class="mt-4 grid grid-cols-3 gap-3 text-sm">
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2">
+                        <div class="text-slate-500">Steps</div>
+                        <div class="mt-1 font-mono text-white">{{ card.summary.total }}</div>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2">
+                        <div class="text-slate-500">Findings</div>
+                        <div class="mt-1 font-mono text-white">{{ card.findings_count }}</div>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2">
+                        <div class="text-slate-500">Outputs</div>
+                        <div class="mt-1 font-mono text-white">{{ card.outputs_count }}</div>
+                    </div>
+                </div>
+                {% if card.is_current %}
+                <div class="mt-4 text-xs uppercase tracking-[0.18em] text-cyan-300">Current Phase</div>
+                {% elif card.is_skipped_by_start %}
+                <div class="mt-4 text-xs uppercase tracking-[0.18em] text-amber-300">Not executed in this run</div>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+        <div class="border-b border-white/10 px-6 py-5">
+            <div class="section-title">AI Assistant</div>
+            <div class="mt-2 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <h2 class="text-2xl font-semibold text-white">Open the dedicated assistant workspace</h2>
+                <div class="flex flex-wrap gap-2">
+                    {% if attack_state %}
+                    <span class="ui-badge ui-badge-info">Run {{ attack_state.name }}</span>
+                    {% endif %}
+                    {% if chat_phase_key %}
+                    <span class="ui-badge ui-badge-warning">Phase {{ chat_phase_key }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="grid gap-6 p-6 xl:grid-cols-[minmax(0,1.2fr)_340px]">
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div class="text-lg font-semibold text-white">Use the assistant on its own page</div>
+                <p class="mt-3 text-sm leading-7 text-slate-400">
+                    The assistant now has a dedicated workspace so it can focus on run context, phase-specific questions, conversation history, and evidence-backed answers without crowding the main dashboard.
+                </p>
+                <div class="mt-5 flex flex-wrap gap-3">
+                    <a href="{% url 'dashboard_assistant' %}{% if attack_state %}?attack_id={{ attack_state.id }}{% if chat_phase_key %}&chat_phase={{ chat_phase_key }}{% endif %}{% endif %}" class="ui-btn ui-btn-primary">Open Assistant</a>
+                    {% if attack_state and current_phase_card %}
+                    <a href="{% url 'dashboard_assistant' %}?attack_id={{ attack_state.id }}&chat_phase={{ current_phase_card.phase_key }}" class="ui-btn ui-btn-secondary">Ask About Current Phase</a>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div class="section-title">Starter Prompts</div>
+                <div class="mt-4 space-y-3 text-sm text-slate-300">
+                    <div>Why did this run fail?</div>
+                    <div>Summarize the latest execution</div>
+                    <div>Explain this phase</div>
+                    <div>What should I do next?</div>
+                    <div>Explain the latest report</div>
                 </div>
             </div>
         </div>
@@ -214,11 +325,11 @@
                         <select id="executorSelect" name="executor_id">
                             <option value="">Local executor (default)</option>
                             {% for executor in connected_executors %}
-                            <option value="{{ executor.id }}">{{ executor.name }} ({{ executor.ip_address }})</option>
+                            <option value="{{ executor.id }}">{{ executor.name }} ({% if executor.is_ssh_executor %}SSH {{ executor.connection_display }}{% else %}Daemon {{ executor.ip_address }}{% endif %})</option>
                             {% endfor %}
                         </select>
                         {% else %}
-                        <div class="rounded-2xl border border-amber-400/15 bg-amber-400/10 p-4 text-sm text-amber-100">No connected external executor is available. The run will use the local executor.</div>
+                        <div class="rounded-2xl border border-amber-400/15 bg-amber-400/10 p-4 text-sm text-amber-100">No remote executor is ready yet. The run will use the local executor.</div>
                         <input type="hidden" name="executor_id" value="">
                         {% endif %}
                     </div>
@@ -231,6 +342,18 @@
                             {% endfor %}
                         </select>
                     </div>
+                </div>
+
+                <div>
+                    <label for="startPhaseSelect" class="ui-label">Start Phase</label>
+                    <select id="startPhaseSelect" name="start_phase">
+                        {% for phase in phase_map %}
+                        {% if phase.is_executable %}
+                        <option value="{{ phase.key }}">{{ phase.display_name }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <p class="mt-2 text-sm text-slate-400">The run will begin from the selected phase. Earlier phases remain unexecuted for that run.</p>
                 </div>
 
                 <div>

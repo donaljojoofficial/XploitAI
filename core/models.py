@@ -21,18 +21,62 @@ class AttackerExecutor(models.Model):
     Represents a real attacker machine (VM) running the executor daemon.
     Used for heartbeat tracking, availability checks, and autonomy gating.
     """
+    class ExecutorType(models.TextChoices):
+        DAEMON = 'DAEMON', 'Daemon'
+        SSH = 'SSH', 'SSH'
+
     class Status(models.TextChoices):
         CONNECTED = 'CONNECTED', 'Connected'
         DISCONNECTED = 'DISCONNECTED', 'Disconnected'
+
+    class SSHAuthType(models.TextChoices):
+        PASSWORD = 'PASSWORD', 'Password'
+        PRIVATE_KEY = 'PRIVATE_KEY', 'Private Key'
 
     name = models.CharField(
         max_length=100,
         unique=True,
         help_text="Human-readable identifier for this attacker machine"
     )
+    executor_type = models.CharField(
+        max_length=20,
+        choices=ExecutorType.choices,
+        default=ExecutorType.DAEMON,
+        help_text="How this executor is reached by the controller."
+    )
     ip_address = models.GenericIPAddressField(
         protocol='both',
         help_text="IP address of the executor daemon"
+    )
+    ssh_port = models.PositiveIntegerField(
+        default=22,
+        help_text="SSH port for direct SSH executors."
+    )
+    ssh_username = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="SSH username used when executor_type is SSH."
+    )
+    ssh_auth_type = models.CharField(
+        max_length=20,
+        choices=SSHAuthType.choices,
+        default=SSHAuthType.PASSWORD,
+        help_text="Authentication mode for SSH executors."
+    )
+    ssh_password = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="SSH password for password-based SSH executors."
+    )
+    ssh_private_key_path = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Absolute path to the private key file for key-based SSH executors."
+    )
+    ssh_working_directory = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Optional remote working directory used before command execution."
     )
     status = models.CharField(
         max_length=20,
@@ -47,8 +91,29 @@ class AttackerExecutor(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    @property
+    def is_ssh_executor(self) -> bool:
+        return self.executor_type == self.ExecutorType.SSH
+
+    @property
+    def is_daemon_executor(self) -> bool:
+        return self.executor_type == self.ExecutorType.DAEMON
+
+    @property
+    def is_remote_ready(self) -> bool:
+        if self.is_ssh_executor:
+            has_auth = bool(self.ssh_password) if self.ssh_auth_type == self.SSHAuthType.PASSWORD else bool(self.ssh_private_key_path)
+            return bool(self.ip_address and self.ssh_username and has_auth)
+        return self.status == self.Status.CONNECTED
+
+    @property
+    def connection_display(self) -> str:
+        if self.is_ssh_executor:
+            return f"{self.ssh_username}@{self.ip_address}:{self.ssh_port}"
+        return self.ip_address
+
     def __str__(self):
-        return f"{self.name} ({self.ip_address}) [{self.status}]"
+        return f"{self.name} ({self.connection_display}) [{self.status}]"
 
 
 class AttackTarget(models.Model):

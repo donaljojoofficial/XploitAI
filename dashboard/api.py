@@ -1,16 +1,19 @@
 """
 Dashboard API — XploitAI
 
-Provides JSON data endpoints for frontend visualizations, specifically
-for the Attacker vs Defender interaction timeline.
+Provides JSON data endpoints for frontend visualizations and chat helpers.
 """
 
+import json
+
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 from django.core.serializers.json import DjangoJSONEncoder
 
 from core.models import Action, AttackState, DefenderAlert, AttackTarget
+from dashboard.chat_service import DashboardChatService
 
 
 @require_GET
@@ -82,3 +85,55 @@ def target_list(request) -> JsonResponse:
         'id', 'name', 'ip_address', 'operating_system', 'is_active'
     ))
     return JsonResponse({'targets': targets}, encoder=DjangoJSONEncoder)
+
+
+@login_required(login_url="login")
+@require_POST
+def attack_chat_ask(request) -> JsonResponse:
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"success": False, "message": "Invalid JSON payload."}, status=400)
+
+    attack_id = payload.get("attack_id")
+    message = str(payload.get("message") or "").strip()
+    phase_key = str(payload.get("phase_key") or "").strip() or None
+    include_recommendations = bool(payload.get("include_recommendations", True))
+
+    if not attack_id:
+        return JsonResponse({"success": False, "message": "attack_id is required."}, status=400)
+    if not message:
+        return JsonResponse({"success": False, "message": "message is required."}, status=400)
+    try:
+        attack_id = int(attack_id)
+    except (TypeError, ValueError):
+        return JsonResponse({"success": False, "message": "attack_id must be an integer."}, status=400)
+
+    service = DashboardChatService(request)
+    response = service.ask(
+        attack_id=attack_id,
+        message=message,
+        phase_key=phase_key,
+        include_recommendations=include_recommendations,
+    )
+    if not response.get("selected_run"):
+        return JsonResponse({"success": False, **response}, status=404)
+    return JsonResponse({"success": True, **response}, encoder=DjangoJSONEncoder)
+
+
+@login_required(login_url="login")
+@require_POST
+def attack_chat_reset(request) -> JsonResponse:
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"success": False, "message": "Invalid JSON payload."}, status=400)
+    attack_id = payload.get("attack_id")
+    if not attack_id:
+        return JsonResponse({"success": False, "message": "attack_id is required."}, status=400)
+    try:
+        attack_id = int(attack_id)
+    except (TypeError, ValueError):
+        return JsonResponse({"success": False, "message": "attack_id must be an integer."}, status=400)
+    DashboardChatService(request).reset(attack_id)
+    return JsonResponse({"success": True, "attack_id": attack_id})

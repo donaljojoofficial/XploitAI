@@ -73,6 +73,9 @@ class ExecutionService:
         self.output_analyzer = OutputAnalysisService()
         self.phase_command_counts = {}
         self.runtime_profile = build_runtime_profile(runtime_profile or {})
+        self.execution_mode = "local"
+        self.command_runner = run_command
+        self.script_runner = run_script
         state_data = (self.state_manager.get_attack_state().state_data or {})
         self.plan_command_lock = bool(state_data.get("plan_command_lock", True))
 
@@ -337,12 +340,13 @@ class ExecutionService:
 
     def start_assessment(self):
         """Starts the assessment in a background thread."""
+        mode_label = "SSH" if str(self.execution_mode).lower() == "ssh" else str(self.execution_mode).title()
         AttackState.objects.filter(id=self.attack_state_id).update(
-            autonomy_status="RUNNING", stop_reason="Local execution started."
+            autonomy_status="RUNNING", stop_reason=f"{mode_label} execution started."
         )
         thread = threading.Thread(target=self._run_loop, daemon=True)
         thread.start()
-        logger.info(f"Started local execution loop for AttackState {self.attack_state_id}")
+        logger.info("Started %s execution loop for AttackState %s", self.execution_mode, self.attack_state_id)
 
     def _run_loop(self):
         """The main execution loop."""
@@ -495,9 +499,9 @@ class ExecutionService:
                 self._persist_script_artifact(command_obj.name, script_artifact)
                 script_content = script_artifact.get("content") or step_state.get("script_content") or ""
                 script_language = step_state.get("script_language") or "python"
-                script_result = run_script(script_content, script_language=script_language)
+                script_result = self.script_runner(script_content, script_language=script_language)
 
-            result = script_result if script_result is not None else run_command(command)
+            result = script_result if script_result is not None else self.command_runner(command)
             final_status = "SUCCESS" if result and result.get("returncode") == 0 else "FAILED"
 
             if not result:

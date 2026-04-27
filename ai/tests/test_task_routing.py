@@ -122,6 +122,25 @@ class TaskRouterAdapterTests(SimpleTestCase):
         self.assertEqual(decision.action_type, "openai")
         self.assertEqual(generic_adapter.last_task_key, "recommendation.enumeration")
 
+    def test_generate_for_task_uses_chat_specific_route(self):
+        preferred_adapter = RecordingAdapter("nvidia")
+        fallback_adapter = RecordingAdapter("groq")
+
+        router = TaskRouterAdapter(
+            adapters_by_name={
+                "nvidia": preferred_adapter,
+                "groq": fallback_adapter,
+            },
+            task_routes={
+                "generate": ["groq", "nvidia"],
+                "chat.explain_run": ["nvidia", "groq"],
+            },
+        )
+
+        result = router.generate_for_task("explain this run", task_key="chat.explain_run")
+
+        self.assertEqual(result, "nvidia")
+
 
 class AIPlannerTaskKeyTests(SimpleTestCase):
     def setUp(self):

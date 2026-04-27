@@ -51,3 +51,21 @@ class LevelStartContractTests(TestCase):
             5,
         )
         launch_assessment.assert_called_once()
+
+    @patch("dashboard.views._launch_assessment")
+    def test_start_attack_accepts_selected_start_phase(self, launch_assessment):
+        response = self.client.post(
+            reverse("dashboard_start_attack"),
+            data={
+                "target_id": str(self.target.id),
+                "llm_provider": "auto",
+                "start_phase": "discovery",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        state = AttackState.objects.order_by("-created_at").first()
+        self.assertEqual(state.current_phase, "discovery")
+        self.assertEqual(state.state_data.get("current_phase"), "discovery")
+        self.assertEqual(state.state_data.get("start_phase"), "discovery")
+        launch_assessment.assert_called_once()

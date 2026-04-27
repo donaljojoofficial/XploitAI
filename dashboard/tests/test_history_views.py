@@ -3,7 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.models import AttackState
-from dashboard.views import _build_attack_run_history
+from dashboard.views import _build_attack_run_history, _build_phase_cards
 
 
 class AttackHistoryViewTests(TestCase):
@@ -111,3 +111,88 @@ class AttackHistoryViewTests(TestCase):
         self.assertContains(response, "Run One")
         self.assertContains(response, "Run Two")
         self.assertContains(response, "Recon complete")
+
+    def test_phase_cards_mark_skipped_earlier_phases_for_later_start(self):
+        state = AttackState.objects.create(
+            name="Later start run",
+            current_phase="discovery",
+            autonomy_status="RUNNING",
+            state_data={"start_phase": "discovery"},
+            current_plan={
+                "phase": "discovery",
+                "steps": [{"step_number": 1, "action_type": "EndpointDiscovery"}],
+            },
+        )
+
+        phase_dashboard = _build_phase_cards(state)
+        cards = {card["phase_key"]: card for card in phase_dashboard["cards"]}
+
+        self.assertTrue(cards["reconnaissance"]["is_skipped_by_start"])
+        self.assertEqual(cards["reconnaissance"]["status"], "pending")
+        self.assertEqual(cards["discovery"]["status"], "running")
+
+    def test_dashboard_index_supports_attack_selection_and_phase_page(self):
+        older = AttackState.objects.create(
+            name="Older Run",
+            current_phase="reconnaissance",
+            autonomy_status="STOPPED",
+            state_data={"phase_reviews": []},
+            current_plan={},
+        )
+        newer = AttackState.objects.create(
+            name="Selected Run",
+            current_phase="discovery",
+            autonomy_status="RUNNING",
+            state_data={"start_phase": "discovery"},
+            current_plan={
+                "phase": "discovery",
+                "steps": [{"step_number": 1, "action_type": "EndpointDiscovery"}],
+            },
+        )
+
+        response = self.client.get(reverse("dashboard_index"), {"attack_id": newer.id})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Pentest Phase Map")
+        self.assertContains(response, "Run Phase Status")
+        self.assertContains(response, "Selected Run")
+        self.assertNotContains(response, "No selected run")
+
+        phase_response = self.client.get(
+            reverse("dashboard_attack_phase_detail", kwargs={"pk": newer.pk, "phase_key": "discovery"}),
+            {"tab": "overview"},
+        )
+        self.assertEqual(phase_response.status_code, 200)
+        self.assertContains(phase_response, "Enumeration")
+        self.assertContains(phase_response, "Current Phase")
+
+    def test_phase_detail_empty_state_for_unstarted_phase(self):
+        state = AttackState.objects.create(
+            name="Phase empty",
+            current_phase="discovery",
+            autonomy_status="RUNNING",
+            state_data={"start_phase": "discovery"},
+            current_plan={"phase": "discovery", "steps": []},
+        )
+
+        response = self.client.get(
+            reverse("dashboard_attack_phase_detail", kwargs={"pk": state.pk, "phase_key": "exploitation"})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "has not been executed in this run")
+
+    def test_phase_detail_invalid_phase_returns_404(self):
+        state = AttackState.objects.create(
+            name="Invalid phase",
+            current_phase="reconnaissance",
+            autonomy_status="IDLE",
+            state_data={},
+            current_plan={},
+        )
+
+        response = self.client.get(
+            reverse("dashboard_attack_phase_detail", kwargs={"pk": state.pk, "phase_key": "nonsense"})
+        )
+
+        self.assertEqual(response.status_code, 404)

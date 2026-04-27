@@ -1,0 +1,152 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}{{ phase_detail.meta.display_name }} - XploitAI{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <section class="shell-panel rounded-[1.6rem] p-8">
+        <div class="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+            <div class="max-w-4xl">
+                <div class="section-title">Phase Detail</div>
+                <h1 class="mt-2 text-4xl font-extrabold tracking-tight text-white">{{ phase_detail.meta.display_name }}</h1>
+                <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300">{{ phase_detail.meta.description }}</p>
+                <div class="mt-4 flex flex-wrap gap-3">
+                    <span class="ui-badge {% if phase_detail.status == 'completed' %}ui-badge-success{% elif phase_detail.status == 'running' %}ui-badge-info{% elif phase_detail.status == 'failed' %}ui-badge-danger{% else %}ui-badge-muted{% endif %}">{{ phase_detail.status }}</span>
+                    {% if phase_detail.is_current %}<span class="ui-badge ui-badge-info">Current Phase</span>{% endif %}
+                    {% if phase_detail.is_skipped_by_start %}<span class="ui-badge ui-badge-warning">Not Executed In This Run</span>{% endif %}
+                    <span class="ui-badge ui-badge-muted">Run {{ attack_state.name }}</span>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-3">
+                <a href="{% url 'dashboard_index' %}?attack_id={{ attack_state.id }}" class="ui-btn ui-btn-secondary">Dashboard</a>
+                <a href="{% url 'dashboard_assistant' %}?attack_id={{ attack_state.id }}{% if phase_detail.phase %}&chat_phase={{ phase_detail.phase }}{% endif %}" class="ui-btn ui-btn-secondary">Ask AI About This Phase</a>
+                <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="ui-btn ui-btn-secondary">Operation View</a>
+                <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="ui-btn ui-btn-secondary">Full Plan</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="shell-panel rounded-[1.5rem] p-6">
+        <div class="flex flex-wrap gap-3">
+            <a href="?tab=overview" class="ui-btn {% if selected_tab == 'overview' %}ui-btn-primary{% else %}ui-btn-secondary{% endif %}">Overview</a>
+            <a href="?tab=plan" class="ui-btn {% if selected_tab == 'plan' %}ui-btn-primary{% else %}ui-btn-secondary{% endif %}">Plan</a>
+            <a href="?tab=outputs" class="ui-btn {% if selected_tab == 'outputs' %}ui-btn-primary{% else %}ui-btn-secondary{% endif %}">Outputs</a>
+            <a href="?tab=review" class="ui-btn {% if selected_tab == 'review' %}ui-btn-primary{% else %}ui-btn-secondary{% endif %}">Review</a>
+            <a href="?tab=timeline" class="ui-btn {% if selected_tab == 'timeline' %}ui-btn-primary{% else %}ui-btn-secondary{% endif %}">Timeline</a>
+        </div>
+    </section>
+
+    {% if selected_tab == 'overview' %}
+    <section class="grid gap-4 md:grid-cols-4">
+        <div class="ui-kpi"><div class="section-title">Steps</div><div class="mt-2 text-3xl font-bold text-white">{{ phase_detail.summary.total|default:0 }}</div></div>
+        <div class="ui-kpi"><div class="section-title">Completed</div><div class="mt-2 text-3xl font-bold text-white">{{ phase_detail.summary.completed|default:0 }}</div></div>
+        <div class="ui-kpi"><div class="section-title">Findings</div><div class="mt-2 text-3xl font-bold text-white">{{ phase_detail.findings_count }}</div></div>
+        <div class="ui-kpi"><div class="section-title">Outputs</div><div class="mt-2 text-3xl font-bold text-white">{{ phase_detail.outputs_count }}</div></div>
+        {% if phase_detail.previous_phase %}<div class="ui-kpi"><div class="section-title">Previous</div><div class="mt-2 text-white">{{ phase_detail.previous_phase.display_name }}</div></div>{% endif %}
+        {% if phase_detail.next_phase %}<div class="ui-kpi"><div class="section-title">Next</div><div class="mt-2 text-white">{{ phase_detail.next_phase.display_name }}</div></div>{% endif %}
+    </section>
+    {% endif %}
+
+    {% if phase_detail.empty_state and selected_tab != 'timeline' %}
+    <section class="shell-panel rounded-[1.5rem] p-10 text-center">
+        <div class="text-lg font-semibold text-white">This phase has not been executed in this run.</div>
+        <p class="mt-3 text-sm leading-7 text-slate-400">Start the run from this phase or progress into it from an earlier phase to populate plan, outputs, and review data.</p>
+    </section>
+    {% endif %}
+
+    {% if selected_tab == 'plan' %}
+    <section class="shell-panel rounded-[1.5rem] p-6">
+        <div class="space-y-4">
+            {% for step in phase_detail.steps %}
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="text-lg font-semibold text-white">
+                        {% if step.action_type %}{{ step.action_type }}{% elif step.action %}{{ step.action }}{% else %}Unknown Step{% endif %}
+                    </div>
+                    <span class="ui-badge {% if step.status == 'completed' %}ui-badge-success{% elif step.status == 'running' %}ui-badge-info{% elif step.status == 'failed' %}ui-badge-danger{% else %}ui-badge-muted{% endif %}">{{ step.status|default:"pending" }}</span>
+                </div>
+                {% if step.rationale %}<p class="mt-3 text-sm leading-7 text-slate-300">{{ step.rationale }}</p>{% endif %}
+                {% if step.command_preview %}<pre class="mt-3 rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-xs text-cyan-200">{{ step.command_preview }}</pre>{% endif %}
+            </div>
+            {% empty %}
+            <div class="text-sm text-slate-400">No stored plan steps for this phase.</div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {% if selected_tab == 'outputs' %}
+    <section class="shell-panel rounded-[1.5rem] p-6">
+        <div class="space-y-4">
+            {% for output in phase_detail.outputs %}
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="font-mono text-sm text-white">{{ output.command }}</div>
+                    <span class="ui-badge ui-badge-muted">{{ output.status }}</span>
+                </div>
+                {% if output.stdout_excerpt %}<pre class="mt-3 rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-xs text-emerald-300">{{ output.stdout_excerpt }}</pre>{% endif %}
+                {% if output.stderr_excerpt %}<pre class="mt-3 rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-xs text-rose-300">{{ output.stderr_excerpt }}</pre>{% endif %}
+            </div>
+            {% empty %}
+            <div class="text-sm text-slate-400">No captured outputs for this phase.</div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {% if selected_tab == 'review' %}
+    <section class="shell-panel rounded-[1.5rem] p-6">
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div class="section-title">Review Summary</div>
+            <p class="mt-3 text-sm leading-7 text-slate-300">
+                {% if phase_detail.review %}
+                    {{ phase_detail.review }}
+                {% elif phase_detail.details.summary %}
+                    {{ phase_detail.details.summary }}
+                {% else %}
+                    No stored review for this phase.
+                {% endif %}
+            </p>
+        </div>
+        <div class="mt-4 grid gap-4 xl:grid-cols-2">
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div class="section-title">Findings</div>
+                {% for finding in phase_detail.findings %}
+                <div class="mt-3 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2">
+                    <div class="font-mono text-xs text-slate-400">{{ finding.key }}</div>
+                    <div class="mt-1 text-sm text-white">{{ finding.value }}</div>
+                </div>
+                {% empty %}
+                <div class="mt-3 text-sm text-slate-400">No findings stored for this phase.</div>
+                {% endfor %}
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div class="section-title">Operator Notes</div>
+                <p class="mt-3 text-sm leading-7 text-slate-300">{{ phase_detail.details.operator_notes|default:"No operator notes stored." }}</p>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if selected_tab == 'timeline' %}
+    <section class="shell-panel rounded-[1.5rem] p-6">
+        <div class="space-y-4">
+            {% for event in phase_detail.timeline %}
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <span class="ui-badge ui-badge-muted">{{ event.source }}</span>
+                        <div class="font-semibold text-white">{{ event.type }}</div>
+                    </div>
+                    <div class="font-mono text-xs text-slate-500">{{ event.dt|date:"Y-m-d H:i:s" }}</div>
+                </div>
+                <p class="mt-3 text-sm leading-7 text-slate-300">{{ event.desc }}</p>
+            </div>
+            {% empty %}
+            <div class="text-sm text-slate-400">No timeline entries were recorded for this phase.</div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

@@ -25,9 +25,9 @@ def index(request):
     targets = AttackTarget.objects.exclude(base_url='')
     
     # Determine readiness for new simulations
-    connected_executors = executors.filter(status=AttackerExecutor.Status.CONNECTED).order_by('-last_heartbeat')
+    connected_executors = [executor for executor in executors.order_by('-last_heartbeat') if executor.is_remote_ready]
     active_targets = targets.filter(is_active=True).order_by('name')
-    has_connected_executor = connected_executors.exists()
+    has_connected_executor = bool(connected_executors)
     has_active_target = active_targets.exists()
     
     # Fetch currently active operational context
@@ -41,7 +41,7 @@ def index(request):
         'targets': targets,
         'has_connected_executor': has_connected_executor,
         'has_active_target': has_active_target,
-        'default_executor': connected_executors.first(),
+        'default_executor': connected_executors[0] if connected_executors else None,
         'default_target': active_targets.first(),
         'connected_executors': connected_executors,
         'active_targets': active_targets,
