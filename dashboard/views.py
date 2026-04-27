@@ -32,6 +32,7 @@ from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask,
 from ai.command_generator import CommandGenerator
 from services.execution_service import ExecutionService
 from services.remote_execution_service import RemoteExecutionService
+from services.reporting_service import AttackReportService
 from services.command_template_utils import (
     build_target_context,
     infer_required_tools,
@@ -44,6 +45,7 @@ from core.levels import (
     build_runtime_profile,
     canonical_kill_chain_label,
     normalize_phase_name,
+    pentest_stage_label,
 )
 from ai.llm.groq_adapter import GroqAdapter
 
@@ -159,6 +161,7 @@ def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
                 "phase_display": _display_phase_name(review_phase or f"Phase {index}"),
                 "level": review.get("level") if isinstance(review, dict) else {},
                 "kill_chain_label": ((review.get("level") or {}).get("kill_chain_label") if isinstance(review, dict) else "") or canonical_kill_chain_label(review_phase),
+                "stage_label": pentest_stage_label(review_phase),
                 "next_phase": review.get("next_phase") if isinstance(review, dict) else "",
                 "review": review.get("review", "") if isinstance(review, dict) else "",
                 "details": details,
@@ -198,6 +201,7 @@ def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
                 "phase_display": _display_phase_name(active_phase),
                 "level": current_level,
                 "kill_chain_label": current_level.get("kill_chain_label") or canonical_kill_chain_label(active_phase),
+                "stage_label": pentest_stage_label(active_phase),
                 "next_phase": "",
                 "review": "",
                 "details": {},
@@ -239,6 +243,19 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
     plan = deepcopy(state.current_plan or {})
     raw_steps = plan.get("steps") or []
 
+    state_data = state.state_data or {}
+    script_artifacts = state_data.get("script_artifacts")
+    if not isinstance(script_artifacts, list):
+        script_artifacts = []
+    script_artifacts_by_id = {
+        str(artifact.get("id")): artifact
+        for artifact in script_artifacts
+        if isinstance(artifact, dict) and artifact.get("id")
+    }
+    report_artifacts = state_data.get("report_artifacts")
+    if not isinstance(report_artifacts, list):
+        report_artifacts = []
+
     if not raw_steps:
         return {
             "rationale": plan.get("rationale", ""),
@@ -261,6 +278,9 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             "level_history": (state.state_data or {}).get("level_history") or (state.state_data or {}).get("phase_reviews", []),
             "phase_transition_pending": (state.state_data or {}).get("phase_transition_pending") or (state.state_data or {}).get("level_transition_pending"),
             "level_transition_pending": (state.state_data or {}).get("level_transition_pending") or (state.state_data or {}).get("phase_transition_pending"),
+            "script_artifacts": script_artifacts,
+            "report_artifacts": report_artifacts,
+            "last_report": report_artifacts[-1] if report_artifacts else None,
         }
 
     results = (
@@ -339,6 +359,19 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         item.setdefault("max_retries", 2)
         item.setdefault("retry_cooldown_seconds", 2)
         item.setdefault("next_allowed_at", 0)
+        item.setdefault("stage_label", pentest_stage_label(plan.get("phase") or state.current_phase))
+        item.setdefault("execution_type", "command")
+        item.setdefault("success_criteria", "")
+        if item.get("execution_type") == "script":
+            artifact_refs = item.get("artifact_refs") if isinstance(item.get("artifact_refs"), list) else []
+            linked_artifacts = []
+            for ref in artifact_refs:
+                if not isinstance(ref, dict):
+                    continue
+                artifact_id = str(ref.get("id") or "")
+                if artifact_id and artifact_id in script_artifacts_by_id:
+                    linked_artifacts.append(script_artifacts_by_id[artifact_id])
+            item["linked_script_artifacts"] = linked_artifacts
         item["cooldown_pending"] = (
             float(item.get("next_allowed_at") or 0) > timezone.now().timestamp()
             and item.get("status") in {"pending", "running"}
@@ -368,6 +401,7 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             "phase_name": normalize_phase_name(plan.get("phase") or state.current_phase),
             "kill_chain_label": canonical_kill_chain_label(plan.get("phase") or state.current_phase),
         },
+        "stage_label": plan.get("stage_label") or pentest_stage_label(plan.get("phase") or state.current_phase),
         "limits": plan.get("limits") or {},
         "runtime": plan.get("runtime") or {},
         "steps": steps,
@@ -386,6 +420,9 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         "level_history": (state.state_data or {}).get("level_history") or (state.state_data or {}).get("phase_reviews", []),
         "phase_transition_pending": (state.state_data or {}).get("phase_transition_pending") or (state.state_data or {}).get("level_transition_pending"),
         "level_transition_pending": (state.state_data or {}).get("level_transition_pending") or (state.state_data or {}).get("phase_transition_pending"),
+        "script_artifacts": script_artifacts,
+        "report_artifacts": report_artifacts,
+        "last_report": report_artifacts[-1] if report_artifacts else None,
     }
 
 
@@ -551,6 +588,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'plan_completed': plan_completed,
         'waiting_for_approval': waiting_for_approval,
         'plan_view': plan_view,
+        'latest_report': (plan_view or {}).get('last_report'),
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
         **_get_global_context(),
     }
@@ -602,6 +640,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'plan_completed': plan_completed,
         'waiting_for_approval': waiting_for_approval,
         'plan_view': plan_view,
+        'latest_report': plan_view.get('last_report'),
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_detail.html', context)
@@ -644,15 +683,36 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
     """
     state = get_object_or_404(AttackState, pk=pk)
     actions = Action.objects.filter(attack_state=state).order_by("created_at")
+    plan_view = _build_plan_view_state(state)
 
     context = {
         'attack_state': state,
         'actions': actions,
-        'plan_view': _build_plan_view_state(state),
+        'plan_view': plan_view,
         'operation_history': _build_attack_run_history(state),
+        'latest_report': plan_view.get('last_report'),
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_plan.html', context)
+
+
+@login_required(login_url='login')
+@require_POST
+def generate_attack_report(request: HttpRequest, pk: int) -> HttpResponse:
+    state = get_object_or_404(AttackState, pk=pk)
+    report_service = AttackReportService(state)
+    report_service.generate_report()
+    return redirect('dashboard_attack_detail', pk=pk)
+
+
+@login_required(login_url='login')
+def latest_attack_report(request: HttpRequest, pk: int) -> HttpResponse:
+    state = get_object_or_404(AttackState, pk=pk)
+    report_service = AttackReportService(state)
+    report = report_service.latest_report()
+    if not report:
+        return JsonResponse({"status": "not_found"}, status=404)
+    return JsonResponse(report, safe=False)
 
 
 @login_required(login_url='login')
@@ -742,8 +802,12 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                 "execution_mode": "remote",
                 "executor_id": selected_executor.id,
                 "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
+                "plan_command_lock": True,
                 "runtime_profile": runtime_profile,
                 "level_history": [],
+                "script_artifacts": [],
+                "report_artifacts": [],
+                "last_report_status": "idle",
             },
         )
     else:
@@ -759,8 +823,12 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                 "llm_provider": llm_provider,
                 "execution_mode": "local",
                 "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
+                "plan_command_lock": True,
                 "runtime_profile": runtime_profile,
                 "level_history": [],
+                "script_artifacts": [],
+                "report_artifacts": [],
+                "last_report_status": "idle",
             },
         )
 

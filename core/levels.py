@@ -23,6 +23,16 @@ _KILL_CHAIN_LABEL_MAP = {
     "completed": "COMPLETED",
 }
 
+_STAGE_LABEL_MAP = {
+    "reconnaissance": "planning_recon",
+    "discovery": "scanning",
+    "vulnerability_analysis": "scanning",
+    "exploitation": "exploitation",
+    "post_exploitation": "maintaining_access_payload",
+    "proof_of_compromise": "proof_of_compromise",
+    "completed": "proof_of_compromise",
+}
+
 
 def normalize_phase_name(phase: Any) -> str:
     return str(phase or "").strip().lower().replace(" ", "_")
@@ -33,6 +43,13 @@ def canonical_kill_chain_label(phase_name: Any) -> str:
     if not normalized:
         return "RECONNAISSANCE"
     return _KILL_CHAIN_LABEL_MAP.get(normalized, normalized.upper())
+
+
+def pentest_stage_label(phase_name: Any) -> str:
+    normalized = normalize_phase_name(phase_name)
+    if not normalized:
+        return "planning_recon"
+    return _STAGE_LABEL_MAP.get(normalized, "planning_recon")
 
 
 def parse_positive_int(value: Any, fallback: int) -> int:
@@ -62,4 +79,3 @@ def build_runtime_profile(overrides: dict[str, Any] | None = None) -> dict[str, 
         "retry_cooldown_seconds": retry_cooldown_seconds,
         "limits": limits,
     }
-

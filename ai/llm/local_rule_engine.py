@@ -37,6 +37,20 @@ PHASE_TRANSITION = {
 }
 
 
+def _phase_priority_key(action_name: str, phase_name: str) -> tuple[int, str]:
+    token = (action_name or "").strip().lower()
+    phase = (phase_name or "").strip().upper()
+    score = 0
+    if any(k in token for k in ("exploit", "payload", "script", "shell", "poc")):
+        score += 5
+    if phase in {"EXPLOITATION", "POST_EXPLOITATION", "PROOF_OF_COMPROMISE"}:
+        if any(k in token for k in ("payload", "script")):
+            score += 5
+        if "exploit" in token:
+            score += 3
+    return (-score, action_name)
+
+
 def _collapse_known_service(decision_input: DecisionInput) -> Dict[str, str]:
     if not decision_input.known_services:
         return {}
@@ -260,6 +274,11 @@ class LocalRuleEngine(BaseLLMAdapter):
             if isinstance(command, dict) and str(command.get("name", "")).strip()
         ]
         if available_names:
+            phase_name = _normalize_phase(decision_input.phase)
+            available_names = sorted(
+                available_names,
+                key=lambda name: _phase_priority_key(name, phase_name),
+            )
             steps = [
                 PlanStep(
                     step_number=index + 1,

@@ -253,7 +253,18 @@ class OllamaAdapter(BaseLLMAdapter):
                             step_data["step_number"] = i + 1
                         
                         # Filter out unexpected keys (like 'result') that Ollama might hallucinate
-                        valid_keys = {"step_number", "action_type", "parameters", "rationale"}
+                        valid_keys = {
+                            "step_number",
+                            "action_type",
+                            "parameters",
+                            "rationale",
+                            "stage_label",
+                            "execution_type",
+                            "script_language",
+                            "script_content",
+                            "artifact_refs",
+                            "success_criteria",
+                        }
                         filtered_data = {k: v for k, v in step_data.items() if k in valid_keys}
                         new_steps.append(PlanStep(**filtered_data))
                 data["steps"] = new_steps

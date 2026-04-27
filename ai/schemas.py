@@ -142,6 +142,12 @@ class PlanStep:
     action_type: str
     parameters: Mapping[str, Any]
     rationale: str
+    stage_label: Optional[str] = None
+    execution_type: str = "command"
+    script_language: Optional[str] = None
+    script_content: Optional[str] = None
+    artifact_refs: Optional[List[Dict[str, Any]]] = None
+    success_criteria: Optional[str] = None
 
 
 @dataclass(frozen=True)

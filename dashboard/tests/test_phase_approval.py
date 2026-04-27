@@ -116,6 +116,9 @@ class PhaseApprovalFlowTests(TestCase):
             name="Ordered phase plan",
             current_phase="RECONNAISSANCE",
             autonomy_status="STOPPED",
+            state_data={
+                "script_artifacts": [{"id": "script-1", "sha256": "abc", "language": "python"}],
+            },
             current_plan={
                 "phase": "reconnaissance",
                 "steps": [
@@ -129,6 +132,10 @@ class PhaseApprovalFlowTests(TestCase):
                     {
                         "step_number": 2,
                         "action_type": "EndpointDiscovery",
+                        "execution_type": "script",
+                        "script_language": "python",
+                        "script_content": "print('test')",
+                        "artifact_refs": [{"id": "script-1"}],
                         "status": "failed",
                         "attempt_count": 2,
                         "command_retry_count": 1,
@@ -149,6 +156,9 @@ class PhaseApprovalFlowTests(TestCase):
         self.assertEqual(view_state["steps"][1]["attempt_count"], 2)
         self.assertTrue(view_state["steps"][1]["alternative_pending"])
         self.assertEqual(view_state["summary"]["attempts"], 3)
+        self.assertEqual(view_state["steps"][1]["execution_type"], "script")
+        self.assertTrue(view_state["steps"][1]["linked_script_artifacts"])
+        self.assertEqual(view_state["stage_label"], "planning_recon")
 
     def test_attack_run_history_uses_active_phase_execution_history_not_global_results(self):
         state = AttackState.objects.create(

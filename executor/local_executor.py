@@ -3,6 +3,7 @@ import logging
 import os
 import platform
 import shutil
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -74,3 +75,51 @@ def run_command(command: str):
     except Exception as e:
         logger.exception(f"Exception running command: {command}")
         return {"error": str(e), "stderr": str(e), "returncode": -1}
+
+
+def run_script(script_content: str, script_language: str = "python"):
+    """Execute generated script content through a controlled tempfile wrapper."""
+    language = (script_language or "python").strip().lower()
+    suffix = ".py" if language == "python" else ".sh"
+    interpreter = "python" if language == "python" else "bash"
+
+    if language == "bash" and not shutil.which("bash"):
+        return {
+            "stdout": "",
+            "stderr": "bash runtime is not available on this executor.",
+            "returncode": -1,
+        }
+
+    script_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=suffix,
+            delete=False,
+            encoding="utf-8",
+        ) as script_file:
+            script_file.write(script_content or "")
+            script_path = script_file.name
+
+        result = subprocess.run(
+            [interpreter, script_path],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {"error": "TimeoutExpired", "stderr": "Script timed out after 120s.", "returncode": -1}
+    except Exception as exc:
+        logger.exception("Exception running generated script")
+        return {"error": str(exc), "stderr": str(exc), "returncode": -1}
+    finally:
+        if script_path and os.path.exists(script_path):
+            try:
+                os.remove(script_path)
+            except OSError:
+                pass

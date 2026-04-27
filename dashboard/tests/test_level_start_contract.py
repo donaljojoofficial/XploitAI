@@ -43,6 +43,7 @@ class LevelStartContractTests(TestCase):
         state = AttackState.objects.order_by("-created_at").first()
         self.assertIsNotNone(state)
         self.assertEqual(state.state_data.get("progression_mode"), "manual")
+        self.assertTrue(state.state_data.get("plan_command_lock"))
         self.assertEqual(state.state_data.get("runtime_profile", {}).get("max_retries"), 2)
         self.assertEqual(state.state_data.get("runtime_profile", {}).get("retry_cooldown_seconds"), 2)
         self.assertEqual(
@@ -50,4 +51,3 @@ class LevelStartContractTests(TestCase):
             5,
         )
         launch_assessment.assert_called_once()
-

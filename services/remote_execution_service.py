@@ -31,6 +31,12 @@ from services.command_template_utils import (
     normalize_command_template,
     render_command_template,
 )
+from services.script_runtime import (
+    append_script_artifact,
+    build_remote_script_command,
+    build_script_artifact,
+    is_script_step,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +72,8 @@ class RemoteExecutionService:
         self.output_analyzer = OutputAnalysisService()
         self.phase_command_counts = {}
         self.runtime_profile = build_runtime_profile(runtime_profile or {})
+        state_data = (self.state_manager.get_attack_state().state_data or {})
+        self.plan_command_lock = bool(state_data.get("plan_command_lock", True))
 
     def _get_retry_config(self, step: dict | None) -> tuple[int, int]:
         step = step or {}
@@ -139,6 +147,35 @@ class RemoteExecutionService:
         attack_state.current_plan = plan
         attack_state.save(update_fields=["current_plan"])
 
+    def _persist_script_artifact(self, action_name: str, artifact: dict) -> None:
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        if not isinstance(attack_state.state_data, dict):
+            attack_state.state_data = {}
+        append_script_artifact(attack_state.state_data, artifact)
+
+        plan = attack_state.current_plan or {}
+        steps = plan.get("steps") or []
+        for step in steps:
+            step_name = step.get("action_type") or step.get("action")
+            if step_name != action_name:
+                continue
+            refs = step.get("artifact_refs")
+            if not isinstance(refs, list):
+                refs = []
+            refs.append(
+                {
+                    "id": artifact.get("id"),
+                    "sha256": artifact.get("sha256"),
+                    "type": artifact.get("type"),
+                    "language": artifact.get("language"),
+                }
+            )
+            step["artifact_refs"] = refs[-10:]
+            break
+
+        attack_state.current_plan = plan
+        attack_state.save(update_fields=["state_data", "current_plan"])
+
     def _update_step_execution_state(
         self,
         action_name: str,
@@ -152,6 +189,8 @@ class RemoteExecutionService:
         findings: dict | None = None,
         schedule_retry: bool = False,
         next_allowed_at: float = 0,
+        exit_code: int | None = None,
+        script_artifact: dict | None = None,
     ) -> None:
         attack_state = AttackState.objects.get(id=self.attack_state_id)
         plan = attack_state.current_plan or {}
@@ -201,6 +240,7 @@ class RemoteExecutionService:
                 target_step["cooldown_pending"] = False
             target_step["last_output_excerpt"] = (stdout or "")[:400]
             target_step["last_error_excerpt"] = (stderr or "")[:240]
+            target_step["last_exit_code"] = exit_code
             target_step["last_findings"] = findings or {}
             target_step["execution_history"].append(
                 {
@@ -210,8 +250,11 @@ class RemoteExecutionService:
                     "status": "SUCCESS" if normalized_status == "success" else ("RETRY_SCHEDULED" if schedule_retry else "FAILED"),
                     "stdout_excerpt": (stdout or "")[:400],
                     "stderr_excerpt": (stderr or "")[:240],
+                    "exit_code": exit_code,
                     "findings": findings or {},
                     "next_allowed_at": float(next_allowed_at or 0),
+                    "script_artifact_id": (script_artifact or {}).get("id"),
+                    "script_sha256": (script_artifact or {}).get("sha256"),
                 }
             )
 
@@ -384,9 +427,18 @@ class RemoteExecutionService:
             target = current_state.get("target") or ""
             sub_context = build_target_context(target)
             command_parameters = {**sub_context, **decision_parameters}
+            attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
+            step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
+            locked_step_command = (
+                str((step_state or {}).get("resolved_command") or "").strip()
+                if self.plan_command_lock
+                else ""
+            )
 
             try:
-                if planned_command:
+                if locked_step_command:
+                    command = locked_step_command
+                elif planned_command:
                     command = planned_command
                 elif self.llm_provider == "hybrid":
                     generated = self.command_generator.generate(
@@ -412,10 +464,13 @@ class RemoteExecutionService:
             step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
             step_retry_budget = self.runtime_profile.get("max_retries", DEFAULT_STEP_MAX_RETRIES)
             step_retry_cooldown = self.runtime_profile.get("retry_cooldown_seconds", DEFAULT_STEP_RETRY_COOLDOWN_SECONDS)
+            execution_type = "command"
+            script_artifact = None
             if step_state:
                 step_retry_budget, step_retry_cooldown = self._get_retry_config(step_state)
                 step_state["max_retries"] = step_retry_budget
                 step_state["retry_cooldown_seconds"] = step_retry_cooldown
+                execution_type = "script" if is_script_step(step_state) else "command"
                 next_allowed_at = float(step_state.get("next_allowed_at") or 0)
                 if next_allowed_at > time.time():
                     wait_seconds = max(next_allowed_at - time.time(), 0.0)
@@ -434,15 +489,32 @@ class RemoteExecutionService:
                 command_id=command_id,
             )
 
+            command_for_task = command
+            script_task_payload = {}
+            if step_state and execution_type == "script":
+                script_artifact = build_script_artifact(step_state, command_obj.name, command_id)
+                self._persist_script_artifact(command_obj.name, script_artifact)
+                command_for_task = build_remote_script_command(
+                    script_content=script_artifact.get("content") or "",
+                    script_language=step_state.get("script_language") or "python",
+                )
+                script_task_payload = {
+                    "artifact_id": script_artifact.get("id"),
+                    "script_sha256": script_artifact.get("sha256"),
+                    "script_language": script_artifact.get("language"),
+                }
+
             # Create an ExecutionTask for the remote executor to pick up
             task = ExecutionTask.objects.create(
                 action_name=command_obj.name,
                 action=None,  # No high-level action for remote execution
                 parameters={
-                    "command": command,
+                    "command": command_for_task,
                     "target": target,
                     "reasoning": decision_reason,
-                    "required_tools": planned_tools or infer_required_tools(command),
+                    "required_tools": planned_tools or infer_required_tools(command_for_task),
+                    "execution_type": execution_type,
+                    "script": script_task_payload,
                     "limits": {
                         "max_retries": int(step_retry_budget),
                         "retry_cooldown_seconds": int(step_retry_cooldown),
@@ -502,7 +574,7 @@ class RemoteExecutionService:
                 self._update_step_execution_state(
                     command_obj.name,
                     status="SUCCESS" if semantic_success else "FAILED",
-                    command=command,
+                    command=command_for_task,
                     command_id=command_id,
                     command_retries=scheduled_retry_count,
                     stdout=stdout,
@@ -510,6 +582,8 @@ class RemoteExecutionService:
                     findings=findings,
                     schedule_retry=should_retry,
                     next_allowed_at=next_retry_at,
+                    exit_code=output.get("returncode") if isinstance(output, dict) else (0 if semantic_success else 1),
+                    script_artifact=script_artifact,
                 )
                 self._record_level_runtime(success=semantic_success)
                 refreshed_for_limits = AttackState.objects.get(id=self.attack_state_id)
@@ -536,6 +610,17 @@ class RemoteExecutionService:
 
                 # Create ExecutionResult record
                 attack_state = AttackState.objects.get(id=self.attack_state_id)
+                persisted_findings = dict(findings or {})
+                if script_artifact:
+                    persisted_findings.setdefault(
+                        "script_execution",
+                        {
+                            "artifact_id": script_artifact.get("id"),
+                            "sha256": script_artifact.get("sha256"),
+                            "language": script_artifact.get("language"),
+                            "exit_code": output.get("returncode") if isinstance(output, dict) else (0 if semantic_success else 1),
+                        },
+                    )
                 ExecutionResult.objects.create(
                     command=command_obj,
                     attack_state=attack_state,
@@ -543,7 +628,7 @@ class RemoteExecutionService:
                     status="SUCCESS" if semantic_success else "FAILED",
                     stdout=stdout,
                     stderr=stderr,
-                    findings=findings or {},
+                    findings=persisted_findings,
                 )
 
                 self.state_manager.record_action(
@@ -610,7 +695,7 @@ class RemoteExecutionService:
                 self._update_step_execution_state(
                     command_obj.name,
                     status="FAILED",
-                    command=command,
+                    command=command_for_task,
                     command_id=command_id,
                     command_retries=scheduled_retry_count,
                     stdout=stdout,
@@ -618,6 +703,8 @@ class RemoteExecutionService:
                     findings=findings,
                     schedule_retry=should_retry,
                     next_allowed_at=next_retry_at,
+                    exit_code=output.get("returncode") if isinstance(output, dict) else 1,
+                    script_artifact=script_artifact,
                 )
                 self._record_level_runtime(success=False)
                 refreshed_for_limits = AttackState.objects.get(id=self.attack_state_id)
@@ -642,6 +729,17 @@ class RemoteExecutionService:
                 combined_reason = decision_reason if not review_reason else f"{decision_reason}\n\nAI review: {review_reason}"
 
                 attack_state = AttackState.objects.get(id=self.attack_state_id)
+                persisted_findings = dict(findings or {})
+                if script_artifact:
+                    persisted_findings.setdefault(
+                        "script_execution",
+                        {
+                            "artifact_id": script_artifact.get("id"),
+                            "sha256": script_artifact.get("sha256"),
+                            "language": script_artifact.get("language"),
+                            "exit_code": output.get("returncode") if isinstance(output, dict) else 1,
+                        },
+                    )
                 ExecutionResult.objects.create(
                     command=command_obj,
                     attack_state=attack_state,
@@ -649,7 +747,7 @@ class RemoteExecutionService:
                     status="FAILED",
                     stdout=stdout,
                     stderr=stderr or result.error_message or "",
-                    findings=findings,
+                    findings=persisted_findings,
                 )
 
                 self.state_manager.record_action(

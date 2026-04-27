@@ -41,6 +41,10 @@ def is_meaningful_action_success(action_name: str, findings: dict, stdout: str) 
 
     if action_name == "ProofOfCompromise":
         return bool(findings.get("proof_of_compromise"))
+    if action_name == "PayloadGeneration":
+        return bool(findings.get("payload_generated"))
+    if action_name == "ExploitScriptGeneration":
+        return bool(findings.get("generated_script"))
 
     if action_name == "SQLInjectionProbe":
         return bool(findings.get("sqli_signals"))
@@ -163,6 +167,29 @@ def parse_output(action_name: str, output: str) -> dict:
             ]
         if proof_summary:
             findings["proof_summary"] = proof_summary.group(1).strip()
+
+    elif action_name == "PayloadGeneration":
+        if "PAYLOAD_GENERATED" in (output or ""):
+            findings["payload_generated"] = True
+        payload_json = re.search(r"\[(?:.|\n)*\]", output or "")
+        if payload_json:
+            try:
+                findings["payload_items"] = json.loads(payload_json.group(0))
+            except Exception:
+                pass
+
+    elif action_name == "ExploitScriptGeneration":
+        if "SCRIPT_GENERATED" in (output or ""):
+            findings["generated_script"] = True
+        script_lines = []
+        found = False
+        for line in (output or "").splitlines():
+            if found:
+                script_lines.append(line)
+            elif line.strip() == "SCRIPT_GENERATED":
+                found = True
+        if script_lines:
+            findings["generated_script_preview"] = "\n".join(script_lines[:40])
 
     elif action_name == "PassiveRecon":
         ips = re.findall(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", output)

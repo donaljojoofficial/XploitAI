@@ -30,6 +30,15 @@ PHASE_ALIASES = {
     "PROOF_OF_COMPROMISE": "POST_EXPLOITATION",
 }
 
+STAGE_LABELS = {
+    "RECONNAISSANCE": "planning_recon",
+    "DISCOVERY": "scanning",
+    "VULNERABILITY_ANALYSIS": "scanning",
+    "EXPLOITATION": "exploitation",
+    "POST_EXPLOITATION": "maintaining_access_payload",
+    "COMPLETED": "proof_of_compromise",
+}
+
 ALLOWED_ACTIONS = [
     "HTTPHeaderFetch",
     "TechnologyFingerprint",
@@ -40,8 +49,18 @@ ALLOWED_ACTIONS = [
     "VulnerabilityScanning",
     "SQLInjectionProbe",
     "ExploitAttempt",
+    "PayloadGeneration",
+    "ExploitScriptGeneration",
     "ProofOfCompromise",
 ]
+
+
+def _is_payload_or_script_action(action_name: str) -> bool:
+    token = (action_name or "").strip().lower()
+    return any(
+        marker in token
+        for marker in ("payload", "script", "exploit", "shell", "poc")
+    )
 
 
 def _normalize_phase(phase: str) -> str:
@@ -168,15 +187,21 @@ def build_recommendation_prompt(
 
 def build_plan_prompt(decision_input: DecisionInput) -> str:
     phase = _normalize_phase(decision_input.phase or "RECONNAISSANCE")
+    stage_label = STAGE_LABELS.get(phase, "planning_recon")
     done = [a.action_type for a in (decision_input.past_actions or [])]
     available_actions = _available_action_names(decision_input)
+    payload_script_actions = [a for a in available_actions if _is_payload_or_script_action(a)]
 
     schema = (
         '{\n'
         '  "rationale": "<one sentence phase plan rationale>",\n'
         '  "steps": [\n'
         '    {"step_number": 1, "action_type": "<action>", "parameters": {}, '
-        '"rationale": "<one sentence referencing output or findings>"}\n'
+        '"rationale": "<one sentence referencing output or findings>", '
+        '"stage_label": "<planning_recon|scanning|exploitation|maintaining_access_payload|proof_of_compromise>", '
+        '"execution_type": "<command|script>", "script_language": "<python|bash|null>", '
+        '"script_content": "<script or null>", "artifact_refs": [], '
+        '"success_criteria": "<evidence-driven completion criteria>"}\n'
         '  ]\n'
         '}'
     )
@@ -199,8 +224,14 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
         f"- Keep rationale fields short (<= 14 words each).\n"
         f"- If only one action is available, return one step.\n"
         f"- If multiple actions are available, sequence them to maximize useful data collection.\n"
+        f"- In EXPLOITATION or POST_EXPLOITATION, include payload/script-oriented actions when available.\n"
+        f"- If payload/script actions exist, prioritize at least one before final proof collection.\n"
+        f"- Use stage_label '{stage_label}' for this phase.\n"
+        f"- Set execution_type='script' with script_content when script/payload generation is useful.\n"
+        f"- Set artifact_refs as a list (can be empty) and include clear success_criteria.\n"
         f"{_target_lock_rules(decision_input)}\n\n"
         f"Allowed actions for this phase: {', '.join(available_actions)}\n\n"
+        f"Payload/Script-capable actions currently available: {', '.join(payload_script_actions) if payload_script_actions else 'none'}\n\n"
         f"Respond ONLY with this JSON (no markdown):\n{schema}"
     )
 
