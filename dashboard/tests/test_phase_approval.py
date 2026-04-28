@@ -191,3 +191,108 @@ class PhaseApprovalFlowTests(TestCase):
         self.assertEqual(len(history["phases"]), 1)
         self.assertEqual(history["phases"][0]["outputs"][0]["command"], "curl -I http://example.test")
         self.assertEqual(history["phases"][0]["outputs"][0]["status"], "FAILED")
+
+    def test_plan_view_prefers_step_execution_history_over_global_command_result(self):
+        state = AttackState.objects.create(
+            name="Plan view command sync",
+            current_phase="RECONNAISSANCE",
+            autonomy_status="STOPPED",
+            current_plan={
+                "phase": "reconnaissance",
+                "steps": [
+                    {
+                        "step_number": 1,
+                        "action_type": "HTTPHeaderFetch",
+                        "attempt_count": 1,
+                        "execution_history": [
+                            {
+                                "attempt_number": 1,
+                                "command": "curl -I http://127.0.0.1:4280/",
+                                "status": "FAILED",
+                                "stderr_excerpt": "connection refused",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        view_state = _build_plan_view_state(state)
+
+        self.assertEqual(view_state["steps"][0]["command_preview"], "curl -I http://127.0.0.1:4280/")
+        self.assertEqual(view_state["steps"][0]["command_preview_source"], "executor")
+        self.assertEqual(view_state["steps"][0]["output_excerpt"], "connection refused")
+        self.assertEqual(view_state["steps"][0]["status"], "failed")
+
+    def test_plan_view_uses_rule_based_tool_preview_for_discovery_steps(self):
+        state = AttackState.objects.create(
+            name="Plan tool preview",
+            current_phase="DISCOVERY",
+            autonomy_status="STOPPED",
+            state_data={"target": "http://127.0.0.1:4280/"},
+            current_plan={
+                "phase": "discovery",
+                "steps": [
+                    {
+                        "step_number": 1,
+                        "action_type": "EndpointDiscovery",
+                        "parameters": {"target_url": "http://127.0.0.1:4280/"},
+                    }
+                ],
+            },
+        )
+
+        view_state = _build_plan_view_state(state)
+
+        self.assertIn("dirsearch", view_state["steps"][0]["command_preview"])
+        self.assertEqual(view_state["steps"][0]["command_preview_source"], "rule_based")
+
+    @patch("dashboard.views._launch_assessment")
+    def test_retry_failed_phase_resets_unresolved_steps_and_relaunches(self, launch_assessment):
+        state = AttackState.objects.create(
+            name="Retryable phase",
+            current_phase="DISCOVERY",
+            autonomy_status="STOPPED",
+            stop_reason="Phase failed.",
+            state_data={"completed_commands": [11, 12, 13]},
+            current_plan={
+                "phase": "discovery",
+                "steps": [
+                    {
+                        "step_number": 1,
+                        "action_type": "HTTPHeaderFetch",
+                        "command_id": 11,
+                        "status": "completed",
+                    },
+                    {
+                        "step_number": 2,
+                        "action_type": "EndpointDiscovery",
+                        "command_id": 12,
+                        "status": "failed",
+                        "command_retry_count": 2,
+                        "next_allowed_at": 9999999999,
+                        "alternative_pending": True,
+                    },
+                    {
+                        "step_number": 3,
+                        "action_type": "ParameterDiscovery",
+                        "command_id": 13,
+                        "status": "pending",
+                        "command_retry_count": 1,
+                    },
+                ],
+            },
+        )
+
+        response = self.client.post(reverse("retry_failed_phase", kwargs={"pk": state.pk}))
+        state.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(state.current_plan["steps"][1]["status"], "pending")
+        self.assertEqual(state.current_plan["steps"][1]["command_retry_count"], 0)
+        self.assertEqual(state.current_plan["steps"][1]["next_allowed_at"], 0)
+        self.assertFalse(state.current_plan["steps"][1]["alternative_pending"])
+        self.assertEqual(state.state_data["completed_commands"], [11])
+        self.assertTrue(state.state_data["plan_approved"])
+        self.assertIn("dirsearch", state.current_plan["steps"][1]["resolved_command"])
+        launch_assessment.assert_called_once()

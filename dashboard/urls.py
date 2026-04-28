@@ -35,6 +35,7 @@ urlpatterns = [
     path("activity/load/", views_main.load_more_activity, name="dashboard_load_activity"),
     path("attack/<int:pk>/approve/", views.approve_plan, name="approve_plan"),
     path("attack/<int:pk>/resume/", views.resume_attack, name="resume_attack"),
+    path("attack/<int:pk>/retry-phase/", views.retry_failed_phase, name="retry_failed_phase"),
     path("attack/<int:pk>/stop/", views.stop_attack, name="stop_attack"),
     path('password-reset/', auth.password_reset_request, name='password_reset'),
     path('password-reset/verify/<uidb64>/', auth.password_reset_verify, name='password_reset_verify'),

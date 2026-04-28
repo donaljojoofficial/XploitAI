@@ -75,6 +75,39 @@ class RemoteExecutionService:
         state_data = (self.state_manager.get_attack_state().state_data or {})
         self.plan_command_lock = bool(state_data.get("plan_command_lock", True))
 
+    def _remaining_runtime_budget(self, attack_state: AttackState) -> int:
+        plan = attack_state.current_plan or {}
+        runtime = plan.get("runtime") if isinstance(plan.get("runtime"), dict) else {}
+        limits = plan.get("limits") if isinstance(plan.get("limits"), dict) else {}
+        merged_limits = dict(DEFAULT_LEVEL_LIMITS)
+        merged_limits.update(
+            {
+                key: parse_positive_int(limits.get(key, default), default)
+                for key, default in DEFAULT_LEVEL_LIMITS.items()
+            }
+        )
+        level_started_at = float(runtime.get("level_started_at") or time.time())
+        elapsed = max(time.time() - level_started_at, 0.0)
+        remaining_level = max(int(float(merged_limits["max_level_runtime_seconds"]) - elapsed), 30)
+        remaining_service = max(int(self.max_time_seconds - elapsed), 30)
+        return max(min(remaining_level, remaining_service), 30)
+
+    def _step_timeout_seconds(self, attack_state: AttackState, action_name: str, command: str = "") -> int:
+        action_token = str(action_name or "").strip().lower()
+        command_text = str(command or "").strip().lower()
+        preferred_timeout = 120
+
+        if any(marker in command_text for marker in ("sqlmap", "hashcat", "john --wordlist")) or "sql" in action_token:
+            preferred_timeout = 420
+        elif any(marker in command_text for marker in ("nikto", "nuclei", "dirsearch", "theharvester", "dnsenum")):
+            preferred_timeout = 300
+        elif any(marker in command_text for marker in ("nmap", "wpscan", "arjun", "msfconsole", "searchsploit")):
+            preferred_timeout = 240
+        elif "fingerprint" in action_token or "proof" in action_token:
+            preferred_timeout = 180
+
+        return max(30, min(preferred_timeout, self._remaining_runtime_budget(attack_state)))
+
     def _get_retry_config(self, step: dict | None) -> tuple[int, int]:
         step = step or {}
         max_retries = parse_positive_int(
@@ -440,14 +473,14 @@ class RemoteExecutionService:
                     command = locked_step_command
                 elif planned_command:
                     command = planned_command
-                elif self.llm_provider == "hybrid":
+                else:
                     generated = self.command_generator.generate(
                         command_obj.name,
                         command_parameters,
                     )
                     command = generated.shell_command
-                else:
-                    command = render_command_template(command_template, sub_context)
+                    if not str(command or "").strip():
+                        command = render_command_template(command_template, sub_context)
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "
@@ -489,6 +522,7 @@ class RemoteExecutionService:
                 command_id=command_id,
             )
 
+            step_timeout_seconds = self._step_timeout_seconds(attack_state_for_step, command_obj.name, command)
             command_for_task = command
             script_task_payload = {}
             if step_state and execution_type == "script":
@@ -516,6 +550,7 @@ class RemoteExecutionService:
                     "execution_type": execution_type,
                     "script": script_task_payload,
                     "limits": {
+                        "timeout": int(step_timeout_seconds),
                         "max_retries": int(step_retry_budget),
                         "retry_cooldown_seconds": int(step_retry_cooldown),
                         **((AttackState.objects.get(id=self.attack_state_id).current_plan or {}).get("limits") or {}),
@@ -528,7 +563,7 @@ class RemoteExecutionService:
             logger.info(f"Created ExecutionTask {task.id} for command '{command_obj.name}'")
 
             # Wait for the task to be completed by the remote executor
-            result = self._wait_for_task_completion(task)
+            result = self._wait_for_task_completion(task, timeout=step_timeout_seconds + 20)
             
             if not result:
                 self.stop_assessment(f"Task {task.id} failed to complete within timeout.")

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any
@@ -47,6 +48,7 @@ from services.command_template_utils import (
 )
 from core.config import get_config, set_config
 from core.levels import (
+    DEFAULT_LEVEL_LIMITS,
     build_runtime_profile,
     canonical_kill_chain_label,
     dashboard_phase_catalog,
@@ -137,6 +139,16 @@ def _step_summary(steps: list[dict[str, Any]]) -> dict[str, int]:
         "attempts": sum(int(step.get("attempt_count") or 0) for step in steps),
         "alternatives": sum(1 for step in steps if step.get("alternative_pending")),
     }
+
+
+def _latest_step_attempt(step: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(step, dict):
+        return {}
+    history = step.get("execution_history")
+    if not isinstance(history, list) or not history:
+        return {}
+    latest = history[-1]
+    return latest if isinstance(latest, dict) else {}
 
 
 def _build_attack_run_history(state: AttackState) -> dict[str, Any]:
@@ -347,6 +359,7 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
     for idx, step in enumerate(raw_steps):
         item = deepcopy(step)
         action_name = item.get("action_type") or item.get("action") or ""
+        latest_attempt = _latest_step_attempt(item)
         match = latest_by_command.get(action_name)
 
         if item.get("status") == "completed":
@@ -355,6 +368,10 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             item["status"] = "failed"
         elif item.get("status") == "running":
             item["status"] = "running"
+        elif latest_attempt.get("status") == "SUCCESS":
+            item["status"] = "completed"
+        elif latest_attempt.get("status") in {"FAILED", "RETRY_SCHEDULED"}:
+            item["status"] = "failed" if latest_attempt.get("status") == "FAILED" else "pending"
         elif match and match.status == "SUCCESS":
             item["status"] = "completed"
         elif match and match.status == "FAILED":
@@ -366,22 +383,18 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         if command_obj:
             try:
                 step_context = {**target_context, **(item.get("parameters") or {})}
-                actual_command = item.get("resolved_command")
+                actual_command = item.get("resolved_command") or latest_attempt.get("command")
                 if actual_command:
                     item["command_preview"] = actual_command
                     item["command_preview_source"] = "executor"
-                elif llm_provider == "hybrid":
-                    item["command_preview"] = preview_generator.generate(
+                else:
+                    generated_preview = preview_generator.generate(
                         action_name,
                         step_context,
                     ).shell_command
+                    item["command_preview"] = generated_preview
                     item["command_preview"] = normalize_command_targets(item["command_preview"], step_context)
-                    item["command_preview_source"] = "hybrid"
-                else:
-                    template = normalize_command_template(command_obj)
-                    item["command_preview"] = render_command_template(template, step_context)
-                    item["command_preview"] = normalize_command_targets(item["command_preview"], step_context)
-                    item["command_preview_source"] = "deterministic"
+                    item["command_preview_source"] = "rule_based"
             except Exception:
                 item["command_preview"] = command_obj.command_template or ""
                 item["command_preview_source"] = "stored"
@@ -415,7 +428,13 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             and item.get("status") in {"pending", "running"}
         )
         if not item.get("output_excerpt"):
-            item["output_excerpt"] = item.get("last_output_excerpt") or item.get("last_error_excerpt") or ""
+            item["output_excerpt"] = (
+                latest_attempt.get("stdout_excerpt")
+                or latest_attempt.get("stderr_excerpt")
+                or item.get("last_output_excerpt")
+                or item.get("last_error_excerpt")
+                or ""
+            )
         steps.append(item)
 
     # Mark a single active step when attack is running/planning.
@@ -616,17 +635,165 @@ def _build_phase_detail_payload(state: AttackState, phase_key: str) -> dict[str,
     return selected
 
 
+def _completed_phase_keys_for_state(state: AttackState) -> set[str]:
+    state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    history = state_data.get("level_history") or state_data.get("phase_reviews") or []
+    completed: set[str] = set()
+    if isinstance(history, list):
+        for item in history:
+            if not isinstance(item, dict):
+                continue
+            phase_key = _normalize_phase_key(item.get("phase"))
+            if phase_key:
+                completed.add(phase_key)
+    current_plan = state.current_plan if isinstance(state.current_plan, dict) else {}
+    current_phase_key = _normalize_phase_key(current_plan.get("phase") or state.current_phase)
+    current_steps = current_plan.get("steps") if isinstance(current_plan.get("steps"), list) else []
+    if current_phase_key and current_steps:
+        statuses = [str(step.get("status") or "").lower() for step in current_steps if isinstance(step, dict)]
+        if statuses and all(status == "completed" for status in statuses):
+            completed.add(current_phase_key)
+    return completed
+
+
+def _resolve_restart_phase(state: AttackState, requested_phase: str) -> str:
+    ordered_phases = [
+        item["normalized_key"]
+        for item in dashboard_phase_catalog(executable_only=True)
+        if item.get("normalized_key")
+    ]
+    normalized_requested = _normalize_phase_key(requested_phase)
+    if normalized_requested not in ordered_phases:
+        normalized_requested = "reconnaissance"
+
+    completed = _completed_phase_keys_for_state(state)
+    start_index = ordered_phases.index(normalized_requested)
+    for phase_key in ordered_phases[start_index:]:
+        if phase_key not in completed:
+            return phase_key
+    return ordered_phases[-1] if ordered_phases else normalized_requested
+
+
+def _prune_completed_commands_for_restart(completed_commands: list[Any], restart_phase: str) -> list[int]:
+    if not completed_commands:
+        return []
+    phase_order = {
+        item["normalized_key"]: index
+        for index, item in enumerate(dashboard_phase_catalog(executable_only=True))
+        if item.get("normalized_key")
+    }
+    restart_index = phase_order.get(_normalize_phase_key(restart_phase), 0)
+    commands = {
+        command.id: command
+        for command in Command.objects.select_related("phase").filter(id__in=completed_commands)
+    }
+    retained: list[int] = []
+    for command_id in completed_commands:
+        command = commands.get(command_id)
+        if not command:
+            continue
+        command_phase_index = phase_order.get(_normalize_phase_key(getattr(command.phase, "name", "")), restart_index)
+        if command_phase_index < restart_index:
+            retained.append(command_id)
+    return retained
+
+
+def _refresh_step_command(step: dict[str, Any], state: AttackState) -> None:
+    action_name = step.get("action_type") or step.get("action") or ""
+    if not action_name:
+        return
+    target_context = build_target_context(
+        (state.state_data or {}).get("target")
+        or (state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
+    )
+    parameters = {**target_context, **(step.get("parameters") or {})}
+    generated = CommandGenerator(use_llm=False, llm_provider="auto").generate(action_name, parameters)
+    command = normalize_command_targets(generated.shell_command, parameters)
+    step["resolved_command"] = command
+    step["resolved_tools"] = infer_required_tools(command)
+
+
+def _preserve_current_plan_history(state: AttackState) -> bool:
+    plan = state.current_plan if isinstance(state.current_plan, dict) else {}
+    steps = deepcopy(plan.get("steps") or [])
+    if not steps:
+        return False
+
+    has_execution_evidence = any(
+        step.get("execution_history")
+        or step.get("last_output_excerpt")
+        or step.get("last_error_excerpt")
+        or str(step.get("status") or "").lower() in {"completed", "failed", "running"}
+        for step in steps
+        if isinstance(step, dict)
+    )
+    if not has_execution_evidence:
+        return False
+
+    phase_name = plan.get("phase") or state.current_phase
+    state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    history = list(state_data.get("level_history") or state_data.get("phase_reviews") or [])
+    last_entry = history[-1] if history and isinstance(history[-1], dict) else {}
+    last_details = last_entry.get("details") if isinstance(last_entry.get("details"), dict) else {}
+    last_snapshot = last_details.get("plan_snapshot") or last_entry.get("plan_snapshot") or []
+    if _normalize_phase_key(last_entry.get("phase")) == _normalize_phase_key(phase_name) and last_snapshot == steps:
+        return False
+
+    results_snapshot: list[dict[str, Any]] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        attempts = step.get("execution_history") if isinstance(step.get("execution_history"), list) else []
+        latest_attempt = attempts[-1] if attempts and isinstance(attempts[-1], dict) else {}
+        result_status = (
+            latest_attempt.get("status")
+            or ("SUCCESS" if str(step.get("status") or "").lower() == "completed" else "FAILED" if str(step.get("status") or "").lower() == "failed" else "PLANNED")
+        )
+        results_snapshot.append(
+            {
+                "command": step.get("action_type") or step.get("action") or "unknown",
+                "status": result_status,
+                "stdout_excerpt": latest_attempt.get("stdout_excerpt") or step.get("last_output_excerpt") or "",
+                "stderr_excerpt": latest_attempt.get("stderr_excerpt") or step.get("last_error_excerpt") or "",
+                "findings": latest_attempt.get("findings") or step.get("last_findings") or {},
+                "resolved_command": step.get("resolved_command") or latest_attempt.get("command") or "",
+            }
+        )
+
+    findings = deepcopy(state_data.get("findings") or {})
+    review_entry = {
+        "phase": phase_name,
+        "level": deepcopy(plan.get("level") or {}),
+        "next_phase": next_dashboard_phase(phase_name) or "",
+        "review": state.stop_reason or f"Preserved {phase_name} plan state before restart.",
+        "findings": findings,
+        "details": {
+            "current_findings": findings,
+            "plan_snapshot": steps,
+            "results_snapshot": results_snapshot,
+        },
+    }
+    history.append(review_entry)
+    state_data["level_history"] = history
+    state_data["phase_reviews"] = history
+    state.state_data = state_data
+    return True
+
+
 def _launch_assessment(state: AttackState) -> None:
     """Start the appropriate assessment service for the state's execution mode."""
     state_data = state.state_data or {}
     execution_mode = state_data.get('execution_mode', 'local')
     llm_provider = state_data.get('llm_provider', 'auto')
     runtime_profile = build_runtime_profile(state_data.get("runtime_profile") or {})
+    level_limits = runtime_profile.get("limits") if isinstance(runtime_profile.get("limits"), dict) else {}
+    max_time_seconds = level_limits.get("max_level_runtime_seconds", DEFAULT_LEVEL_LIMITS["max_level_runtime_seconds"])
 
     if execution_mode == 'remote':
         remote_service = RemoteExecutionService(
             attack_state_id=state.id,
             llm_provider=llm_provider,
+            max_time_seconds=max_time_seconds,
             runtime_profile=runtime_profile,
         )
         remote_service.start_assessment()
@@ -636,6 +803,7 @@ def _launch_assessment(state: AttackState) -> None:
         ssh_service = SSHExecutionService(
             attack_state_id=state.id,
             llm_provider=llm_provider,
+            max_time_seconds=max_time_seconds,
             runtime_profile=runtime_profile,
         )
         ssh_service.start_assessment()
@@ -644,6 +812,7 @@ def _launch_assessment(state: AttackState) -> None:
     execution_service = ExecutionService(
         attack_state_id=state.id,
         llm_provider=llm_provider,
+        max_time_seconds=max_time_seconds,
         runtime_profile=runtime_profile,
     )
     execution_service.start_assessment()
@@ -782,6 +951,7 @@ def index(request: HttpRequest) -> HttpResponse:
         return render(request, 'dashboard/landing.html', landing_context)
 
     selected_attack_id = request.GET.get("attack_id")
+    start_modal_open = selected_attack_id == "__new__" or request.GET.get("create_new_test") == "1"
     chat_phase_key = _normalize_phase_key(request.GET.get("chat_phase") or "")
     attacks_queryset = AttackState.objects.order_by('-updated_at')
     if selected_attack_id and str(selected_attack_id).isdigit():
@@ -825,6 +995,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'selected_attack_id': attack_state.pk if attack_state else None,
         'all_attacks': list(attacks_queryset[:20]),
         'chat_phase_key': chat_phase_key,
+        'start_modal_open': start_modal_open,
         'latest_report': (plan_view or {}).get('last_report'),
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
         **_get_global_context(),
@@ -1035,6 +1206,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     """
     executor_id = request.POST.get('executor_id')
     target_id = request.POST.get('target_id')
+    continue_attack_id = request.POST.get('continue_attack_id')
     llm_provider = request.POST.get('llm_provider', 'auto')
     requested_start_phase = normalize_phase_name(request.POST.get("start_phase") or "reconnaissance")
     start_phase = requested_start_phase if is_valid_dashboard_phase(requested_start_phase, executable_only=True) else "reconnaissance"
@@ -1070,53 +1242,92 @@ def start_attack(request: HttpRequest) -> HttpResponse:
             messages.error(request, live_reason)
             return redirect('dashboard_index')
 
-    # Create new Attack State
-    if use_remote_executor:
-        execution_mode = 'ssh' if selected_executor and selected_executor.is_ssh_executor else 'remote'
-        state = AttackState.objects.create(
-            name=f"Remote Run {selected_executor.name} {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            current_phase=start_phase,
-            autonomy_status="IDLE",
-            state_data={
-                "target": target_reference,
-                "current_phase": start_phase,
-                "start_phase": start_phase,
-                "completed_actions": [],
-                "findings": {},
-                "llm_provider": llm_provider,
-                "execution_mode": execution_mode,
-                "executor_id": selected_executor.id,
-                "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
-                "plan_command_lock": True,
-                "runtime_profile": runtime_profile,
-                "level_history": [],
-                "script_artifacts": [],
-                "report_artifacts": [],
-                "last_report_status": "idle",
-            },
+    existing_state = None
+    if str(continue_attack_id or "").isdigit():
+        existing_state = AttackState.objects.filter(pk=int(continue_attack_id)).first()
+
+    if existing_state:
+        state = existing_state
+        restart_phase = _resolve_restart_phase(state, start_phase)
+        _preserve_current_plan_history(state)
+        state_data = state.state_data if isinstance(state.state_data, dict) else {}
+        execution_mode = 'ssh' if selected_executor and selected_executor.is_ssh_executor else ('remote' if use_remote_executor else 'local')
+        state_data["target"] = target_reference
+        state_data["current_phase"] = restart_phase
+        state_data["start_phase"] = restart_phase
+        state_data["requested_start_phase"] = start_phase
+        state_data["llm_provider"] = llm_provider
+        state_data["execution_mode"] = execution_mode
+        if selected_executor and use_remote_executor:
+            state_data["executor_id"] = selected_executor.id
+        else:
+            state_data.pop("executor_id", None)
+        state_data["progression_mode"] = progression_mode if progression_mode in {"manual"} else "manual"
+        state_data["plan_command_lock"] = True
+        state_data["runtime_profile"] = runtime_profile
+        state_data["test_uid"] = state_data.get("test_uid") or f"test-{state.id}"
+        state_data["completed_commands"] = _prune_completed_commands_for_restart(
+            list(state_data.get("completed_commands") or []),
+            restart_phase,
         )
+        state_data["plan_approved"] = True
+        state.current_phase = restart_phase
+        state.autonomy_status = "IDLE"
+        state.stop_reason = f"Restarting test {state_data['test_uid']} from phase '{restart_phase}'."
+        state.current_plan = {}
+        state.state_data = state_data
+        state.save(update_fields=["current_phase", "autonomy_status", "stop_reason", "current_plan", "state_data"])
     else:
-        state = AttackState.objects.create(
-            name=f"Local Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            current_phase=start_phase,
-            autonomy_status="IDLE",
-            state_data={
-                "target": target_reference,
-                "current_phase": start_phase,
-                "start_phase": start_phase,
-                "completed_actions": [],
-                "findings": {},
-                "llm_provider": llm_provider,
-                "execution_mode": "local",
-                "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
-                "plan_command_lock": True,
-                "runtime_profile": runtime_profile,
-                "level_history": [],
-                "script_artifacts": [],
-                "report_artifacts": [],
-                "last_report_status": "idle",
-            },
-        )
+        # Create new Attack State
+        if use_remote_executor:
+            execution_mode = 'ssh' if selected_executor and selected_executor.is_ssh_executor else 'remote'
+            state = AttackState.objects.create(
+                name=f"Remote Run {selected_executor.name} {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                current_phase=start_phase,
+                autonomy_status="IDLE",
+                state_data={
+                    "target": target_reference,
+                    "current_phase": start_phase,
+                    "start_phase": start_phase,
+                    "completed_actions": [],
+                    "findings": {},
+                    "llm_provider": llm_provider,
+                    "execution_mode": execution_mode,
+                    "executor_id": selected_executor.id,
+                    "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
+                    "plan_command_lock": True,
+                    "runtime_profile": runtime_profile,
+                    "level_history": [],
+                    "script_artifacts": [],
+                    "report_artifacts": [],
+                    "last_report_status": "idle",
+                },
+            )
+        else:
+            state = AttackState.objects.create(
+                name=f"Local Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                current_phase=start_phase,
+                autonomy_status="IDLE",
+                state_data={
+                    "target": target_reference,
+                    "current_phase": start_phase,
+                    "start_phase": start_phase,
+                    "completed_actions": [],
+                    "findings": {},
+                    "llm_provider": llm_provider,
+                    "execution_mode": "local",
+                    "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
+                    "plan_command_lock": True,
+                    "runtime_profile": runtime_profile,
+                    "level_history": [],
+                    "script_artifacts": [],
+                    "report_artifacts": [],
+                    "last_report_status": "idle",
+                },
+            )
+        if not isinstance(state.state_data, dict):
+            state.state_data = {}
+        state.state_data["test_uid"] = state.state_data.get("test_uid") or f"test-{uuid.uuid4().hex[:12]}"
 
     # Persist provider preference
     if not state.state_data:
@@ -1192,6 +1403,51 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
     state.save(update_fields=['stop_reason'])
     _launch_assessment(state)
     
+    return redirect('dashboard_attack_detail', pk=pk)
+
+@login_required(login_url='login')
+@require_POST
+def retry_failed_phase(request: HttpRequest, pk: int) -> HttpResponse:
+    """Reset unresolved steps in the current phase and retry them manually."""
+    state = get_object_or_404(AttackState, pk=pk)
+    plan = state.current_plan if isinstance(state.current_plan, dict) else {}
+    steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
+    state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    completed_commands = list(state_data.get("completed_commands") or [])
+
+    changed = False
+    retry_command_ids: list[int] = []
+    for step in steps:
+        status = str(step.get("status") or "").lower()
+        if status == "completed":
+            continue
+        _refresh_step_command(step, state)
+        step["status"] = "pending"
+        step["alternative_pending"] = False
+        step["cooldown_pending"] = False
+        step["next_allowed_at"] = 0
+        step["command_retry_count"] = 0
+        changed = True
+        command_id = step.get("command_id")
+        if isinstance(command_id, int):
+            retry_command_ids.append(command_id)
+
+    if retry_command_ids and completed_commands:
+        state_data["completed_commands"] = [cid for cid in completed_commands if cid not in retry_command_ids]
+        changed = True
+    state_data["plan_approved"] = True
+
+    if not changed:
+        messages.info(request, "No failed or pending phase steps were available to retry.")
+        return redirect('dashboard_attack_detail', pk=pk)
+
+    state.current_plan = plan
+    state.state_data = state_data
+    state.autonomy_status = "IDLE"
+    state.stop_reason = f"Manual retry requested for phase '{state.current_phase}'."
+    state.save(update_fields=["current_plan", "state_data", "autonomy_status", "stop_reason"])
+    _launch_assessment(state)
+    messages.success(request, f"Retry started for phase '{state.current_phase}'.")
     return redirect('dashboard_attack_detail', pk=pk)
 
 @login_required(login_url='login')

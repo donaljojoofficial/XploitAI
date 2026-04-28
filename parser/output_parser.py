@@ -35,6 +35,7 @@ def is_meaningful_action_success(action_name: str, findings: dict, stdout: str) 
     """Return True only when an action produced evidence that fulfills its purpose."""
     findings = findings or {}
     text = stdout or ""
+    lowered_text = text.lower()
 
     if action_name == "ExploitAttempt":
         return bool(findings.get("valid_credentials") or findings.get("session_cookies"))
@@ -57,10 +58,22 @@ def is_meaningful_action_success(action_name: str, findings: dict, stdout: str) 
         )
 
     if action_name in {"EndpointDiscovery", "EndpointProbe"}:
-        return bool(findings.get("discovered_endpoints"))
+        return bool(findings.get("discovered_endpoints")) or (
+            (
+                "probing:" in lowered_text
+                or "endpoint discovery:" in lowered_text
+                or ("starting nmap" in lowered_text and "extensions:" in lowered_text)
+            )
+            and "error:" not in lowered_text
+            and "scan_error:" not in lowered_text
+        )
 
     if action_name == "ParameterDiscovery":
-        return bool(findings.get("discovered_parameters"))
+        return bool(findings.get("discovered_parameters")) or (
+            "parameter probe:" in lowered_text
+            and "error:" not in lowered_text
+            and "scan_error:" not in lowered_text
+        )
 
     return "ERROR:" not in text and "SCAN_ERROR:" not in text
 

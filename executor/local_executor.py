@@ -7,14 +7,14 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
-def _run_raw_command(command: str, use_bash: bool = False):
+def _run_raw_command(command: str, use_bash: bool = False, timeout_seconds: int = 120):
     if use_bash:
         # Use bash shell when a Unix-style toolchain is expected.
         return subprocess.run(
             ["bash", "-lc", command],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=timeout_seconds
         )
 
     return subprocess.run(
@@ -22,11 +22,11 @@ def _run_raw_command(command: str, use_bash: bool = False):
         shell=True,
         capture_output=True,
         text=True,
-        timeout=120
+        timeout=timeout_seconds
     )
 
 
-def run_command(command: str):
+def run_command(command: str, timeout_seconds: int = 120):
     """
     Runs a shell command locally using subprocess.
     """
@@ -43,13 +43,13 @@ def run_command(command: str):
                 logger.info("Windows environment detected and bash available; running command via bash")
                 use_bash = True
 
-        result = _run_raw_command(command, use_bash=use_bash)
+        result = _run_raw_command(command, use_bash=use_bash, timeout_seconds=timeout_seconds)
 
         # Common Windows failure pattern for unknown command
         if (not use_bash and is_windows and result.returncode != 0 and " is not recognized" in (result.stderr or "")):
             if shutil.which("bash"):
                 logger.info("Command not recognized in cmd. Retrying via bash shell.")
-                result = _run_raw_command(command, use_bash=True)
+                result = _run_raw_command(command, use_bash=True, timeout_seconds=timeout_seconds)
 
         if result.returncode != 0:
             logger.warning(f"Command failed with return code {result.returncode}: {result.stderr}")
@@ -71,13 +71,13 @@ def run_command(command: str):
 
     except subprocess.TimeoutExpired:
         logger.error(f"Command timed out: {command}")
-        return {"error": "TimeoutExpired", "stderr": "Command timed out after 120s.", "returncode": -1}
+        return {"error": "TimeoutExpired", "stderr": f"Command timed out after {int(timeout_seconds)}s.", "returncode": -1}
     except Exception as e:
         logger.exception(f"Exception running command: {command}")
         return {"error": str(e), "stderr": str(e), "returncode": -1}
 
 
-def run_script(script_content: str, script_language: str = "python"):
+def run_script(script_content: str, script_language: str = "python", timeout_seconds: int = 120):
     """Execute generated script content through a controlled tempfile wrapper."""
     language = (script_language or "python").strip().lower()
     suffix = ".py" if language == "python" else ".sh"
@@ -105,7 +105,7 @@ def run_script(script_content: str, script_language: str = "python"):
             [interpreter, script_path],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=timeout_seconds,
         )
         return {
             "stdout": result.stdout,
@@ -113,7 +113,7 @@ def run_script(script_content: str, script_language: str = "python"):
             "returncode": result.returncode,
         }
     except subprocess.TimeoutExpired:
-        return {"error": "TimeoutExpired", "stderr": "Script timed out after 120s.", "returncode": -1}
+        return {"error": "TimeoutExpired", "stderr": f"Script timed out after {int(timeout_seconds)}s.", "returncode": -1}
     except Exception as exc:
         logger.exception("Exception running generated script")
         return {"error": str(exc), "stderr": str(exc), "returncode": -1}

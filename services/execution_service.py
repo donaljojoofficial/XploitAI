@@ -79,6 +79,39 @@ class ExecutionService:
         state_data = (self.state_manager.get_attack_state().state_data or {})
         self.plan_command_lock = bool(state_data.get("plan_command_lock", True))
 
+    def _remaining_runtime_budget(self, attack_state: AttackState) -> int:
+        plan = attack_state.current_plan or {}
+        runtime = plan.get("runtime") if isinstance(plan.get("runtime"), dict) else {}
+        limits = plan.get("limits") if isinstance(plan.get("limits"), dict) else {}
+        merged_limits = dict(DEFAULT_LEVEL_LIMITS)
+        merged_limits.update(
+            {
+                key: parse_positive_int(limits.get(key, default), default)
+                for key, default in DEFAULT_LEVEL_LIMITS.items()
+            }
+        )
+        level_started_at = float(runtime.get("level_started_at") or time.time())
+        elapsed = max(time.time() - level_started_at, 0.0)
+        remaining_level = max(int(float(merged_limits["max_level_runtime_seconds"]) - elapsed), 30)
+        remaining_service = max(int(self.max_time_seconds - elapsed), 30)
+        return max(min(remaining_level, remaining_service), 30)
+
+    def _step_timeout_seconds(self, attack_state: AttackState, action_name: str, command: str = "") -> int:
+        action_token = str(action_name or "").strip().lower()
+        command_text = str(command or "").strip().lower()
+        preferred_timeout = 120
+
+        if any(marker in command_text for marker in ("sqlmap", "hashcat", "john --wordlist")) or "sql" in action_token:
+            preferred_timeout = 420
+        elif any(marker in command_text for marker in ("nikto", "nuclei", "dirsearch", "theharvester", "dnsenum")):
+            preferred_timeout = 300
+        elif any(marker in command_text for marker in ("nmap", "wpscan", "arjun", "msfconsole", "searchsploit")):
+            preferred_timeout = 240
+        elif "fingerprint" in action_token or "proof" in action_token:
+            preferred_timeout = 180
+
+        return max(30, min(preferred_timeout, self._remaining_runtime_budget(attack_state)))
+
     def _get_retry_config(self, step: dict | None) -> tuple[int, int]:
         step = step or {}
         max_retries = parse_positive_int(
@@ -447,14 +480,14 @@ class ExecutionService:
                     command = locked_step_command
                 elif planned_command:
                     command = planned_command
-                elif self.llm_provider == "hybrid":
+                else:
                     generated = self.command_generator.generate(
                         command_obj.name,
                         command_parameters,
                     )
                     command = generated.shell_command
-                else:
-                    command = render_command_template(command_template, sub_context)
+                    if not str(command or "").strip():
+                        command = render_command_template(command_template, sub_context)
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "
@@ -493,15 +526,23 @@ class ExecutionService:
                 command=command,
                 command_id=command_id,
             )
+            step_timeout_seconds = self._step_timeout_seconds(attack_state_for_step, command_obj.name, command)
             script_result = None
             if step_state and execution_type == "script":
                 script_artifact = build_script_artifact(step_state, command_obj.name, command_id)
                 self._persist_script_artifact(command_obj.name, script_artifact)
                 script_content = script_artifact.get("content") or step_state.get("script_content") or ""
                 script_language = step_state.get("script_language") or "python"
-                script_result = self.script_runner(script_content, script_language=script_language)
+                script_result = self.script_runner(
+                    script_content,
+                    script_language=script_language,
+                    timeout_seconds=step_timeout_seconds,
+                )
 
-            result = script_result if script_result is not None else self.command_runner(command)
+            result = script_result if script_result is not None else self.command_runner(
+                command,
+                timeout_seconds=step_timeout_seconds,
+            )
             final_status = "SUCCESS" if result and result.get("returncode") == 0 else "FAILED"
 
             if not result:

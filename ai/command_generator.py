@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import shlex
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
@@ -306,58 +307,139 @@ class CommandGenerator:
             return True
         return False
 
+    def _target_url(self, params: Mapping[str, Any]) -> str:
+        return str(
+            params.get("target_url")
+            or params.get("url")
+            or params.get("target")
+            or "http://localhost"
+        ).strip()
+
+    def _target_host(self, params: Mapping[str, Any]) -> str:
+        raw = str(
+            params.get("target_host")
+            or params.get("target_domain")
+            or params.get("target")
+            or self._target_url(params)
+            or "localhost"
+        ).strip()
+        parsed = urlsplit(raw if "://" in raw else f"//{raw}")
+        return parsed.hostname or raw
+
+    def _target_domain(self, params: Mapping[str, Any]) -> str:
+        return str(params.get("target_domain") or self._target_host(params) or "localhost").strip()
+
+    def _target_port(self, params: Mapping[str, Any]) -> str:
+        explicit = str(params.get("target_port") or "").strip()
+        if explicit:
+            return explicit
+        parsed = urlsplit(self._target_url(params))
+        if parsed.port:
+            return str(parsed.port)
+        return "80" if parsed.scheme == "http" else "443" if parsed.scheme == "https" else "80"
+
+    def _is_ip_address(self, value: str) -> bool:
+        return bool(re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", str(value or "").strip()))
+
+    def _path_hint(self, params: Mapping[str, Any]) -> str:
+        for key in ("path", "proof_path", "login_path", "endpoint"):
+            value = str(params.get(key) or "").strip()
+            if not value:
+                continue
+            if value.startswith("http://") or value.startswith("https://"):
+                parsed = urlsplit(value)
+                return parsed.path or "/"
+            if value.startswith("/"):
+                return value
+
+        rationale = str(params.get("step_rationale") or params.get("rationale") or "").strip()
+        if rationale:
+            path_match = re.search(r"(/[A-Za-z0-9._/-]+)", rationale)
+            if path_match:
+                return path_match.group(1)
+            dotfile_match = re.search(r"(\.[A-Za-z0-9._-]+)", rationale)
+            if dotfile_match:
+                return "/" + dotfile_match.group(1).lstrip("/")
+        return ""
+
+    def _candidate_url(self, params: Mapping[str, Any]) -> str:
+        target_url = self._target_url(params).rstrip("/")
+        for key in ("url", "endpoint"):
+            value = str(params.get(key) or "").strip()
+            if not value:
+                continue
+            if value.startswith("http://") or value.startswith("https://"):
+                return value
+            if value.startswith("/"):
+                return f"{target_url}{value}"
+
+        path_hint = self._path_hint(params)
+        if path_hint:
+            return f"{target_url}{path_hint}"
+        return target_url
+
+    def _search_term(self, params: Mapping[str, Any], fallback: str = "php webapp") -> str:
+        for key in ("tech", "service", "product", "vulnerability_id", "target_host"):
+            value = str(params.get(key) or "").strip()
+            if value:
+                return value
+        return fallback
+
     def _generate_passive_recon(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        domain = params.get("target_domain", "localhost")
+        domain = self._target_domain(params)
         safe_domain = shlex.quote(str(domain))
         return GeneratedCommand(
-            shell_command=f"whois {safe_domain} && nslookup {safe_domain}",
-            explanation=f"Performs WHOIS lookup and DNS query for {domain}."
+            shell_command=(
+                f"whois {safe_domain} && "
+                f"dig {safe_domain} ANY +short && "
+                f"theHarvester -d {safe_domain} -b bing -l 50"
+            ),
+            explanation=f"Uses whois, dig, and theHarvester to collect passive reconnaissance on {domain}."
         )
 
     def _generate_service_enumeration(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        host = params.get("target_host", "localhost")
+        host = self._target_host(params)
         safe_host = shlex.quote(str(host))
         return GeneratedCommand(
-            shell_command=f"nmap -sV -T4 {safe_host}",
-            explanation=f"Scans {host} for open ports and service versions."
+            shell_command=f"nmap -Pn -sV -sC -T4 {safe_host}",
+            explanation=f"Uses Nmap to enumerate open ports, services, and common scripts on {host}."
         )
 
     def _generate_exploit_attempt(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        host = params.get("target_host", "localhost")
-        safe_host = shlex.quote(str(host))
-        path = params.get("login_path", "/login")
-        safe_path = str(path)
+        url = self._target_url(params)
+        host = self._target_host(params)
+        safe_url = shlex.quote(str(url).rstrip('/') + "/search?q=test")
         return GeneratedCommand(
             shell_command=(
-                f"hydra -l admin -P /usr/share/wordlists/rockyou.txt "
-                f"{safe_host} http-post-form "
-                f"\"{safe_path}:username=^USER^&password=^PASS^:F=invalid\" -f -V"
+                f"searchsploit {shlex.quote(self._search_term(params))} && "
+                f"sqlmap -u {safe_url} --batch --level 2 --risk 1 && "
+                f"msfconsole -q -x \"search {host}; exit -y\""
             ),
-            explanation=f"Attempts default-credential login brute force against {host}{safe_path}."
+            explanation=f"Uses Searchsploit, SQLmap, and a non-interactive Metasploit search to identify and validate exploit paths for {host}."
         )
 
     def _generate_privilege_escalation(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        host = params.get("target_host", "localhost")
-        safe_host = shlex.quote(str(host))
+        hash_file = str(params.get("hash_file") or params.get("loot_path") or "/tmp/loot.hashes").strip()
+        safe_hash_file = shlex.quote(hash_file)
+        hash_mode = shlex.quote(str(params.get("hash_mode") or "0"))
         return GeneratedCommand(
-            shell_command=f"echo 'Attempting privilege escalation on {safe_host}'",
-            explanation=f"Attempts to escalate privileges on {host}."
+            shell_command=(
+                f"john --wordlist=/usr/share/wordlists/rockyou.txt {safe_hash_file} || "
+                f"hashcat -m {hash_mode} -a 0 {safe_hash_file} /usr/share/wordlists/rockyou.txt"
+            ),
+            explanation="Uses John the Ripper and Hashcat to validate post-exploitation credential material when hashes are available."
         )
 
     def _generate_proof_of_compromise(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        url = params.get("target_url", "http://localhost")
-        safe_url = shlex.quote(str(url).rstrip('/'))
+        hash_file = str(params.get("hash_file") or params.get("loot_path") or "/tmp/loot.hashes").strip()
+        safe_hash_file = shlex.quote(hash_file)
         return GeneratedCommand(
-            shell_command=(
-                f"curl -s {safe_url}/.env && "
-                f"curl -s {safe_url}/api/users && "
-                f"curl -s {safe_url}/admin"
-            ),
-            explanation=f"Collects proof artifacts from common sensitive endpoints on {url}."
+            shell_command=f"john --show {safe_hash_file} || hashcat --show {safe_hash_file}",
+            explanation="Uses post-exploitation password tooling to display recovered proof artifacts from captured credential material."
         )
 
     def _generate_http_header_fetch(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        url = params.get("target_url", "http://localhost")
+        url = self._target_url(params)
         safe_url = shlex.quote(str(url))
         return GeneratedCommand(
             shell_command=f"curl -I {safe_url}",
@@ -365,7 +447,7 @@ class CommandGenerator:
         )
 
     def _generate_technology_fingerprint(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        url = params.get("target_url", "http://localhost")
+        url = self._target_url(params)
         safe_url = shlex.quote(str(url))
         return GeneratedCommand(
             shell_command=f"whatweb {safe_url}",
@@ -373,35 +455,46 @@ class CommandGenerator:
         )
 
     def _generate_endpoint_discovery(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        url = params.get("target_url", "http://localhost")
-        safe_url = shlex.quote(str(url).rstrip('/'))
+        host = self._target_host(params)
+        port = self._target_port(params)
+        safe_host = shlex.quote(str(host))
+        safe_port = shlex.quote(str(port))
+        safe_url = shlex.quote(str(self._target_url(params)).rstrip('/'))
         return GeneratedCommand(
             shell_command=(
+                f"nmap -Pn -p {safe_port} --script http-enum,http-title {safe_host} ; "
+                f"nc -vz {safe_host} {safe_port} ; "
                 f"dirsearch -u {safe_url} "
                 f"-w /usr/share/seclists/Discovery/Web-Content/common.txt "
-                f"--exclude-status 404,400"
+                f"--exclude-status 404,400 || true"
             ),
-            explanation=f"Enumerates likely web content on {url} using dirsearch."
+            explanation=f"Uses Nmap, Netcat, and dirsearch to enumerate reachable services and web content on {host}:{port}."
         )
 
     def _generate_parameter_discovery(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        url = params.get("target_url", "http://localhost")
+        url = self._target_url(params)
         safe_url = shlex.quote(str(url))
+        domain = self._target_domain(params)
+        dnsenum_cmd = ""
+        if domain and not self._is_ip_address(domain) and domain not in {"localhost"}:
+            dnsenum_cmd = f"dnsenum {shlex.quote(domain)} && "
         return GeneratedCommand(
-            shell_command=f"arjun -u {safe_url} --stable -oT /tmp/arjun-params.txt",
-            explanation=f"Discovers hidden query parameters on {url} using Arjun."
+            shell_command=f"{dnsenum_cmd}arjun -u {safe_url} --stable -oT /tmp/arjun-params.txt",
+            explanation=f"Uses dnsenum where applicable and Arjun to discover DNS and hidden parameter surface for {url}."
         )
 
     def _generate_vulnerability_scanning(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        url = params.get("target_url", "http://localhost")
-        safe_url = shlex.quote(str(url))
+        scan_url = self._candidate_url(params)
+        safe_url = shlex.quote(str(scan_url))
+        tech = str(params.get("tech") or "").lower()
+        extra = f" ; wpscan --url {safe_url} --enumerate vp || true" if "wordpress" in tech else ""
         return GeneratedCommand(
-            shell_command=f"nikto -h {safe_url} -ask no",
-            explanation=f"Runs Nikto against {url} to identify common web vulnerabilities."
+            shell_command=f"nikto -h {safe_url} -ask no ; nuclei -u {safe_url} -silent || true{extra}",
+            explanation=f"Uses Nikto and Nuclei, plus WPScan when WordPress is detected, to assess {scan_url}."
         )
 
     def _generate_sql_injection_probe(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        url = params.get("target_url", "http://localhost")
+        url = self._target_url(params)
         safe_url = shlex.quote(str(url).rstrip('/') + "/search?q=test")
         return GeneratedCommand(
             shell_command=f"sqlmap -u {safe_url} --batch --level 2 --risk 1",

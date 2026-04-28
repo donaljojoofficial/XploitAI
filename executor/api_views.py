@@ -68,14 +68,14 @@ def _resolve_command(action_name, parameters):
         return f"ping -c 4 {target}"
     elif action_name == "PassiveRecon":
         target = params.get("target_domain") or "localhost"
-        return f"whois {target}"
+        return f"whois {target} && dig {target} ANY +short && theHarvester -d {target} -b bing -l 50"
     elif action_name == "ServiceEnumeration":
         target = _normalize_host_target(params.get("target_host") or params.get("target") or "localhost")
-        return f"nmap -sV {target}"
+        return f"nmap -Pn -sV -sC -T4 {target}"
     elif action_name == "ExploitAttempt":
-        vuln_id = params.get("vulnerability_id", "UNKNOWN_VULN")
-        target = params.get("target_host", "localhost")
-        return f"echo 'SIMULATING EXPLOIT {vuln_id} on {target}'"
+        target = params.get("target_url") or "http://localhost"
+        search_term = params.get("tech") or params.get("vulnerability_id") or params.get("target_host") or "php"
+        return f"searchsploit {search_term} && sqlmap -u {target.rstrip('/')}/search?q=test --batch --level 2 --risk 1"
     elif action_name == "HTTPHeaderFetch":
         target = params.get("target_url") or params.get("url") or "http://localhost"
         return f"curl -I {target}"
@@ -84,7 +84,9 @@ def _resolve_command(action_name, parameters):
         return f"whatweb {target}"
     elif action_name == "EndpointDiscovery":
         target = params.get("target_url") or params.get("url") or "http://localhost"
-        return f"curl {target}/robots.txt"
+        host = _normalize_host_target(params.get("target_host") or params.get("target") or target)
+        port = params.get("target_port") or "80"
+        return f"nmap -Pn -p {port} --script http-enum,http-title {host} && nc -vz {host} {port} && dirsearch -u {target.rstrip('/')}"
         
     return f"echo 'No command mapping defined for action: {action_name}'"
 

@@ -166,6 +166,21 @@ class AttackHistoryViewTests(TestCase):
         self.assertContains(phase_response, "Enumeration")
         self.assertContains(phase_response, "Current Phase")
 
+    def test_dashboard_index_includes_create_new_test_option(self):
+        AttackState.objects.create(
+            name="Existing Run",
+            current_phase="reconnaissance",
+            autonomy_status="IDLE",
+            state_data={},
+            current_plan={},
+        )
+
+        response = self.client.get(reverse("dashboard_index"), {"attack_id": "__new__"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Create New Test...")
+        self.assertContains(response, 'startModalOpen: true', html=False)
+
     def test_phase_detail_empty_state_for_unstarted_phase(self):
         state = AttackState.objects.create(
             name="Phase empty",

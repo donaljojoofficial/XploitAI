@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
 
 from services.command_template_utils import (
@@ -10,6 +11,7 @@ from services.command_template_utils import (
     normalize_command_template,
     render_command_template,
 )
+from ai.command_generator import CommandGenerator
 from ai.llm.base import BaseLLMAdapter
 from ai.llm.lmstudio_adapter import LMStudioAdapter
 from ai.llm.nvidia_output_analysis_adapter import NvidiaOutputAnalysisAdapter
@@ -584,15 +586,97 @@ class AIPlanner:
             or (attack_state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
         )
         render_context = {**target_context, **parameters}
+        generator = CommandGenerator(use_llm=False, llm_provider="auto")
         try:
-            command = render_command_template(
-                normalize_command_template(command_obj),
-                render_context,
-            )
+            command = generator.generate(command_obj.name, render_context).shell_command
+            if not str(command or "").strip():
+                command = render_command_template(
+                    normalize_command_template(command_obj),
+                    render_context,
+                )
             command = normalize_command_targets(command, render_context)
         except KeyError:
             command = command_obj.command_template or ""
         return command, infer_required_tools(command), command_obj.id
+
+    def _merged_attack_findings(self, attack_state) -> dict:
+        state_data = attack_state.state_data if isinstance(attack_state.state_data, dict) else {}
+        merged = dict(state_data.get("findings") or {})
+        history = state_data.get("level_history") or state_data.get("phase_reviews") or []
+        if isinstance(history, list):
+            for item in history:
+                if not isinstance(item, dict):
+                    continue
+                historical = item.get("findings")
+                if isinstance(historical, dict):
+                    for key, value in historical.items():
+                        if key not in merged and value not in (None, "", [], {}):
+                            merged[key] = deepcopy(value)
+        return merged
+
+    def _enrich_step_parameters(self, attack_state, action_name: str, parameters: Optional[dict] = None) -> dict:
+        enriched = dict(parameters or {})
+        findings = self._merged_attack_findings(attack_state)
+        target_context = build_target_context(
+            (attack_state.state_data or {}).get("target")
+            or (attack_state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
+        )
+        for key, value in target_context.items():
+            if value not in (None, ""):
+                enriched.setdefault(key, value)
+
+        technologies = findings.get("identified_technologies") if isinstance(findings.get("identified_technologies"), list) else []
+        if technologies:
+            enriched.setdefault("tech", technologies[0])
+            enriched.setdefault("product", technologies[0])
+
+        endpoints = findings.get("discovered_endpoints") if isinstance(findings.get("discovered_endpoints"), list) else []
+        if endpoints:
+            enriched.setdefault("url", endpoints[0])
+            enriched.setdefault("endpoint", endpoints[0])
+            enriched.setdefault("target_url", enriched.get("target_url") or endpoints[0])
+            first_path = str(endpoints[0]).split("/", 3)
+            if len(first_path) >= 4:
+                enriched.setdefault("login_path", "/" + first_path[3].split("?", 1)[0])
+
+        parameters_found = findings.get("discovered_parameters") if isinstance(findings.get("discovered_parameters"), list) else []
+        if parameters_found:
+            enriched.setdefault("parameter_names", parameters_found)
+            enriched.setdefault("candidate_parameter", parameters_found[0])
+
+        creds = findings.get("valid_credentials") if isinstance(findings.get("valid_credentials"), list) else []
+        if creds and isinstance(creds[0], dict):
+            cred = creds[0]
+            if cred.get("path"):
+                enriched.setdefault("login_path", cred.get("path"))
+            if cred.get("username"):
+                enriched.setdefault("username", cred.get("username"))
+            if cred.get("password"):
+                enriched.setdefault("password", cred.get("password"))
+
+        cookies = findings.get("session_cookies") if isinstance(findings.get("session_cookies"), list) else []
+        if cookies:
+            enriched.setdefault("session_cookie", cookies[0])
+
+        proofs = findings.get("proof_of_compromise") if isinstance(findings.get("proof_of_compromise"), list) else []
+        if proofs and isinstance(proofs[0], dict):
+            enriched.setdefault("proof_path", proofs[0].get("path") or "")
+            enriched.setdefault("loot_path", proofs[0].get("path") or "")
+
+        if findings.get("proof_summary"):
+            enriched.setdefault("evidence_tag", str(findings.get("proof_summary")))
+
+        server_banner = findings.get("server_banner")
+        if server_banner:
+            enriched.setdefault("service", str(server_banner))
+
+        action_token = (action_name or "").lower()
+        if "fingerprint" in action_token and endpoints and enriched.get("url"):
+            enriched["target_url"] = enriched.get("url")
+        if "exploit" in action_token and parameters_found:
+            enriched.setdefault("payload", f"{parameters_found[0]}=test")
+
+        return enriched
 
     def _default_success_criteria(self, action_name: str) -> str:
         token = (action_name or "").strip().lower()
@@ -654,10 +738,11 @@ class AIPlanner:
             runtime_profile.get("retry_cooldown_seconds", DEFAULT_STEP_RETRY_COOLDOWN_SECONDS),
             DEFAULT_STEP_RETRY_COOLDOWN_SECONDS,
         )
+        enriched_parameters = self._enrich_step_parameters(attack_state, step.action_type, step.parameters)
         resolved_command, resolved_tools, command_id = self._render_step_command(
             attack_state,
             step.action_type,
-            step.parameters,
+            enriched_parameters,
         )
         normalized_phase = self._normalize_phase_name(phase_name or attack_state.current_phase)
         stage_label = (
@@ -671,10 +756,11 @@ class AIPlanner:
             script_content = self._default_script_content(step.action_type, step.parameters)
 
         artifact_refs = list(getattr(step, "artifact_refs", None) or [])
+        enriched_parameters.setdefault("step_rationale", step.rationale)
         return {
             "step_number": step.step_number,
             "action_type": step.action_type,
-            "parameters": step.parameters,
+            "parameters": enriched_parameters,
             "rationale": step.rationale,
             "stage_label": stage_label,
             "execution_type": execution_type,

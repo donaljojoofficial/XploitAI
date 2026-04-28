@@ -48,13 +48,13 @@ def probe_connection(executor):
             client.close()
 
 
-def run_command(executor, command: str):
+def run_command(executor, command: str, timeout_seconds: int = 120):
     logger.info("Executing SSH command on %s: %s", executor.name, command)
     client = None
     try:
         client = _connect(executor)
         remote_command = _prefix_command(executor, command)
-        _, stdout, stderr = client.exec_command(remote_command, timeout=120)
+        _, stdout, stderr = client.exec_command(remote_command, timeout=timeout_seconds)
         exit_code = stdout.channel.recv_exit_status()
         return {
             "stdout": stdout.read().decode("utf-8", errors="replace"),
@@ -69,7 +69,7 @@ def run_command(executor, command: str):
             client.close()
 
 
-def run_script(executor, script_content: str, script_language: str = "python"):
+def run_script(executor, script_content: str, script_language: str = "python", timeout_seconds: int = 120):
     logger.info("Executing SSH script on %s using %s", executor.name, script_language)
     client = None
     language = (script_language or "python").strip().lower()
@@ -77,7 +77,7 @@ def run_script(executor, script_content: str, script_language: str = "python"):
     try:
         client = _connect(executor)
         remote_command = _prefix_command(executor, interpreter)
-        stdin, stdout, stderr = client.exec_command(remote_command, timeout=120)
+        stdin, stdout, stderr = client.exec_command(remote_command, timeout=timeout_seconds)
         stdin.write(script_content or "")
         stdin.flush()
         stdin.channel.shutdown_write()

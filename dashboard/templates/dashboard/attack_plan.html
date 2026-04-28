@@ -244,6 +244,8 @@
                                         <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Command Preview</div>
                                         {% if step.command_preview_source == "executor" %}
                                         <div class="mt-2 text-xs text-slate-400">Actual resolved executor command for this step.</div>
+                                        {% elif step.command_preview_source == "rule_based" %}
+                                        <div class="mt-2 text-xs text-slate-400">Rule-based tool selection for this phase and action.</div>
                                         {% elif step.command_preview_source == "hybrid" %}
                                         <div class="mt-2 text-xs text-slate-400">Hybrid preview using the tool-oriented command generator. The final AI-generated command may vary slightly at execution time.</div>
                                         {% elif step.command_preview_source == "deterministic" %}

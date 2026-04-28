@@ -48,6 +48,12 @@
                     {% csrf_token %}
                     <button type="submit" class="ui-btn ui-btn-success">Resume</button>
                 </form>
+                {% if plan_view.summary.failed or plan_view.summary.pending %}
+                <form action="{% url 'retry_failed_phase' attack_state.id %}" method="POST" class="inline-block">
+                    {% csrf_token %}
+                    <button type="submit" class="ui-btn ui-btn-secondary">Retry Failed Phase</button>
+                </form>
+                {% endif %}
                 {% endif %}
             </div>
         </div>

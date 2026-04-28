@@ -90,3 +90,19 @@ class LevelRuntimeTests(TestCase):
         self.assertEqual(attempt["script_artifact_id"], "script-1")
         self.assertEqual(attempt["script_sha256"], "abc")
         self.assertEqual(attempt["exit_code"], 1)
+
+    def test_step_timeout_expands_for_long_running_security_tools(self):
+        state = self._make_state()
+        service = ExecutionService(
+            attack_state_id=state.id,
+            llm_provider="local",
+            max_time_seconds=600,
+        )
+
+        timeout_seconds = service._step_timeout_seconds(
+            state,
+            "VulnerabilityScanning",
+            "nikto -h http://127.0.0.1:4280/ ; nuclei -u http://127.0.0.1:4280/ -silent || true",
+        )
+
+        self.assertEqual(timeout_seconds, 300)

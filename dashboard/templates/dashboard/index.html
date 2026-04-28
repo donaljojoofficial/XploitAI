@@ -3,7 +3,7 @@
 {% block title %}Mission Control - XploitAI{% endblock %}
 
 {% block content %}
-<div x-data="{ startModalOpen: false }" class="space-y-8">
+<div x-data="{ startModalOpen: {{ start_modal_open|yesno:'true,false' }} }" class="space-y-8">
     {% if messages %}
     <div class="space-y-3">
         {% for message in messages %}
@@ -122,6 +122,7 @@
                             <div>
                                 <label for="attackSelect" class="ui-label">Selected Run</label>
                                 <select id="attackSelect" name="attack_id" onchange="this.form.submit()">
+                                    <option value="__new__" {% if start_modal_open %}selected{% endif %}>Create New Test...</option>
                                     {% for run in all_attacks %}
                                     <option value="{{ run.id }}" {% if selected_attack_id == run.id %}selected{% endif %}>{{ run.name }} ({{ run.current_phase }})</option>
                                     {% endfor %}
@@ -309,6 +310,9 @@
         <div class="shell-panel w-full max-w-2xl rounded-[1.75rem] p-8" @click.away="startModalOpen = false">
             <form action="{% url 'dashboard_start_attack' %}" method="post" class="space-y-6">
                 {% csrf_token %}
+                {% if attack_state and not start_modal_open %}
+                <input type="hidden" name="continue_attack_id" value="{{ attack_state.id }}">
+                {% endif %}
                 <div class="flex items-start justify-between gap-6">
                     <div>
                         <div class="section-title">New Autonomous Test</div>

@@ -598,6 +598,88 @@ class AIPlannerPlanProgressionTests(TestCase):
         )
         self.assertTrue(state.current_plan["steps"][0]["resolved_tools"])
 
+    def test_ensure_initial_plan_uses_rule_based_tooling_for_technology_fingerprint(self):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        tech = Command.objects.create(
+            phase=reconnaissance,
+            name="TechnologyFingerprint",
+            description="Fingerprint stack",
+            command_template="curl -sL {target_url}",
+        )
+
+        state = AttackState.objects.create(
+            name="Rendered tech plan",
+            current_phase="RECONNAISSANCE",
+            state_data={"target": "http://127.0.0.1:4280/"},
+        )
+
+        from state.state_manager import StateManager
+
+        planner = AIPlanner.__new__(AIPlanner)
+        planner.last_plan_error = None
+        planner.plan_adapter = PlanRecordingAdapter([tech.name])
+        planner._plan_task_key = AIPlanner._plan_task_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_key = AIPlanner._normalize_phase_key.__get__(planner, AIPlanner)
+        planner._normalize_phase_name = AIPlanner._normalize_phase_name.__get__(planner, AIPlanner)
+        planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
+        planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
+        planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
+        planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
+        self._bind_plan_generation_helpers(planner)
+
+        ready = planner.ensure_initial_plan(StateManager(state.id))
+        state.refresh_from_db()
+
+        self.assertTrue(ready)
+        self.assertEqual(state.current_plan["steps"][0]["resolved_command"], "whatweb http://127.0.0.1:4280/")
+        self.assertIn("whatweb", state.current_plan["steps"][0]["resolved_tools"])
+
+    def test_serialize_plan_step_maps_previous_findings_into_parameters(self):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        Command.objects.create(
+            phase=reconnaissance,
+            name="ExploitAttempt",
+            description="Exploit",
+            command_template="echo exploit",
+        )
+        state = AttackState.objects.create(
+            name="Finding carryover",
+            current_phase="EXPLOITATION",
+            state_data={
+                "target": "http://127.0.0.1:4280/",
+                "findings": {
+                    "identified_technologies": ["WordPress"],
+                    "discovered_endpoints": ["http://127.0.0.1:4280/login.php"],
+                    "discovered_parameters": ["redirect"],
+                    "valid_credentials": [
+                        {"path": "/login.php", "username": "admin", "password": "password"}
+                    ],
+                },
+            },
+        )
+
+        planner = AIPlanner.__new__(AIPlanner)
+        planner._render_step_command = AIPlanner._render_step_command.__get__(planner, AIPlanner)
+        planner._serialize_plan_step = AIPlanner._serialize_plan_step.__get__(planner, AIPlanner)
+        planner._resolve_proposed_command_name = AIPlanner._resolve_proposed_command_name.__get__(planner, AIPlanner)
+        planner._normalize_command_name = AIPlanner._normalize_command_name.__get__(planner, AIPlanner)
+        planner._all_commands = AIPlanner._all_commands.__get__(planner, AIPlanner)
+        planner._phase_level_index = AIPlanner._phase_level_index.__get__(planner, AIPlanner)
+        planner._level_metadata = AIPlanner._level_metadata.__get__(planner, AIPlanner)
+        planner._normalize_phase_name = AIPlanner._normalize_phase_name.__get__(planner, AIPlanner)
+        planner._enrich_step_parameters = AIPlanner._enrich_step_parameters.__get__(planner, AIPlanner)
+        planner._merged_attack_findings = AIPlanner._merged_attack_findings.__get__(planner, AIPlanner)
+
+        serialized = planner._serialize_plan_step(
+            state,
+            PlanStep(step_number=1, action_type="ExploitAttempt", parameters={}, rationale="exploit"),
+        )
+
+        self.assertEqual(serialized["parameters"]["tech"], "WordPress")
+        self.assertEqual(serialized["parameters"]["url"], "http://127.0.0.1:4280/login.php")
+        self.assertEqual(serialized["parameters"]["candidate_parameter"], "redirect")
+        self.assertEqual(serialized["parameters"]["username"], "admin")
+
     def test_ensure_initial_plan_persists_level_and_retry_contract(self):
         reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
         header = Command.objects.create(

@@ -77,6 +77,39 @@ class GroqAdapter(BaseLLMAdapter):
         else:
             logger.warning("GROQ_API_KEY not set. GroqAdapter disabled.")
 
+    def _extract_json_text(self, text: str) -> str:
+        clean = (text or "").replace("```json", "").replace("```", "").strip()
+        start = clean.find("{")
+        end = clean.rfind("}")
+        if start >= 0 and end > start:
+            return clean[start:end + 1]
+        return clean
+
+    def _retry_json_without_strict_mode(
+        self,
+        model_name: str,
+        prompt: str,
+        max_tokens: int,
+    ) -> Optional[str]:
+        fallback_prompt = (
+            f"{prompt}\n\n"
+            "Return one compact valid JSON object only. "
+            "Do not use markdown fences. "
+            "Keep keys exactly as requested and keep rationale brief."
+        )
+        retry_tokens = max(max_tokens + 160, int(max_tokens * 1.5))
+        chat_completion = self._client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": self.system_instruction + " Return compact valid JSON only."},
+                {"role": "user", "content": fallback_prompt},
+            ],
+            model=model_name,
+            temperature=0.1,
+            max_tokens=retry_tokens,
+        )
+        response_text = chat_completion.choices[0].message.content
+        return self._extract_json_text(response_text)
+
     def get_recommendation(
         self,
         decision_input: DecisionInput,
@@ -178,7 +211,27 @@ class GroqAdapter(BaseLLMAdapter):
                     )
                     time.sleep(wait_time)
                     continue
-                
+
+                if json_mode and any(
+                    marker in error_str
+                    for marker in ("json_validate_failed", "failed to generate json", "failed_generation", "max completion tokens reached")
+                ):
+                    try:
+                        logger.warning(
+                            "Groq strict JSON generation failed for model '%s'; retrying without response_format and with a larger token budget.",
+                            model_name,
+                        )
+                        recovered = self._retry_json_without_strict_mode(model_name, prompt, max_tokens)
+                        if recovered:
+                            self._response_cache[cache_key] = recovered
+                            return recovered
+                    except Exception as retry_exc:
+                        logger.error(
+                            "Groq JSON recovery retry failed for model '%s': %s",
+                            model_name,
+                            retry_exc,
+                        )
+
                 logger.error(f"Groq generation failed for model '{model_name}': {e}")
                 continue # Try next model on other failures
 
@@ -235,7 +288,7 @@ class GroqAdapter(BaseLLMAdapter):
 
     def _parse_decision(self, text: str) -> Optional[Decision]:
         try:
-            data = json.loads(text)
+            data = json.loads(self._extract_json_text(text))
             return Decision(
                 action_type=data.get("action_type", "wait"),
                 parameters=data.get("parameters", {}),
@@ -249,8 +302,7 @@ class GroqAdapter(BaseLLMAdapter):
 
     def _parse_plan(self, text: str) -> Optional[Plan]:
         try:
-            # With response_format=json_object, we don't need to clean markdown
-            data = json.loads(text)
+            data = json.loads(self._extract_json_text(text))
             if "steps" in data and isinstance(data["steps"], list):
                 new_steps = []
                 for i, step_data in enumerate(data["steps"]):

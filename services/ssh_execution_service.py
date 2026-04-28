@@ -10,9 +10,14 @@ class SSHExecutionService(ExecutionService):
         executor_id = (attack_state.state_data or {}).get("executor_id")
         self.executor = AttackerExecutor.objects.get(id=executor_id)
         self.execution_mode = "ssh"
-        self.command_runner = lambda command: ssh_executor.run_command(self.executor, command)
-        self.script_runner = lambda script_content, script_language="python": ssh_executor.run_script(
+        self.command_runner = lambda command, timeout_seconds=120: ssh_executor.run_command(
+            self.executor,
+            command,
+            timeout_seconds=timeout_seconds,
+        )
+        self.script_runner = lambda script_content, script_language="python", timeout_seconds=120: ssh_executor.run_script(
             self.executor,
             script_content,
             script_language=script_language,
+            timeout_seconds=timeout_seconds,
         )
