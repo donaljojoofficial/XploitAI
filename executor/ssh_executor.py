@@ -1,4 +1,5 @@
 import logging
+import shlex
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,14 @@ def _prefix_command(executor, command: str) -> str:
     return f"cd {working_directory} && {command}"
 
 
+def _with_remote_timeout(command: str, timeout_seconds: int) -> str:
+    if int(timeout_seconds or 0) <= 0:
+        return command
+    timeout = max(int(timeout_seconds or 120), 1)
+    kill_after = min(max(int(timeout / 10), 5), 30)
+    return f"timeout --kill-after={kill_after}s {timeout}s bash -lc {shlex.quote(command)}"
+
+
 def probe_connection(executor):
     client = None
     try:
@@ -53,8 +62,9 @@ def run_command(executor, command: str, timeout_seconds: int = 120):
     client = None
     try:
         client = _connect(executor)
-        remote_command = _prefix_command(executor, command)
-        _, stdout, stderr = client.exec_command(remote_command, timeout=timeout_seconds)
+        remote_command = _with_remote_timeout(_prefix_command(executor, command), timeout_seconds)
+        timeout = int(timeout_seconds or 0)
+        _, stdout, stderr = client.exec_command(remote_command, timeout=None if timeout <= 0 else timeout + 35)
         exit_code = stdout.channel.recv_exit_status()
         return {
             "stdout": stdout.read().decode("utf-8", errors="replace"),
@@ -76,8 +86,9 @@ def run_script(executor, script_content: str, script_language: str = "python", t
     interpreter = "python -" if language == "python" else "bash -s"
     try:
         client = _connect(executor)
-        remote_command = _prefix_command(executor, interpreter)
-        stdin, stdout, stderr = client.exec_command(remote_command, timeout=timeout_seconds)
+        remote_command = _with_remote_timeout(_prefix_command(executor, interpreter), timeout_seconds)
+        timeout = int(timeout_seconds or 0)
+        stdin, stdout, stderr = client.exec_command(remote_command, timeout=None if timeout <= 0 else timeout + 35)
         stdin.write(script_content or "")
         stdin.flush()
         stdin.channel.shutdown_write()

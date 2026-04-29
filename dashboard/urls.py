@@ -25,6 +25,7 @@ urlpatterns = [
     path("start/", views.start_attack, name="dashboard_start_attack"),
     path("attack/<int:pk>/", views.attack_detail, name="dashboard_attack_detail"),
     path("attack/<int:pk>/phases/<str:phase_key>/", views.attack_phase_detail, name="dashboard_attack_phase_detail"),
+    path("attack/<int:pk>/phases/<str:phase_key>/regenerate/", views.regenerate_phase_plan, name="dashboard_regenerate_phase_plan"),
     path("attack/<int:pk>/replay/", views.attack_replay, name="dashboard_attack_replay"),
     path("attack/<int:pk>/plan/", views.attack_plan, name="dashboard_attack_plan"),
     path("attack/<int:pk>/phase-reviews/", views.attack_phase_reviews, name="dashboard_attack_phase_reviews"),

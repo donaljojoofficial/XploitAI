@@ -414,11 +414,31 @@ class CommandGenerator:
         url = self._target_url(params)
         host = self._target_host(params)
         safe_url = shlex.quote(str(url).rstrip('/') + "/search?q=test")
+        safe_term = shlex.quote(self._search_term(params))
+        msf_host = str(host).replace('"', '').replace(";", "")
+        sql_probe = (
+            "import os,sys,urllib.request,urllib.error;"
+            "url=os.environ.get('SQLMAP_URL','');"
+            "\ntry:\n"
+            " r=urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'XploitAI-Scanner/1.0'}),timeout=8);"
+            " sys.exit(0 if r.status < 400 else 1)\n"
+            "except urllib.error.HTTPError as e:\n"
+            " sys.exit(1 if e.code == 404 else 0)\n"
+            "except Exception:\n"
+            " sys.exit(1)\n"
+        )
         return GeneratedCommand(
             shell_command=(
-                f"searchsploit {shlex.quote(self._search_term(params))} && "
-                f"sqlmap -u {safe_url} --batch --level 2 --risk 1 && "
-                f"msfconsole -q -x \"search {host}; exit -y\""
+                "set +e; "
+                "echo 'EXPLOIT_RESEARCH_START'; "
+                f"searchsploit {safe_term}; echo SEARCHSPLOIT_EXIT:$?; "
+                f"SQLMAP_URL={safe_url}; export SQLMAP_URL; "
+                f"if python3 -c {shlex.quote(sql_probe)}; then "
+                f"sqlmap -u \"$SQLMAP_URL\" --batch --level 2 --risk 1; echo SQLMAP_EXIT:$?; "
+                "else echo 'SQLMAP_SKIPPED: candidate URL returned 404 or was unreachable'; fi; "
+                f"msfconsole -q -x \"search {msf_host}; exit -y\"; echo MSFCONSOLE_EXIT:$?; "
+                "echo 'EXPLOIT_RESEARCH_COMPLETE'; "
+                "exit 0"
             ),
             explanation=f"Uses Searchsploit, SQLmap, and a non-interactive Metasploit search to identify and validate exploit paths for {host}."
         )
@@ -525,14 +545,40 @@ class CommandGenerator:
 
     def _generate_parameter_discovery(self, params: Mapping[str, Any]) -> GeneratedCommand:
         url = self._target_url(params)
-        safe_url = shlex.quote(str(url))
-        domain = self._target_domain(params)
-        dnsenum_cmd = ""
-        if domain and not self._is_ip_address(domain) and domain not in {"localhost"}:
-            dnsenum_cmd = f"dnsenum {shlex.quote(domain)} && "
+        base_url = str(url).rstrip("/")
+        endpoints = [
+            base_url,
+            base_url + "/login",
+            base_url + "/search",
+            base_url + "/api",
+            base_url + "/api/v1",
+        ]
         return GeneratedCommand(
-            shell_command=f"{dnsenum_cmd}arjun -u {safe_url} --stable -oT /tmp/arjun-params.txt",
-            explanation=f"Uses dnsenum where applicable and Arjun to discover DNS and hidden parameter surface for {url}."
+            shell_command=(
+                "python -c "
+                + shlex.quote(
+                    "import re, urllib.parse, urllib.request, urllib.error\n"
+                    f"endpoints={json.dumps(endpoints)}\n"
+                    "candidate_params=['id','user','username','password','q','search','query','page','debug','test','admin','Login','user_token']\n"
+                    "seen=set()\n"
+                    "for endpoint in endpoints:\n"
+                    "    try:\n"
+                    "        req=urllib.request.Request(endpoint, headers={'User-Agent':'XploitAI-Scanner/1.0'})\n"
+                    "        resp=urllib.request.urlopen(req, timeout=8)\n"
+                    "        body=resp.read(12000).decode('utf-8','ignore')\n"
+                    "        qs=urllib.parse.parse_qs(urllib.parse.urlsplit(resp.geturl()).query)\n"
+                    "        for name in qs.keys(): seen.add(name)\n"
+                    "        for name in re.findall(r'''(?:name|id)=[\"']([^\"']{1,64})[\"']''', body, re.I): seen.add(name)\n"
+                    "        resp.close()\n"
+                    "    except Exception:\n"
+                    "        pass\n"
+                    "print('PARAMETER_PROBE_COMPLETE')\n"
+                    "for name in sorted(seen): print('PARAM_FOUND: '+name)\n"
+                    "for name in candidate_params:\n"
+                    "    if name not in seen: print('PARAM_CANDIDATE: '+name)\n"
+                )
+            ),
+            explanation=f"Uses a bounded Python HTTP/form probe to discover likely parameters for {url}."
         )
 
     def _generate_vulnerability_scanning(self, params: Mapping[str, Any]) -> GeneratedCommand:

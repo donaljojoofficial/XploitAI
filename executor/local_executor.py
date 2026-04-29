@@ -3,27 +3,53 @@ import logging
 import os
 import platform
 import shutil
+import signal
 import tempfile
 
 logger = logging.getLogger(__name__)
 
 def _run_raw_command(command: str, use_bash: bool = False, timeout_seconds: int = 120):
-    if use_bash:
-        # Use bash shell when a Unix-style toolchain is expected.
-        return subprocess.run(
-            ["bash", "-lc", command],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds
-        )
-
-    return subprocess.run(
-        command,
-        shell=True,
-        capture_output=True,
+    args = ["bash", "-lc", command] if use_bash else command
+    proc = subprocess.Popen(
+        args,
+        shell=not use_bash,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=timeout_seconds
+        start_new_session=not platform.system().lower().startswith("win"),
     )
+    try:
+        timeout = int(timeout_seconds or 0)
+        stdout, stderr = proc.communicate(timeout=None if timeout <= 0 else timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(proc)
+        raise
+    return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+
+
+def _terminate_process_tree(proc) -> None:
+    if proc.poll() is not None:
+        return
+    is_windows = platform.system().lower().startswith("win")
+    try:
+        if is_windows:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 def run_command(command: str, timeout_seconds: int = 120):
@@ -105,7 +131,7 @@ def run_script(script_content: str, script_language: str = "python", timeout_sec
             [interpreter, script_path],
             capture_output=True,
             text=True,
-            timeout=timeout_seconds,
+            timeout=None if int(timeout_seconds or 0) <= 0 else timeout_seconds,
         )
         return {
             "stdout": result.stdout,

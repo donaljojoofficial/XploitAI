@@ -66,19 +66,26 @@
     </form>
     {% endif %}
 
-    {% if attack_state.autonomy_status == 'STOPPED' %}
+    {% if waiting_for_approval %}
+    <section class="alert alert-warning">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <div class="font-semibold">Plan ready for approval</div>
+                <div class="mt-1 text-sm">{{ attack_state.stop_reason|default:"A phase plan has been generated and is waiting for approval." }}</div>
+            </div>
+            <form action="{% url 'approve_plan' attack_state.id %}" method="POST" class="inline-block">
+                {% csrf_token %}
+                <button type="submit" class="ui-btn ui-btn-primary">{% if plan_view.level_transition_pending %}Approve and Continue to Next Level{% else %}Approve and Continue{% endif %}</button>
+            </form>
+        </div>
+    </section>
+    {% elif attack_state.autonomy_status == 'STOPPED' %}
     <section class="alert {% if waiting_for_approval %}alert-warning{% elif plan_completed %}alert-success{% else %}alert-error{% endif %}">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
                 <div class="font-semibold">Stopped</div>
                 <div class="mt-1 text-sm">{{ attack_state.stop_reason }}</div>
             </div>
-            {% if waiting_for_approval %}
-            <form action="{% url 'approve_plan' attack_state.id %}" method="POST" class="inline-block">
-                {% csrf_token %}
-                <button type="submit" class="ui-btn ui-btn-primary">{% if plan_view.level_transition_pending %}Approve and Continue to Next Level{% else %}Approve and Continue{% endif %}</button>
-            </form>
-            {% endif %}
         </div>
     </section>
     {% endif %}

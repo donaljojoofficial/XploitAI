@@ -14,6 +14,8 @@ Usage:
 
 import argparse
 import logging
+import os
+import signal
 import socket
 import subprocess
 import sys
@@ -43,7 +45,7 @@ class ExecutorDaemon:
     ALLOWED_COMMANDS = {
         "nmap", "echo", "whois", "nslookup", "dig", "ping", "nc", "netcat",
         "curl", "whatweb", "wget", "nikto", "gobuster", "python", "python3",
-        "sqlmap", "searchsploit", "msfconsole", "dirsearch", "arjun", "nuclei",
+        "sqlmap", "searchsploit", "msfconsole", "dirsearch", "nuclei",
         "wpscan", "hydra", "john", "hashcat"
     }
 
@@ -170,7 +172,7 @@ class ExecutorDaemon:
         start_time = time.time()
 
         # Default limits
-        timeout = task.limits.get("timeout", 60)
+        timeout = int(task.limits.get("timeout", 60) or 0)
 
         # Security Check (Executor-side)
         cmd_parts = (task.command or "").strip().split()
@@ -210,14 +212,35 @@ class ExecutorDaemon:
             # SECURITY: This executes arbitrary commands.
             # In XploitAI, this is intentional for the Attacker VM.
             # The Controller (AI) is responsible for safety filtering before sending.
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 task.command,
                 shell=True,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout,
-                executable="/bin/bash"  # Force bash
+                executable="/bin/bash",  # Force bash
+                start_new_session=True,
             )
+            try:
+                stdout_text, stderr_text = proc.communicate(timeout=None if timeout <= 0 else timeout)
+            except subprocess.TimeoutExpired as e:
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    stdout_text, stderr_text = proc.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    stdout_text, stderr_text = proc.communicate()
+                duration = time.time() - start_time
+                logger.warning(f"Task {task.task_id} timed out after {timeout}s")
+                return ExecutionResult(
+                    task_id=task.task_id,
+                    status=ExecutionStatus.TIMEOUT,
+                    exit_code=-1,
+                    stdout=stdout_text or e.stdout or "",
+                    stderr=(stderr_text or e.stderr or "") + f"\nCommand timed out after {int(timeout)}s and was terminated.",
+                    duration_seconds=duration,
+                    error_message="Execution timed out"
+                )
 
             duration = time.time() - start_time
             status = ExecutionStatus.COMPLETED if proc.returncode == 0 else ExecutionStatus.FAILED
@@ -226,8 +249,8 @@ class ExecutorDaemon:
                 task_id=task.task_id,
                 status=status,
                 exit_code=proc.returncode,
-                stdout=proc.stdout,
-                stderr=proc.stderr,
+                stdout=stdout_text,
+                stderr=stderr_text,
                 duration_seconds=duration,
                 artifacts=[]  # Artifact scraping not yet implemented
             )

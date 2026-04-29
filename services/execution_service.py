@@ -33,7 +33,8 @@ from services.command_template_utils import (
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
-    split_chained_tool_command,
+    uses_disallowed_tool,
+    uses_fragile_exploit_chain,
     uses_placeholder_loot_path,
 )
 from services.execution_failure_policy import is_terminal_command_failure
@@ -51,6 +52,7 @@ from services.tool_preflight import (
 )
 
 logger = logging.getLogger(__name__)
+DISABLE_COMMAND_TIMEOUTS_TEMPORARILY = True
 
 
 class ExecutionService:
@@ -108,6 +110,9 @@ class ExecutionService:
         return max(min(remaining_level, remaining_service), 30)
 
     def _step_timeout_seconds(self, attack_state: AttackState, action_name: str, command: str = "") -> int:
+        if DISABLE_COMMAND_TIMEOUTS_TEMPORARILY:
+            return 0
+
         action_token = str(action_name or "").strip().lower()
         command_text = str(command or "").strip().lower()
         preferred_timeout = 120
@@ -116,7 +121,7 @@ class ExecutionService:
             preferred_timeout = 420
         elif any(marker in command_text for marker in ("nikto", "nuclei", "dirsearch", "theharvester", "dnsenum")):
             preferred_timeout = 300
-        elif any(marker in command_text for marker in ("nmap", "wpscan", "arjun", "msfconsole", "searchsploit")):
+        elif any(marker in command_text for marker in ("nmap", "wpscan", "msfconsole", "searchsploit")):
             preferred_timeout = 240
         elif "fingerprint" in action_token or "proof" in action_token:
             preferred_timeout = 180
@@ -428,30 +433,7 @@ class ExecutionService:
         return True
 
     def _run_command_parts(self, command: str, timeout_seconds: int) -> tuple[dict, list[str]]:
-        parts = split_chained_tool_command(command)
-        if not parts:
-            return self.command_runner(command, timeout_seconds=timeout_seconds), []
-
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
-        returncodes: list[int] = []
-        per_part_timeout = max(30, min(timeout_seconds, max(int(timeout_seconds / len(parts)), 30)))
-        for index, part in enumerate(parts, start=1):
-            logger.info("Executing chained command part %d/%d: %s", index, len(parts), part)
-            result = self.command_runner(part, timeout_seconds=per_part_timeout)
-            stdout_chunks.append(f"$ {part}\n{(result or {}).get('stdout', '')}")
-            stderr = (result or {}).get("stderr") or (result or {}).get("error") or ""
-            if stderr:
-                stderr_chunks.append(f"$ {part}\n{stderr}")
-            returncodes.append(int((result or {}).get("returncode", -1)))
-
-        any_success = any(code == 0 for code in returncodes)
-        return {
-            "stdout": "\n".join(stdout_chunks),
-            "stderr": "\n".join(stderr_chunks),
-            "returncode": 0 if any_success else (returncodes[-1] if returncodes else -1),
-            "part_returncodes": returncodes,
-        }, parts
+        return self.command_runner(command, timeout_seconds=timeout_seconds), []
 
     def _run_loop(self):
         """The main execution loop."""
@@ -619,6 +601,30 @@ class ExecutionService:
                 return
 
             command = normalize_command_targets(command, command_parameters)
+            if command_obj.name == "ExploitAttempt" and uses_fragile_exploit_chain(command):
+                logger.warning(
+                    "Replacing stale fragile exploit chain for '%s': %s",
+                    command_obj.name,
+                    command,
+                )
+                generated = self.command_generator.generate(command_obj.name, command_parameters)
+                command = normalize_command_targets(generated.shell_command, command_parameters)
+            if uses_disallowed_tool(command):
+                logger.warning(
+                    "Replacing disallowed tool command for '%s': %s",
+                    command_obj.name,
+                    command,
+                )
+                generated = self.command_generator.generate(
+                    command_obj.name,
+                    {**command_parameters, "disallowed_tools": ["arjun"]},
+                )
+                command = normalize_command_targets(generated.shell_command, command_parameters)
+                if uses_disallowed_tool(command):
+                    self.stop_assessment(
+                        f"Planned step '{command_obj.name}' resolved to blocked tool 'arjun'. Regenerate this phase plan."
+                    )
+                    return
             self._persist_step_command(command_obj.name, command)
             attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
             step_state = self._find_plan_step(attack_state_for_step, command_obj.name)

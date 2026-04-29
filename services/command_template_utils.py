@@ -341,6 +341,21 @@ def uses_placeholder_loot_path(command: str) -> bool:
     return "/tmp/loot.hashes" in text and ("john" in text or "hashcat" in text)
 
 
+def uses_disallowed_tool(command: str) -> bool:
+    text = str(command or "")
+    return bool(re.search(r"(?<![\w./-])arjun(?![\w./-])", text, re.IGNORECASE))
+
+
+def uses_fragile_exploit_chain(command: str) -> bool:
+    text = str(command or "").lower()
+    return (
+        "searchsploit" in text
+        and "sqlmap" in text
+        and "msfconsole" in text
+        and "&&" in text
+    )
+
+
 def escape_non_placeholder_braces(template: str) -> str:
     """
     Escape braces that belong to inline Python/JSON snippets so str.format()

@@ -38,7 +38,11 @@ def is_meaningful_action_success(action_name: str, findings: dict, stdout: str) 
     lowered_text = text.lower()
 
     if action_name == "ExploitAttempt":
-        return bool(findings.get("valid_credentials") or findings.get("session_cookies"))
+        return bool(
+            findings.get("valid_credentials")
+            or findings.get("session_cookies")
+            or findings.get("exploit_research_completed")
+        )
 
     if action_name == "ProofOfCompromise":
         return bool(findings.get("proof_of_compromise") or _has_exposed_proof_evidence(findings))
@@ -55,6 +59,8 @@ def is_meaningful_action_success(action_name: str, findings: dict, stdout: str) 
             findings.get("missing_security_headers")
             or findings.get("exposed_paths")
             or findings.get("suspicious_paths")
+            or findings.get("scan_completed")
+            or _has_completed_scan_output(lowered_text)
         )
 
     if action_name in {"EndpointDiscovery", "EndpointProbe"}:
@@ -163,6 +169,8 @@ def parse_output(action_name: str, output: str) -> dict:
                 {"path": path.strip(), "status": status.strip()}
                 for path, status in suspicious_paths
             ]
+        if _has_completed_scan_output((output or "").lower()):
+            findings["scan_completed"] = True
 
     elif action_name == "SQLInjectionProbe":
         sqli_signals = re.findall(r"SQLI_SIGNAL:\s*([^\r\n]+)", output)
@@ -170,6 +178,8 @@ def parse_output(action_name: str, output: str) -> dict:
             findings["sqli_signals"] = [signal.strip() for signal in sqli_signals]
 
     elif action_name == "ExploitAttempt":
+        if "EXPLOIT_RESEARCH_COMPLETE" in (output or ""):
+            findings["exploit_research_completed"] = True
         auth_success = re.findall(
             r"AUTH_SUCCESS:\s*([^\s]+)\s+user=([^\s]+)\s+password=([^\r\n]+)",
             output,
@@ -228,3 +238,28 @@ def parse_output(action_name: str, output: str) -> dict:
             findings["resolved_ips"] = list(set(ips))
 
     return findings
+
+
+def _has_completed_scan_output(lowered_text: str) -> bool:
+    if not lowered_text:
+        return False
+    fatal_markers = (
+        "command not found",
+        "not recognized as an internal or external command",
+        "execution timed out",
+        "traceback",
+    )
+    if any(marker in lowered_text for marker in fatal_markers):
+        return False
+    scan_markers = (
+        "nikto v",
+        "+ target ip:",
+        "+ target hostname:",
+        "+ target port:",
+        "+ server:",
+        "+ scan terminated:",
+        "nuclei",
+        "[inf]",
+        "[wrn]",
+    )
+    return any(marker in lowered_text for marker in scan_markers)

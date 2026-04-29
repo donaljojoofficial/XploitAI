@@ -31,7 +31,8 @@ from services.command_template_utils import (
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
-    split_chained_tool_command,
+    uses_disallowed_tool,
+    uses_fragile_exploit_chain,
     uses_placeholder_loot_path,
 )
 from services.execution_failure_policy import is_terminal_command_failure
@@ -50,6 +51,7 @@ from services.tool_preflight import (
 )
 
 logger = logging.getLogger(__name__)
+DISABLE_COMMAND_TIMEOUTS_TEMPORARILY = True
 
 
 class RemoteExecutionService:
@@ -104,6 +106,9 @@ class RemoteExecutionService:
         return max(min(remaining_level, remaining_service), 30)
 
     def _step_timeout_seconds(self, attack_state: AttackState, action_name: str, command: str = "") -> int:
+        if DISABLE_COMMAND_TIMEOUTS_TEMPORARILY:
+            return 0
+
         action_token = str(action_name or "").strip().lower()
         command_text = str(command or "").strip().lower()
         preferred_timeout = 120
@@ -112,7 +117,7 @@ class RemoteExecutionService:
             preferred_timeout = 420
         elif any(marker in command_text for marker in ("nikto", "nuclei", "dirsearch", "theharvester", "dnsenum")):
             preferred_timeout = 300
-        elif any(marker in command_text for marker in ("nmap", "wpscan", "arjun", "msfconsole", "searchsploit")):
+        elif any(marker in command_text for marker in ("nmap", "wpscan", "msfconsole", "searchsploit")):
             preferred_timeout = 240
         elif "fingerprint" in action_token or "proof" in action_token:
             preferred_timeout = 180
@@ -510,70 +515,27 @@ class RemoteExecutionService:
         retry_budget: int,
         retry_cooldown: int,
     ) -> tuple[Optional[ExecutionTask], dict, list[str], list[int]]:
-        parts = [] if execution_type == "script" else split_chained_tool_command(command)
-        if not parts:
-            task = self._create_remote_command_task(
-                command_obj=command_obj,
-                command=command,
-                target=target,
-                decision_reason=decision_reason,
-                required_tools=required_tools,
-                execution_type=execution_type,
-                script_payload=script_payload,
-                timeout_seconds=timeout_seconds,
-                retry_budget=retry_budget,
-                retry_cooldown=retry_cooldown,
-            )
-            logger.info(f"Created ExecutionTask {task.id} for command '{command_obj.name}'")
-            result = self._wait_for_task_completion(task, timeout=timeout_seconds + 20)
-            return task, {
-                "task_result": result,
-                "stdout": "",
-                "stderr": "Task failed to complete within timeout." if not result else "",
-                "returncode": -1 if not result else None,
-                "status": getattr(result, "status", "FAILED"),
-            }, [], []
-
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
-        returncodes: list[int] = []
-        first_task = None
-        per_part_timeout = max(30, min(timeout_seconds, max(int(timeout_seconds / len(parts)), 30)))
-        for index, part in enumerate(parts, start=1):
-            task = self._create_remote_command_task(
-                command_obj=command_obj,
-                command=part,
-                target=target,
-                decision_reason=f"{decision_reason} (part {index}/{len(parts)})",
-                required_tools=infer_required_tools(part),
-                execution_type="command",
-                script_payload={},
-                timeout_seconds=per_part_timeout,
-                retry_budget=0,
-                retry_cooldown=0,
-            )
-            first_task = first_task or task
-            logger.info("Created ExecutionTask %s for chained command part %d/%d", task.id, index, len(parts))
-            result = self._wait_for_task_completion(task, timeout=per_part_timeout + 20)
-            if not result:
-                stdout_chunks.append(f"$ {part}\n")
-                stderr_chunks.append(f"$ {part}\nTask failed to complete within timeout.")
-                returncodes.append(-1)
-                continue
-            output = result.output if isinstance(result.output, dict) else {}
-            stdout_chunks.append(f"$ {part}\n{output.get('stdout', '') if output else (result.output or '')}")
-            stderr = output.get("stderr", "") if output else result.error_message
-            if stderr:
-                stderr_chunks.append(f"$ {part}\n{stderr}")
-            returncodes.append(int(output.get("returncode", output.get("exit_code", 0 if result.status == "COMPLETED" else 1)) if output else (0 if result.status == "COMPLETED" else 1)))
-
-        any_success = any(code == 0 for code in returncodes)
-        return first_task, {
-            "stdout": "\n".join(stdout_chunks),
-            "stderr": "\n".join(stderr_chunks),
-            "returncode": 0 if any_success else (returncodes[-1] if returncodes else -1),
-            "status": "COMPLETED" if any_success else "FAILED",
-        }, parts, returncodes
+        task = self._create_remote_command_task(
+            command_obj=command_obj,
+            command=command,
+            target=target,
+            decision_reason=decision_reason,
+            required_tools=required_tools,
+            execution_type=execution_type,
+            script_payload=script_payload,
+            timeout_seconds=timeout_seconds,
+            retry_budget=retry_budget,
+            retry_cooldown=retry_cooldown,
+        )
+        logger.info(f"Created ExecutionTask {task.id} for command '{command_obj.name}'")
+        result = self._wait_for_task_completion(task, timeout=0 if timeout_seconds <= 0 else timeout_seconds + 20)
+        return task, {
+            "task_result": result,
+            "stdout": "",
+            "stderr": "Task failed to complete within timeout." if not result else "",
+            "returncode": -1 if not result else None,
+            "status": getattr(result, "status", "FAILED"),
+        }, [], []
 
     def _run_loop(self):
         """The main remote execution loop."""
@@ -739,6 +701,30 @@ class RemoteExecutionService:
                 return
 
             command = normalize_command_targets(command, command_parameters)
+            if command_obj.name == "ExploitAttempt" and uses_fragile_exploit_chain(command):
+                logger.warning(
+                    "Replacing stale fragile exploit chain for '%s': %s",
+                    command_obj.name,
+                    command,
+                )
+                generated = self.command_generator.generate(command_obj.name, command_parameters)
+                command = normalize_command_targets(generated.shell_command, command_parameters)
+            if uses_disallowed_tool(command):
+                logger.warning(
+                    "Replacing disallowed tool command for '%s': %s",
+                    command_obj.name,
+                    command,
+                )
+                generated = self.command_generator.generate(
+                    command_obj.name,
+                    {**command_parameters, "disallowed_tools": ["arjun"]},
+                )
+                command = normalize_command_targets(generated.shell_command, command_parameters)
+                if uses_disallowed_tool(command):
+                    self.stop_assessment(
+                        f"Planned step '{command_obj.name}' resolved to blocked tool 'arjun'. Regenerate this phase plan."
+                    )
+                    return
             self._persist_step_command(command_obj.name, command)
             attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
             step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
@@ -1116,13 +1102,25 @@ class RemoteExecutionService:
     def _wait_for_task_completion(self, task: ExecutionTask, timeout: int = 60) -> Optional[ExecutionTask]:
         """Wait for a task to be completed by a remote executor."""
         start_time = time.time()
-        
-        while time.time() - start_time < timeout:
+
+        while timeout <= 0 or time.time() - start_time < timeout:
             task.refresh_from_db()
             if task.status in ["COMPLETED", "FAILED", "TIMEOUT"]:
                 return task
             time.sleep(1)
-        
+
+        task.refresh_from_db()
+        if task.status in {"PENDING", "RUNNING"}:
+            task.status = "FAILED"
+            task.output = {
+                "stdout": "",
+                "stderr": f"Controller wait timed out after {int(timeout)}s. The executor should terminate the remote process via its command timeout.",
+                "returncode": -1,
+                "error": "TimeoutExpired",
+            }
+            task.error_message = task.output["stderr"]
+            task.save(update_fields=["status", "output", "error_message"])
+            return task
         return None
 
     def stop_assessment(self, reason: str):

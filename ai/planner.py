@@ -1121,6 +1121,37 @@ class AIPlanner:
             return None
         return Plan(steps=deduped_steps, rationale=plan.rationale)
 
+    def _filter_plan_to_available_actions(
+        self,
+        plan: Optional[Plan],
+        available_command_metadata: List[Dict[str, str]],
+    ) -> Optional[Plan]:
+        if not plan or not plan.steps:
+            return plan
+
+        available_commands = self._all_commands()
+        available_names = {
+            self._normalize_command_name(str(item.get("name") or ""))
+            for item in (available_command_metadata or [])
+            if str(item.get("name") or "").strip()
+        }
+        filtered_steps: list[PlanStep] = []
+        for step in plan.steps:
+            action_name = getattr(step, "action_type", "") or ""
+            resolved_name = self._resolve_proposed_command_name(action_name, available_commands)
+            normalized_resolved = self._normalize_command_name(resolved_name or "")
+            if normalized_resolved and (not available_names or normalized_resolved in available_names):
+                filtered_steps.append(replace(step, action_type=resolved_name, step_number=len(filtered_steps) + 1))
+                continue
+            logger.warning(
+                "Dropping non-executable plan step '%s'; planner will supplement with real commands.",
+                action_name,
+            )
+
+        if not filtered_steps:
+            return None
+        return Plan(steps=filtered_steps, rationale=plan.rationale)
+
     def _recover_phase_plan(
         self,
         decision_input: DecisionInput,
@@ -1228,10 +1259,23 @@ class AIPlanner:
                 self.last_plan_error = "AI provider did not return a valid plan with steps."
                 return False
 
+        plan = self._filter_plan_to_available_actions(plan, available_command_metadata)
         plan = self._dedupe_plan_steps(plan)
         if not plan or not plan.steps:
-            self.last_plan_error = "AI provider returned only duplicate or invalid plan steps."
-            return False
+            logger.warning(
+                "AIPlanner received only non-executable plan steps for '%s'; attempting recovery.",
+                phase or attack_state.current_phase,
+            )
+            plan = self._recover_phase_plan(
+                decision_input,
+                available_command_metadata,
+                None,
+            )
+            plan = self._filter_plan_to_available_actions(plan, available_command_metadata)
+            plan = self._dedupe_plan_steps(plan)
+            if not plan or not plan.steps:
+                self.last_plan_error = "AI provider returned only duplicate or invalid plan steps."
+                return False
 
         if len(plan.steps) < minimum_steps:
             logger.warning(
@@ -1245,6 +1289,7 @@ class AIPlanner:
                 available_command_metadata,
                 plan,
             )
+            plan = self._filter_plan_to_available_actions(plan, available_command_metadata)
             if not plan or len(plan.steps) < minimum_steps:
                 self.last_plan_error = (
                     f"AI provider returned an incomplete plan with only {len((plan.steps if plan else []) or [])} steps; "

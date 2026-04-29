@@ -433,5 +433,14 @@
     </div>
 
     {% block extra_js %}{% endblock %}
+    {% if auto_refresh_seconds %}
+    <script>
+        window.setTimeout(function () {
+            if (!document.hidden) {
+                window.location.reload();
+            }
+        }, {{ auto_refresh_seconds|default:30 }} * 1000);
+    </script>
+    {% endif %}
 </body>
 </html>

@@ -16,9 +16,9 @@ ACTION_FINDING_KEYS = {
     "EndpointDiscovery": ["discovered_endpoints"],
     "EndpointProbe": ["discovered_endpoints"],
     "ParameterDiscovery": ["discovered_parameters"],
-    "VulnerabilityScanning": ["missing_security_headers", "exposed_paths", "suspicious_paths", "sqli_signals"],
+    "VulnerabilityScanning": ["missing_security_headers", "exposed_paths", "suspicious_paths", "sqli_signals", "scan_completed"],
     "SQLInjectionProbe": ["sqli_signals"],
-    "ExploitAttempt": ["valid_credentials", "session_cookies", "redirect_targets"],
+    "ExploitAttempt": ["valid_credentials", "session_cookies", "redirect_targets", "exploit_research_completed"],
     "ProofOfCompromise": ["proof_of_compromise", "proof_summary"],
 }
 

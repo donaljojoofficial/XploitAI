@@ -48,6 +48,7 @@ from services.command_template_utils import (
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
+    uses_disallowed_tool,
 )
 from core.config import get_config, set_config
 from core.levels import (
@@ -96,6 +97,16 @@ def _delete_attack_states(states) -> int:
     deleted_count = len(state_ids)
     AttackState.objects.filter(id__in=state_ids).delete()
     return deleted_count
+
+
+def _is_waiting_for_plan_approval(state: AttackState | None) -> bool:
+    if not state:
+        return False
+    plan = state.current_plan if isinstance(state.current_plan, dict) else {}
+    steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
+    state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    return bool(steps) and not bool(state_data.get("plan_approved", False))
+
 
 def _normalize_phase_key(value: Any) -> str:
     return dashboard_phase_key(value)
@@ -739,6 +750,8 @@ def _refresh_step_command(step: dict[str, Any], state: AttackState) -> None:
     parameters = {**target_context, **(step.get("parameters") or {})}
     generated = CommandGenerator(use_llm=False, llm_provider="auto").generate(action_name, parameters)
     command = normalize_command_targets(generated.shell_command, parameters)
+    if uses_disallowed_tool(command):
+        command = "echo 'BLOCKED_TOOL: arjun is disabled; regenerate this phase plan for an alternative parameter probe'; exit 2"
     step["resolved_command"] = command
     step["resolved_tools"] = infer_required_tools(command)
 
@@ -1004,9 +1017,7 @@ def index(request: HttpRequest) -> HttpResponse:
     if attack_state and attack_state.autonomy_status == "STOPPED" and "plan completed" in attack_state.stop_reason.lower():
         plan_completed = True
 
-    waiting_for_approval = False
-    if attack_state and attack_state.autonomy_status == "STOPPED" and "waiting for approval" in attack_state.stop_reason.lower():
-        waiting_for_approval = True
+    waiting_for_approval = _is_waiting_for_plan_approval(attack_state)
 
     phase_dashboard = _build_phase_cards(attack_state)
     current_phase_card = next((card for card in phase_dashboard["cards"] if card.get("is_current")), None)
@@ -1027,6 +1038,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'chat_phase_key': chat_phase_key,
         'start_modal_open': start_modal_open,
         'latest_report': (plan_view or {}).get('last_report'),
+        'auto_refresh_seconds': 30,
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
         **_get_global_context(),
     }
@@ -1063,9 +1075,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     if state.autonomy_status == "STOPPED" and "plan completed" in state.stop_reason.lower():
         plan_completed = True
 
-    waiting_for_approval = False
-    if state.autonomy_status == "STOPPED" and "waiting for approval" in state.stop_reason.lower():
-        waiting_for_approval = True
+    waiting_for_approval = _is_waiting_for_plan_approval(state)
 
     context = {
         'attack_state': state,
@@ -1079,6 +1089,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'waiting_for_approval': waiting_for_approval,
         'plan_view': plan_view,
         'latest_report': plan_view.get('last_report'),
+        'auto_refresh_seconds': 30,
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_detail.html', context)
@@ -1096,6 +1107,9 @@ def attack_phase_detail(request: HttpRequest, pk: int, phase_key: str) -> HttpRe
         "phase_detail": phase_detail,
         "selected_tab": selected_tab,
         "phase_dashboard": _build_phase_cards(state),
+        "waiting_for_approval": _is_waiting_for_plan_approval(state),
+        "plan_view": _build_plan_view_state(state),
+        "auto_refresh_seconds": 30,
         **_get_global_context(),
     }
     return render(request, "dashboard/attack_phase_detail.html", context)
@@ -1135,6 +1149,7 @@ def attack_command_logs(request: HttpRequest, pk: int) -> HttpResponse:
         'attack_state': state,
         'execution_results': execution_results,
         'plan_view': _build_plan_view_state(state),
+        'auto_refresh_seconds': 30,
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_command_logs.html', context)
@@ -1170,6 +1185,8 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
         'plan_view': plan_view,
         'operation_history': _build_attack_run_history(state),
         'latest_report': plan_view.get('last_report'),
+        'waiting_for_approval': _is_waiting_for_plan_approval(state),
+        'auto_refresh_seconds': 30,
         **_get_global_context(),
     }
     return render(request, 'dashboard/attack_plan.html', context)
@@ -1203,6 +1220,7 @@ def attack_phase_reviews(request: HttpRequest, pk: int) -> HttpResponse:
         'attack_state': state,
         'plan_view': plan_view,
         'phase_reviews': (state.state_data or {}).get('level_history') or (state.state_data or {}).get('phase_reviews', []),
+        'auto_refresh_seconds': 30,
         **_get_global_context(),
     }
     return render(request, 'dashboard/phase_reviews.html', context)
@@ -1520,6 +1538,45 @@ def retry_failed_phase(request: HttpRequest, pk: int) -> HttpResponse:
     _launch_assessment(state)
     messages.success(request, f"Retry started for phase '{state.current_phase}'.")
     return redirect('dashboard_attack_detail', pk=pk)
+
+
+@login_required(login_url='login')
+@require_POST
+def regenerate_phase_plan(request: HttpRequest, pk: int, phase_key: str) -> HttpResponse:
+    """Force a fresh plan for a phase while preserving earlier findings/history."""
+    state = get_object_or_404(AttackState, pk=pk)
+    normalized_phase = _normalize_phase_key(phase_key)
+    if not is_valid_dashboard_phase(normalized_phase, executable_only=True):
+        messages.error(request, f"Cannot restart unknown phase '{phase_key}'.")
+        return redirect('dashboard_attack_detail', pk=pk)
+
+    _preserve_current_plan_history(state)
+    state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    retained_completed = _prune_completed_commands_for_restart(
+        list(state_data.get("completed_commands") or []),
+        normalized_phase,
+    )
+    state_data["completed_commands"] = retained_completed
+    state_data["current_phase"] = normalized_phase
+    state_data["start_phase"] = normalized_phase
+    state_data["requested_start_phase"] = normalized_phase
+    state_data["plan_approved"] = False
+    state_data["progression_mode"] = state_data.get("progression_mode") or "manual"
+    state_data["plan_command_lock"] = True
+    state_data.pop("phase_transition_pending", None)
+    state_data.pop("level_transition_pending", None)
+
+    state.current_phase = normalized_phase
+    state.current_plan = {}
+    state.state_data = state_data
+    state.autonomy_status = "IDLE"
+    state.stop_reason = f"Regenerating plan for phase '{normalized_phase}'."
+    state.save(update_fields=["current_phase", "current_plan", "state_data", "autonomy_status", "stop_reason"])
+    StateManager(state.id).json_store.sync_from_attack_state(state)
+
+    _launch_assessment(state)
+    messages.success(request, f"Fresh plan requested for '{dashboard_phase_display_name(normalized_phase)}'. Review and approve it before execution continues.")
+    return redirect('dashboard_attack_phase_detail', pk=pk, phase_key=normalized_phase)
 
 @login_required(login_url='login')
 @require_POST

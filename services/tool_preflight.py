@@ -22,7 +22,6 @@ RECOMMENDED_TOOL_PACKAGES = (
     "nmap",
     "whatweb",
     "dirsearch",
-    "arjun",
     "dnsenum",
     "nikto",
     "nuclei",
