@@ -25,12 +25,14 @@ from parser.output_parser import (
     parse_output,
 )
 from services.command_template_utils import (
-    bounded_alternative_command,
     build_target_context,
     infer_required_tools,
+    is_probable_shell_command,
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
+    split_chained_tool_command,
+    uses_placeholder_loot_path,
 )
 from services.execution_failure_policy import is_terminal_command_failure
 from services.script_runtime import (
@@ -459,6 +461,120 @@ class RemoteExecutionService:
 
         return True
 
+    def _create_remote_command_task(
+        self,
+        *,
+        command_obj: Command,
+        command: str,
+        target: str,
+        decision_reason: str,
+        required_tools: list,
+        execution_type: str,
+        script_payload: dict,
+        timeout_seconds: int,
+        retry_budget: int,
+        retry_cooldown: int,
+    ) -> ExecutionTask:
+        return ExecutionTask.objects.create(
+            action_name=command_obj.name,
+            action=None,
+            parameters={
+                "command": command,
+                "target": target,
+                "reasoning": decision_reason,
+                "required_tools": required_tools or infer_required_tools(command),
+                "execution_type": execution_type,
+                "script": script_payload,
+                "limits": {
+                    "timeout": int(timeout_seconds),
+                    "max_retries": int(retry_budget),
+                    "retry_cooldown_seconds": int(retry_cooldown),
+                    **((AttackState.objects.get(id=self.attack_state_id).current_plan or {}).get("limits") or {}),
+                },
+            },
+            status="PENDING",
+            requires_approval=False,
+        )
+
+    def _run_remote_command_parts(
+        self,
+        *,
+        command_obj: Command,
+        command: str,
+        target: str,
+        decision_reason: str,
+        required_tools: list,
+        execution_type: str,
+        script_payload: dict,
+        timeout_seconds: int,
+        retry_budget: int,
+        retry_cooldown: int,
+    ) -> tuple[Optional[ExecutionTask], dict, list[str], list[int]]:
+        parts = [] if execution_type == "script" else split_chained_tool_command(command)
+        if not parts:
+            task = self._create_remote_command_task(
+                command_obj=command_obj,
+                command=command,
+                target=target,
+                decision_reason=decision_reason,
+                required_tools=required_tools,
+                execution_type=execution_type,
+                script_payload=script_payload,
+                timeout_seconds=timeout_seconds,
+                retry_budget=retry_budget,
+                retry_cooldown=retry_cooldown,
+            )
+            logger.info(f"Created ExecutionTask {task.id} for command '{command_obj.name}'")
+            result = self._wait_for_task_completion(task, timeout=timeout_seconds + 20)
+            return task, {
+                "task_result": result,
+                "stdout": "",
+                "stderr": "Task failed to complete within timeout." if not result else "",
+                "returncode": -1 if not result else None,
+                "status": getattr(result, "status", "FAILED"),
+            }, [], []
+
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        returncodes: list[int] = []
+        first_task = None
+        per_part_timeout = max(30, min(timeout_seconds, max(int(timeout_seconds / len(parts)), 30)))
+        for index, part in enumerate(parts, start=1):
+            task = self._create_remote_command_task(
+                command_obj=command_obj,
+                command=part,
+                target=target,
+                decision_reason=f"{decision_reason} (part {index}/{len(parts)})",
+                required_tools=infer_required_tools(part),
+                execution_type="command",
+                script_payload={},
+                timeout_seconds=per_part_timeout,
+                retry_budget=0,
+                retry_cooldown=0,
+            )
+            first_task = first_task or task
+            logger.info("Created ExecutionTask %s for chained command part %d/%d", task.id, index, len(parts))
+            result = self._wait_for_task_completion(task, timeout=per_part_timeout + 20)
+            if not result:
+                stdout_chunks.append(f"$ {part}\n")
+                stderr_chunks.append(f"$ {part}\nTask failed to complete within timeout.")
+                returncodes.append(-1)
+                continue
+            output = result.output if isinstance(result.output, dict) else {}
+            stdout_chunks.append(f"$ {part}\n{output.get('stdout', '') if output else (result.output or '')}")
+            stderr = output.get("stderr", "") if output else result.error_message
+            if stderr:
+                stderr_chunks.append(f"$ {part}\n{stderr}")
+            returncodes.append(int(output.get("returncode", output.get("exit_code", 0 if result.status == "COMPLETED" else 1)) if output else (0 if result.status == "COMPLETED" else 1)))
+
+        any_success = any(code == 0 for code in returncodes)
+        return first_task, {
+            "stdout": "\n".join(stdout_chunks),
+            "stderr": "\n".join(stderr_chunks),
+            "returncode": 0 if any_success else (returncodes[-1] if returncodes else -1),
+            "status": "COMPLETED" if any_success else "FAILED",
+        }, parts, returncodes
+
     def _run_loop(self):
         """The main remote execution loop."""
         start_ts = time.time()
@@ -556,10 +672,54 @@ class RemoteExecutionService:
             )
 
             try:
-                if locked_step_command:
+                if locked_step_command and uses_placeholder_loot_path(locked_step_command):
+                    logger.warning(
+                        "Ignoring placeholder loot command for '%s': %s",
+                        command_obj.name,
+                        locked_step_command,
+                    )
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                elif locked_step_command and is_probable_shell_command(locked_step_command):
                     command = locked_step_command
-                elif planned_command:
+                elif locked_step_command:
+                    logger.warning(
+                        "Ignoring non-shell resolved command for '%s': %s",
+                        command_obj.name,
+                        locked_step_command,
+                    )
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                elif planned_command and uses_placeholder_loot_path(planned_command):
+                    logger.warning(
+                        "Ignoring placeholder loot planned command for '%s': %s",
+                        command_obj.name,
+                        planned_command,
+                    )
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                elif planned_command and is_probable_shell_command(planned_command):
                     command = planned_command
+                elif planned_command:
+                    logger.warning(
+                        "Ignoring non-shell planned command for '%s': %s",
+                        command_obj.name,
+                        planned_command,
+                    )
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
                 else:
                     generated = self.command_generator.generate(
                         command_obj.name,
@@ -579,13 +739,6 @@ class RemoteExecutionService:
                 return
 
             command = normalize_command_targets(command, command_parameters)
-            alternative_command = bounded_alternative_command(command_obj.name, command, sub_context)
-            if alternative_command:
-                logger.info(
-                    "Replacing potentially long-running remote command for '%s' with a bounded alternative.",
-                    command_obj.name,
-                )
-                command = alternative_command
             self._persist_step_command(command_obj.name, command)
             attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
             step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
@@ -632,36 +785,35 @@ class RemoteExecutionService:
                     "script_language": script_artifact.get("language"),
                 }
 
-            # Create an ExecutionTask for the remote executor to pick up
-            task = ExecutionTask.objects.create(
-                action_name=command_obj.name,
-                action=None,  # No high-level action for remote execution
-                parameters={
-                    "command": command_for_task,
-                    "target": target,
-                    "reasoning": decision_reason,
-                    "required_tools": planned_tools or infer_required_tools(command_for_task),
-                    "execution_type": execution_type,
-                    "script": script_task_payload,
-                    "limits": {
-                        "timeout": int(step_timeout_seconds),
-                        "max_retries": int(step_retry_budget),
-                        "retry_cooldown_seconds": int(step_retry_cooldown),
-                        **((AttackState.objects.get(id=self.attack_state_id).current_plan or {}).get("limits") or {}),
-                    },
-                },
-                status="PENDING",
-                requires_approval=False,  # Remote execution doesn't require approval in this phase
+            task, remote_payload, command_parts, part_returncodes = self._run_remote_command_parts(
+                command_obj=command_obj,
+                command=command_for_task,
+                target=target,
+                decision_reason=decision_reason,
+                required_tools=planned_tools or infer_required_tools(command_for_task),
+                execution_type=execution_type,
+                script_payload=script_task_payload,
+                timeout_seconds=step_timeout_seconds,
+                retry_budget=step_retry_budget,
+                retry_cooldown=step_retry_cooldown,
             )
 
-            logger.info(f"Created ExecutionTask {task.id} for command '{command_obj.name}'")
-
-            # Wait for the task to be completed by the remote executor
-            result = self._wait_for_task_completion(task, timeout=step_timeout_seconds + 20)
-            
+            result = remote_payload.get("task_result")
             if not result:
-                self.stop_assessment(f"Task {task.id} failed to complete within timeout.")
-                return
+                result = type(
+                    "RemoteResult",
+                    (),
+                    {
+                        "status": remote_payload.get("status", "FAILED"),
+                        "output": {
+                            "stdout": remote_payload.get("stdout", ""),
+                            "stderr": remote_payload.get("stderr", ""),
+                            "returncode": remote_payload.get("returncode", -1),
+                            "part_returncodes": part_returncodes,
+                        },
+                        "error_message": remote_payload.get("stderr", ""),
+                    },
+                )()
 
             # Process the result
             if result.status == "COMPLETED":

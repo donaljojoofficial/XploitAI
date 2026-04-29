@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from parser.output_parser import is_meaningful_action_success
+from parser.output_parser import has_attack_completion_evidence, is_meaningful_action_success
 
 
 class OutputParserSuccessTests(SimpleTestCase):
@@ -32,3 +32,16 @@ class OutputParserSuccessTests(SimpleTestCase):
         )
 
         self.assertTrue(is_meaningful_action_success("EndpointDiscovery", {}, stdout))
+
+    def test_phpinfo_exposed_path_counts_as_proof_evidence(self):
+        findings = {
+            "exposed_paths": [
+                {
+                    "path": "/phpinfo.php",
+                    "evidence": "PHP Version 8.2.0 configuration details",
+                }
+            ]
+        }
+
+        self.assertTrue(is_meaningful_action_success("ProofOfCompromise", findings, ""))
+        self.assertTrue(has_attack_completion_evidence(findings))

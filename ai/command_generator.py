@@ -424,22 +424,69 @@ class CommandGenerator:
         )
 
     def _generate_privilege_escalation(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        hash_file = str(params.get("hash_file") or params.get("loot_path") or "/tmp/loot.hashes").strip()
+        hash_file = str(params.get("hash_file") or params.get("loot_path") or "").strip()
+        if not hash_file:
+            return GeneratedCommand(
+                shell_command=(
+                    "echo 'NO_CREDENTIAL_LOOT: skipping john/hashcat because no hash_file or loot_path was found'; "
+                    "exit 2"
+                ),
+                explanation="Skips credential cracking because no captured hash or loot path is available."
+            )
         safe_hash_file = shlex.quote(hash_file)
         hash_mode = shlex.quote(str(params.get("hash_mode") or "0"))
         return GeneratedCommand(
             shell_command=(
+                f"if [ -s {safe_hash_file} ]; then "
                 f"john --wordlist=/usr/share/wordlists/rockyou.txt {safe_hash_file} || "
-                f"hashcat -m {hash_mode} -a 0 {safe_hash_file} /usr/share/wordlists/rockyou.txt"
+                f"hashcat -m {hash_mode} -a 0 {safe_hash_file} /usr/share/wordlists/rockyou.txt; "
+                f"else echo 'NO_HASH_FILE: {hash_file}'; exit 2; fi"
             ),
             explanation="Uses John the Ripper and Hashcat to validate post-exploitation credential material when hashes are available."
         )
 
     def _generate_proof_of_compromise(self, params: Mapping[str, Any]) -> GeneratedCommand:
-        hash_file = str(params.get("hash_file") or params.get("loot_path") or "/tmp/loot.hashes").strip()
+        hash_file = str(params.get("hash_file") or params.get("loot_path") or "").strip()
+        if not hash_file:
+            proof_path = self._path_hint(params)
+            if proof_path:
+                proof_url = self._candidate_url({**dict(params), "endpoint": proof_path})
+                proof_label = proof_path if proof_path.startswith("/") else urlsplit(proof_url).path or proof_path
+                return GeneratedCommand(
+                    shell_command=(
+                        "python -c "
+                        + shlex.quote(
+                            "import urllib.request, urllib.error\n"
+                            f"url={json.dumps(proof_url)}\n"
+                            f"path={json.dumps(proof_label)}\n"
+                            "try:\n"
+                            "    req=urllib.request.Request(url, headers={'User-Agent':'XploitAI-Scanner/1.0'})\n"
+                            "    resp=urllib.request.urlopen(req, timeout=8)\n"
+                            "    body=resp.read(500).decode('utf-8','ignore').replace('\\n',' ')\n"
+                            "    print('POC_CHECK ['+str(resp.status)+'] '+path)\n"
+                            "    if resp.status < 400:\n"
+                            "        print('PROOF_FOUND: '+path+' => '+body[:220])\n"
+                            "    resp.close()\n"
+                            "except urllib.error.HTTPError as e:\n"
+                            "    print('POC_CHECK ['+str(e.code)+'] '+path)\n"
+                            "except Exception as e:\n"
+                            "    print('POC_ERROR: '+path+' => '+str(e))\n"
+                        )
+                    ),
+                    explanation=f"Verifies exposed proof path {proof_label} and records proof evidence."
+                )
+            context = build_target_context(self._target_url(params))
+            return GeneratedCommand(
+                shell_command=render_command_template(CANONICAL_TEMPLATES["ProofOfCompromise"], context),
+                explanation="Checks target proof paths because no captured credential hash file is available."
+            )
         safe_hash_file = shlex.quote(hash_file)
         return GeneratedCommand(
-            shell_command=f"john --show {safe_hash_file} || hashcat --show {safe_hash_file}",
+            shell_command=(
+                f"if [ -s {safe_hash_file} ]; then "
+                f"john --show {safe_hash_file} || hashcat --show {safe_hash_file}; "
+                f"else echo 'NO_HASH_FILE: {hash_file}'; exit 2; fi"
+            ),
             explanation="Uses post-exploitation password tooling to display recovered proof artifacts from captured credential material."
         )
 
@@ -478,10 +525,14 @@ class CommandGenerator:
 
     def _generate_parameter_discovery(self, params: Mapping[str, Any]) -> GeneratedCommand:
         url = self._target_url(params)
-        context = build_target_context(str(url))
+        safe_url = shlex.quote(str(url))
+        domain = self._target_domain(params)
+        dnsenum_cmd = ""
+        if domain and not self._is_ip_address(domain) and domain not in {"localhost"}:
+            dnsenum_cmd = f"dnsenum {shlex.quote(domain)} && "
         return GeneratedCommand(
-            shell_command=render_command_template(CANONICAL_TEMPLATES["ParameterDiscovery"], context),
-            explanation=f"Uses bounded Python HTTP probes to discover common parameter surface for {url}."
+            shell_command=f"{dnsenum_cmd}arjun -u {safe_url} --stable -oT /tmp/arjun-params.txt",
+            explanation=f"Uses dnsenum where applicable and Arjun to discover DNS and hidden parameter surface for {url}."
         )
 
     def _generate_vulnerability_scanning(self, params: Mapping[str, Any]) -> GeneratedCommand:

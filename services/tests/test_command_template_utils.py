@@ -4,9 +4,12 @@ from services.command_template_utils import (
     build_target_context,
     escape_non_placeholder_braces,
     infer_required_tools,
+    is_probable_shell_command,
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
+    split_chained_tool_command,
+    uses_placeholder_loot_path,
 )
 
 
@@ -82,3 +85,31 @@ class CommandTemplateUtilsTests(SimpleTestCase):
         tools = infer_required_tools("curl -s http://127.0.0.1:4280/ | jq '.'")
 
         self.assertEqual(tools, ["curl", "jq"])
+
+    def test_split_chained_tool_command_keeps_quoted_semicolons_intact(self):
+        command = (
+            "searchsploit PHP && "
+            "sqlmap -u 'http://127.0.0.1:4280/search?q=test' --batch && "
+            "msfconsole -q -x \"search 127.0.0.1; exit -y\""
+        )
+
+        parts = split_chained_tool_command(command)
+
+        self.assertEqual(len(parts), 3)
+        self.assertEqual(parts[0], "searchsploit PHP")
+        self.assertIn("sqlmap -u", parts[1])
+        self.assertIn('msfconsole -q -x "search 127.0.0.1; exit -y"', parts[2])
+
+    def test_is_probable_shell_command_rejects_plan_rationale_text(self):
+        self.assertTrue(is_probable_shell_command("searchsploit PHP"))
+        self.assertTrue(is_probable_shell_command("msfconsole -q -x \"search 127.0.0.1; exit -y\""))
+        self.assertFalse(
+            is_probable_shell_command(
+                "Access exposed /phpinfo.php to extract PHP configuration details for potential vulnerabilities."
+            )
+        )
+
+    def test_uses_placeholder_loot_path_detects_fake_hash_defaults(self):
+        self.assertTrue(uses_placeholder_loot_path("john --show /tmp/loot.hashes"))
+        self.assertTrue(uses_placeholder_loot_path("hashcat --show /tmp/loot.hashes"))
+        self.assertFalse(uses_placeholder_loot_path("john --show /tmp/real.hashes"))

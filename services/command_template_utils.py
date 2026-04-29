@@ -226,6 +226,121 @@ _TOOL_PATTERNS: tuple[tuple[str, str], ...] = (
 )
 
 
+def split_chained_tool_command(command: str) -> list[str]:
+    """
+    Split top-level shell command chains into independent tool invocations.
+
+    This intentionally only returns a split when the chain contains multiple
+    recognized external security tools. Inline Python snippets often contain
+    semicolons and must stay intact.
+    """
+    text = str(command or "").strip()
+    if not text:
+        return []
+
+    parts: list[str] = []
+    current: list[str] = []
+    quote = ""
+    escaped = False
+    i = 0
+
+    def flush() -> None:
+        part = "".join(current).strip()
+        if part:
+            parts.append(part)
+        current.clear()
+
+    while i < len(text):
+        ch = text[i]
+        if escaped:
+            current.append(ch)
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\":
+            current.append(ch)
+            escaped = True
+            i += 1
+            continue
+        if quote:
+            current.append(ch)
+            if ch == quote:
+                quote = ""
+            i += 1
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            current.append(ch)
+            i += 1
+            continue
+        if text.startswith("&&", i) or text.startswith("||", i):
+            flush()
+            i += 2
+            continue
+        if ch == ";":
+            flush()
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+
+    flush()
+    if len(parts) < 2:
+        return []
+
+    tool_parts = [
+        part
+        for part in parts
+        if infer_required_tools(part)
+    ]
+    if len(tool_parts) < 2:
+        return []
+    return parts
+
+
+def is_probable_shell_command(command: str) -> bool:
+    text = str(command or "").strip()
+    if not text:
+        return False
+    if "\n" in text:
+        first_line = text.splitlines()[0].strip()
+        if first_line and not is_probable_shell_command(first_line):
+            return False
+
+    first_token = text.split(maxsplit=1)[0].strip().strip("'\"").lower()
+    first_token = first_token.rsplit("/", 1)[-1]
+    shell_builtins = {
+        "bash",
+        "sh",
+        "python",
+        "python3",
+        "curl",
+        "wget",
+        "echo",
+        "cat",
+        "grep",
+        "sed",
+        "awk",
+        "printf",
+        "timeout",
+        "sudo",
+        "env",
+        "nc",
+        "netcat",
+    }
+    known_tools = {tool.lower() for tool, _ in _TOOL_PATTERNS}
+    if first_token in shell_builtins or first_token in known_tools:
+        return True
+    if first_token.endswith(".py"):
+        return True
+    return bool(re.match(r"^[A-Za-z_][\w.-]*=", first_token))
+
+
+def uses_placeholder_loot_path(command: str) -> bool:
+    text = str(command or "").lower()
+    return "/tmp/loot.hashes" in text and ("john" in text or "hashcat" in text)
+
+
 def escape_non_placeholder_braces(template: str) -> str:
     """
     Escape braces that belong to inline Python/JSON snippets so str.format()
@@ -280,31 +395,6 @@ def render_command_template(template: str, context: dict[str, str]) -> str:
     rendered = _KNOWN_PLACEHOLDER_RE.sub(replace, template)
     # Backward compatibility for templates previously escaped for str.format().
     return rendered.replace("{{", "{").replace("}}", "}")
-
-
-def bounded_alternative_command(action_name: str, command: str, context: dict[str, str]) -> str:
-    """
-    Return a bounded stdlib alternative for commands that are known to hang or
-    depend on heavyweight external tools.
-    """
-    action = str(action_name or "").strip()
-    command_text = str(command or "")
-    lowered = command_text.lower()
-    fallback_markers = {
-        "TechnologyFingerprint": ("whatweb",),
-        "EndpointDiscovery": ("dirsearch", "nmap", "nc ", "netcat"),
-        "ParameterDiscovery": ("arjun", "paramspider", "dnsenum"),
-        "VulnerabilityScanning": ("nikto", "nuclei", "wpscan"),
-        "SQLInjectionProbe": ("sqlmap",),
-    }
-    markers = fallback_markers.get(action)
-    if not markers or not any(marker in lowered for marker in markers):
-        return ""
-
-    template = CANONICAL_TEMPLATES.get(action)
-    if not template:
-        return ""
-    return render_command_template(template, context)
 
 
 def build_target_context(target: str) -> dict[str, str]:

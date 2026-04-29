@@ -18,6 +18,18 @@ def _normalize_host_target(target):
     parsed = urlsplit(raw if "://" in raw else f"//{raw}")
     return parsed.hostname or raw
 
+
+def _normalize_task_status(status, exit_code=None):
+    raw = str(status or "").strip().upper()
+    if raw == "COMPLETED":
+        return "COMPLETED"
+    if raw in {"FAILED", "TIMEOUT", "CANCELLED"}:
+        return "FAILED"
+    try:
+        return "COMPLETED" if int(exit_code) == 0 else "FAILED"
+    except (TypeError, ValueError):
+        return "FAILED"
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def heartbeat(request):
@@ -141,17 +153,20 @@ def report_result(request, task_id):
             
         try:
             task = ExecutionTask.objects.get(id=task_id)
-            task.status = data.get("status", "UNKNOWN")
+            exit_code = data.get("exit_code")
+            task.status = _normalize_task_status(data.get("status"), exit_code)
             stdout = data.get("stdout", "")
             stderr = data.get("stderr", "")
             task.output = {
-                "exit_code": data.get("exit_code"),
-                "stdout": stdout,
-                "stderr": stderr,
+                "exit_code": exit_code,
+                "returncode": exit_code,
+                "stdout": str(stdout or ""),
+                "stderr": str(stderr or ""),
                 "duration_seconds": data.get("duration_seconds", 0),
                 "artifacts": data.get("artifacts", []),
+                "remote_status": data.get("status"),
             }
-            task.error_message = data.get("error_message", "") or stderr
+            task.error_message = str(data.get("error_message", "") or stderr or "")
             task.save()
             
             return JsonResponse({"status": "recorded"})
@@ -183,9 +198,8 @@ def report_result_legacy(request):
             
         try:
             task = ExecutionTask.objects.get(id=task_id)
-            task.status = status
+            task.status = _normalize_task_status(status)
             task.output = output
-            task.completed_at = timezone.now()
             task.save()
             
             return JsonResponse({"status": "recorded"})

@@ -27,12 +27,14 @@ from core.levels import (
     parse_positive_int,
 )
 from services.command_template_utils import (
-    bounded_alternative_command,
     build_target_context,
     infer_required_tools,
+    is_probable_shell_command,
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
+    split_chained_tool_command,
+    uses_placeholder_loot_path,
 )
 from services.execution_failure_policy import is_terminal_command_failure
 from services.script_runtime import (
@@ -425,6 +427,32 @@ class ExecutionService:
 
         return True
 
+    def _run_command_parts(self, command: str, timeout_seconds: int) -> tuple[dict, list[str]]:
+        parts = split_chained_tool_command(command)
+        if not parts:
+            return self.command_runner(command, timeout_seconds=timeout_seconds), []
+
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        returncodes: list[int] = []
+        per_part_timeout = max(30, min(timeout_seconds, max(int(timeout_seconds / len(parts)), 30)))
+        for index, part in enumerate(parts, start=1):
+            logger.info("Executing chained command part %d/%d: %s", index, len(parts), part)
+            result = self.command_runner(part, timeout_seconds=per_part_timeout)
+            stdout_chunks.append(f"$ {part}\n{(result or {}).get('stdout', '')}")
+            stderr = (result or {}).get("stderr") or (result or {}).get("error") or ""
+            if stderr:
+                stderr_chunks.append(f"$ {part}\n{stderr}")
+            returncodes.append(int((result or {}).get("returncode", -1)))
+
+        any_success = any(code == 0 for code in returncodes)
+        return {
+            "stdout": "\n".join(stdout_chunks),
+            "stderr": "\n".join(stderr_chunks),
+            "returncode": 0 if any_success else (returncodes[-1] if returncodes else -1),
+            "part_returncodes": returncodes,
+        }, parts
+
     def _run_loop(self):
         """The main execution loop."""
         start_ts = time.time()
@@ -524,10 +552,54 @@ class ExecutionService:
             )
 
             try:
-                if locked_step_command:
+                if locked_step_command and uses_placeholder_loot_path(locked_step_command):
+                    logger.warning(
+                        "Ignoring placeholder loot command for '%s': %s",
+                        command_obj.name,
+                        locked_step_command,
+                    )
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                elif locked_step_command and is_probable_shell_command(locked_step_command):
                     command = locked_step_command
-                elif planned_command:
+                elif locked_step_command:
+                    logger.warning(
+                        "Ignoring non-shell resolved command for '%s': %s",
+                        command_obj.name,
+                        locked_step_command,
+                    )
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                elif planned_command and uses_placeholder_loot_path(planned_command):
+                    logger.warning(
+                        "Ignoring placeholder loot planned command for '%s': %s",
+                        command_obj.name,
+                        planned_command,
+                    )
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                elif planned_command and is_probable_shell_command(planned_command):
                     command = planned_command
+                elif planned_command:
+                    logger.warning(
+                        "Ignoring non-shell planned command for '%s': %s",
+                        command_obj.name,
+                        planned_command,
+                    )
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
                 else:
                     generated = self.command_generator.generate(
                         command_obj.name,
@@ -547,13 +619,6 @@ class ExecutionService:
                 return
 
             command = normalize_command_targets(command, command_parameters)
-            alternative_command = bounded_alternative_command(command_obj.name, command, sub_context)
-            if alternative_command:
-                logger.info(
-                    "Replacing potentially long-running command for '%s' with a bounded alternative.",
-                    command_obj.name,
-                )
-                command = alternative_command
             self._persist_step_command(command_obj.name, command)
             attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
             step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
@@ -594,10 +659,11 @@ class ExecutionService:
                     timeout_seconds=step_timeout_seconds,
                 )
 
-            result = script_result if script_result is not None else self.command_runner(
-                command,
-                timeout_seconds=step_timeout_seconds,
-            )
+            command_parts = []
+            if script_result is not None:
+                result = script_result
+            else:
+                result, command_parts = self._run_command_parts(command, step_timeout_seconds)
             final_status = "SUCCESS" if result and result.get("returncode") == 0 else "FAILED"
 
             if not result:
@@ -731,7 +797,7 @@ class ExecutionService:
                 stderr=stderr,
                 findings=persisted_findings,
                 exit_code=result.get("returncode") if isinstance(result, dict) else None,
-                metadata={"execution_mode": self.execution_mode},
+                metadata={"execution_mode": self.execution_mode, "command_parts": command_parts},
             )
 
             self.state_manager.record_action(

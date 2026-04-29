@@ -42,7 +42,9 @@ class ExecutorDaemon:
     # Security Allowlist
     ALLOWED_COMMANDS = {
         "nmap", "echo", "whois", "nslookup", "dig", "ping", "nc", "netcat",
-        "curl", "whatweb", "wget", "nikto", "gobuster"
+        "curl", "whatweb", "wget", "nikto", "gobuster", "python", "python3",
+        "sqlmap", "searchsploit", "msfconsole", "dirsearch", "arjun", "nuclei",
+        "wpscan", "hydra", "john", "hashcat"
     }
 
     def __init__(self, api_url: str, poll_interval: int = 5, max_backoff: int = 60):
@@ -287,7 +289,7 @@ class ExecutorDaemon:
             "error_message": result.error_message
         }
 
-        url = f"{self.api_url}/api/executor/tasks/{result.task_id}/result"
+        url = f"{self.api_url}/api/executor/tasks/{result.task_id}/result/"
         resp = self.session.post(url, json=payload, timeout=10)
         resp.raise_for_status()
         logger.info(f"Result for Task {result.task_id} submitted successfully.")

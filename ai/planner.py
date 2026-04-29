@@ -666,7 +666,17 @@ class AIPlanner:
         proofs = findings.get("proof_of_compromise") if isinstance(findings.get("proof_of_compromise"), list) else []
         if proofs and isinstance(proofs[0], dict):
             enriched.setdefault("proof_path", proofs[0].get("path") or "")
-            enriched.setdefault("loot_path", proofs[0].get("path") or "")
+
+        exposed_paths = findings.get("exposed_paths") if isinstance(findings.get("exposed_paths"), list) else []
+        for exposed in exposed_paths:
+            if not isinstance(exposed, dict):
+                continue
+            path = str(exposed.get("path") or "").strip()
+            evidence = f"{path} {exposed.get('evidence', '')}".lower()
+            if path and any(marker in evidence for marker in ("phpinfo", "php version", "configuration", "server api")):
+                enriched.setdefault("proof_path", path)
+                enriched.setdefault("proof_evidence", exposed.get("evidence") or "")
+                break
 
         if findings.get("proof_summary"):
             enriched.setdefault("evidence_tag", str(findings.get("proof_summary")))
@@ -744,6 +754,7 @@ class AIPlanner:
             DEFAULT_STEP_RETRY_COOLDOWN_SECONDS,
         )
         enriched_parameters = self._enrich_step_parameters(attack_state, step.action_type, step.parameters)
+        enriched_parameters.setdefault("step_rationale", step.rationale)
         resolved_command, resolved_tools, command_id = self._render_step_command(
             attack_state,
             step.action_type,
@@ -761,7 +772,6 @@ class AIPlanner:
             script_content = self._default_script_content(step.action_type, step.parameters)
 
         artifact_refs = list(getattr(step, "artifact_refs", None) or [])
-        enriched_parameters.setdefault("step_rationale", step.rationale)
         return {
             "step_number": step.step_number,
             "action_type": step.action_type,

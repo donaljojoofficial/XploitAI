@@ -41,7 +41,7 @@ def is_meaningful_action_success(action_name: str, findings: dict, stdout: str) 
         return bool(findings.get("valid_credentials") or findings.get("session_cookies"))
 
     if action_name == "ProofOfCompromise":
-        return bool(findings.get("proof_of_compromise"))
+        return bool(findings.get("proof_of_compromise") or _has_exposed_proof_evidence(findings))
     if action_name == "PayloadGeneration":
         return bool(findings.get("payload_generated"))
     if action_name == "ExploitScriptGeneration":
@@ -85,7 +85,23 @@ def has_attack_completion_evidence(findings: dict) -> bool:
         or findings.get("valid_credentials")
         or findings.get("session_cookies")
         or findings.get("sqli_signals")
+        or _has_exposed_proof_evidence(findings)
     )
+
+
+def _has_exposed_proof_evidence(findings: dict) -> bool:
+    exposed = findings.get("exposed_paths")
+    if not isinstance(exposed, list):
+        return False
+    proof_markers = ("phpinfo", "php version", "configuration", "server api", "loaded configuration")
+    for item in exposed:
+        if isinstance(item, dict):
+            text = f"{item.get('path', '')} {item.get('evidence', '')}".lower()
+        else:
+            text = str(item or "").lower()
+        if any(marker in text for marker in proof_markers):
+            return True
+    return False
 
 def parse_output(action_name: str, output: str) -> dict:
     """
@@ -171,6 +187,8 @@ def parse_output(action_name: str, output: str) -> dict:
             findings["redirect_targets"] = [target.strip() for target in redirects]
 
     elif action_name == "ProofOfCompromise":
+        if "NO_HASH_FILE:" in (output or "") or "NO_CREDENTIAL_LOOT:" in (output or ""):
+            findings["missing_credential_loot"] = True
         proofs = re.findall(r"PROOF_FOUND:\s*([^\s]+)\s*=>\s*([^\r\n]+)", output)
         proof_summary = re.search(r"PROOF_SUMMARY:\s*([^\r\n]+)", output)
         if proofs:

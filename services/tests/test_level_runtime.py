@@ -2,7 +2,6 @@ from django.test import TestCase
 
 from core.models import AttackState
 from services.execution_service import ExecutionService
-from services.command_template_utils import bounded_alternative_command, build_target_context
 from services.execution_failure_policy import is_terminal_command_failure
 from services.tool_preflight import TOOL_PREFLIGHT_STATE_KEY
 
@@ -143,14 +142,3 @@ class LevelRuntimeTests(TestCase):
         }
 
         self.assertTrue(is_terminal_command_failure(result, result["stderr"]))
-
-    def test_arjun_command_gets_bounded_parameter_discovery_alternative(self):
-        context = build_target_context("http://127.0.0.1:4280/")
-        alternative = bounded_alternative_command(
-            "ParameterDiscovery",
-            "arjun -u http://127.0.0.1:4280/ --stable -oT /tmp/arjun-params.txt",
-            context,
-        )
-
-        self.assertIn("urllib.request", alternative)
-        self.assertNotIn("arjun", alternative.lower())

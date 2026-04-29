@@ -166,7 +166,7 @@ class LevelStartContractTests(TestCase):
         launch_assessment.assert_called_once()
 
     @patch("dashboard.views._launch_assessment")
-    def test_start_attack_skips_completed_requested_phase_to_next_uncompleted_phase(self, launch_assessment):
+    def test_start_attack_allows_overriding_completed_requested_phase(self, launch_assessment):
         state = AttackState.objects.create(
             name="Completed Recon Test",
             current_phase="discovery",
@@ -191,9 +191,10 @@ class LevelStartContractTests(TestCase):
 
         state.refresh_from_db()
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(state.current_phase, "discovery")
-        self.assertEqual(state.state_data.get("start_phase"), "discovery")
+        self.assertEqual(state.current_phase, "reconnaissance")
+        self.assertEqual(state.state_data.get("start_phase"), "reconnaissance")
         self.assertEqual(state.state_data.get("requested_start_phase"), "reconnaissance")
+        self.assertFalse(state.state_data.get("plan_approved"))
         launch_assessment.assert_called_once()
 
     @patch("dashboard.views._launch_assessment")
@@ -232,7 +233,8 @@ class LevelStartContractTests(TestCase):
 
         state.refresh_from_db()
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(state.current_phase, "vulnerability_analysis")
-        self.assertEqual(state.state_data.get("start_phase"), "vulnerability_analysis")
+        self.assertEqual(state.current_phase, "discovery")
+        self.assertEqual(state.state_data.get("start_phase"), "discovery")
         self.assertEqual(state.state_data.get("level_history", [])[1]["phase"], "discovery")
+        self.assertFalse(state.state_data.get("plan_approved"))
         launch_assessment.assert_called_once()

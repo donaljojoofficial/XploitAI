@@ -20,6 +20,12 @@ class CommandGeneratorTests(SimpleTestCase):
         sqli = generator.generate("SQLInjectionProbe", {"target_url": "http://127.0.0.1:4280/"})
         exploit = generator.generate("ExploitAttempt", {"target_url": "http://127.0.0.1:4280/", "tech": "php"})
         post = generator.generate("ProofOfCompromise", {"hash_file": "/tmp/example.hash"})
+        proof_without_hash = generator.generate("ProofOfCompromise", {"target_url": "http://127.0.0.1:4280/"})
+        proof_from_phpinfo = generator.generate(
+            "ProofOfCompromise",
+            {"target_url": "http://127.0.0.1:4280/", "proof_path": "/phpinfo.php"},
+        )
+        privesc_without_hash = generator.generate("PrivilegeEscalation", {"target_url": "http://127.0.0.1:4280/"})
 
         self.assertIn("whois", recon.shell_command)
         self.assertIn("dig", recon.shell_command)
@@ -34,6 +40,12 @@ class CommandGeneratorTests(SimpleTestCase):
         self.assertIn("searchsploit", exploit.shell_command)
         self.assertIn("msfconsole", exploit.shell_command)
         self.assertIn("john", post.shell_command)
+        self.assertIn("if [ -s /tmp/example.hash ]", post.shell_command)
+        self.assertIn("PROOF_FOUND", proof_without_hash.shell_command)
+        self.assertIn("http://127.0.0.1:4280/phpinfo.php", proof_from_phpinfo.shell_command)
+        self.assertIn("PROOF_FOUND", proof_from_phpinfo.shell_command)
+        self.assertIn("NO_CREDENTIAL_LOOT", privesc_without_hash.shell_command)
+        self.assertNotIn("/tmp/loot.hashes", privesc_without_hash.shell_command)
 
     def test_vulnerability_scanning_uses_path_hint_from_step_rationale(self):
         generator = CommandGenerator(use_llm=False, llm_provider="auto")

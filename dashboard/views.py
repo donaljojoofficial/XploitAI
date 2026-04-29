@@ -44,6 +44,7 @@ from services.tool_preflight import TOOL_PREFLIGHT_STATE_KEY, build_tool_preflig
 from services.command_template_utils import (
     build_target_context,
     infer_required_tools,
+    is_probable_shell_command,
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
@@ -413,7 +414,7 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
             try:
                 step_context = {**target_context, **(item.get("parameters") or {})}
                 actual_command = item.get("resolved_command") or latest_attempt.get("command")
-                if actual_command:
+                if actual_command and is_probable_shell_command(actual_command):
                     item["command_preview"] = actual_command
                     item["command_preview_source"] = "executor"
                 else:
@@ -700,12 +701,7 @@ def _resolve_restart_phase(state: AttackState, requested_phase: str) -> str:
     if normalized_requested not in ordered_phases:
         normalized_requested = "reconnaissance"
 
-    completed = _completed_phase_keys_for_state(state)
-    start_index = ordered_phases.index(normalized_requested)
-    for phase_key in ordered_phases[start_index:]:
-        if phase_key not in completed:
-            return phase_key
-    return ordered_phases[-1] if ordered_phases else normalized_requested
+    return normalized_requested
 
 
 def _prune_completed_commands_for_restart(completed_commands: list[Any], restart_phase: str) -> list[int]:
@@ -1335,7 +1331,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
             list(state_data.get("completed_commands") or []),
             restart_phase,
         )
-        state_data["plan_approved"] = True
+        state_data["plan_approved"] = False
         state.current_phase = restart_phase
         state.autonomy_status = "IDLE"
         state.stop_reason = f"Restarting test {state_data['test_uid']} from phase '{restart_phase}'."
