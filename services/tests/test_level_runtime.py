@@ -2,6 +2,9 @@ from django.test import TestCase
 
 from core.models import AttackState
 from services.execution_service import ExecutionService
+from services.command_template_utils import bounded_alternative_command, build_target_context
+from services.execution_failure_policy import is_terminal_command_failure
+from services.tool_preflight import TOOL_PREFLIGHT_STATE_KEY
 
 
 class LevelRuntimeTests(TestCase):
@@ -106,3 +109,48 @@ class LevelRuntimeTests(TestCase):
         )
 
         self.assertEqual(timeout_seconds, 300)
+
+    def test_tool_preflight_runs_and_records_result(self):
+        state = self._make_state()
+        state.state_data = {
+            TOOL_PREFLIGHT_STATE_KEY: {
+                "enabled": True,
+                "status": "pending",
+            }
+        }
+        state.save(update_fields=["state_data"])
+        service = ExecutionService(attack_state_id=state.id, llm_provider="local")
+        calls = []
+
+        def fake_runner(command, timeout_seconds=120):
+            calls.append((command, timeout_seconds))
+            return {"stdout": "installed", "stderr": "", "returncode": 0}
+
+        service.command_runner = fake_runner
+
+        self.assertTrue(service._run_tool_preflight_if_requested())
+        state.refresh_from_db()
+        preflight = state.state_data[TOOL_PREFLIGHT_STATE_KEY]
+        self.assertEqual(preflight["status"], "completed")
+        self.assertEqual(preflight["returncode"], 0)
+        self.assertIn("apt-get install", calls[0][0])
+
+    def test_timeout_failures_do_not_retry_same_command(self):
+        result = {
+            "error": "TimeoutExpired",
+            "stderr": "Command timed out after 240s.",
+            "returncode": -1,
+        }
+
+        self.assertTrue(is_terminal_command_failure(result, result["stderr"]))
+
+    def test_arjun_command_gets_bounded_parameter_discovery_alternative(self):
+        context = build_target_context("http://127.0.0.1:4280/")
+        alternative = bounded_alternative_command(
+            "ParameterDiscovery",
+            "arjun -u http://127.0.0.1:4280/ --stable -oT /tmp/arjun-params.txt",
+            context,
+        )
+
+        self.assertIn("urllib.request", alternative)
+        self.assertNotIn("arjun", alternative.lower())

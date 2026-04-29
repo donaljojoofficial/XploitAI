@@ -20,6 +20,7 @@ import logging
 import uuid
 from copy import deepcopy
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from django.shortcuts import render, get_object_or_404, redirect
@@ -39,6 +40,7 @@ from services.execution_service import ExecutionService
 from services.remote_execution_service import RemoteExecutionService
 from services.ssh_execution_service import SSHExecutionService
 from services.reporting_service import AttackReportService
+from services.tool_preflight import TOOL_PREFLIGHT_STATE_KEY, build_tool_preflight_state
 from services.command_template_utils import (
     build_target_context,
     infer_required_tools,
@@ -63,9 +65,36 @@ from core.levels import (
     previous_dashboard_phase,
 )
 from ai.llm.groq_adapter import GroqAdapter
+from state.state_manager import StateManager
 
 logger = logging.getLogger(__name__)
 EXECUTOR_HEARTBEAT_THRESHOLD_SECONDS = 30
+
+
+def _delete_attack_runtime_state_file(state_id: int) -> None:
+    try:
+        path = Path(StateManager(state_id).json_store.path)
+        if path.exists() and path.is_file():
+            path.unlink()
+    except Exception as exc:
+        logger.warning("Unable to remove runtime state file for AttackState %s: %s", state_id, exc)
+
+
+def _delete_attack_states(states) -> int:
+    state_ids = list(states.values_list("id", flat=True))
+    if not state_ids:
+        return 0
+
+    action_ids = list(Action.objects.filter(attack_state_id__in=state_ids).values_list("id", flat=True))
+    if action_ids:
+        ExecutionTask.objects.filter(action_id__in=action_ids).delete()
+
+    for state_id in state_ids:
+        _delete_attack_runtime_state_file(state_id)
+
+    deleted_count = len(state_ids)
+    AttackState.objects.filter(id__in=state_ids).delete()
+    return deleted_count
 
 def _normalize_phase_key(value: Any) -> str:
     return dashboard_phase_key(value)
@@ -519,6 +548,7 @@ def _build_phase_cards(state: AttackState | None) -> dict[str, Any]:
     start_phase = _normalize_phase_key((state.state_data or {}).get("start_phase") or state.current_phase)
     start_phase_idx = dashboard_phase_index(start_phase)
     current_phase_key = _normalize_phase_key((state.current_plan or {}).get("phase") or state.current_phase)
+    completed_phase_keys = _completed_phase_keys_for_state(state)
     phases_by_key = {
         _normalize_phase_key(item.get("phase")): item
         for item in history.get("phases", [])
@@ -534,6 +564,8 @@ def _build_phase_cards(state: AttackState | None) -> dict[str, Any]:
         is_started = bool(payload) or is_current
         is_skipped_by_start = start_phase_idx > -1 and dashboard_phase_index(phase_key) < start_phase_idx
         status = _phase_badge_status(state, phase_key, {**payload, "summary": summary, "is_current": is_current})
+        if phase_key in completed_phase_keys and not is_current:
+            status = "completed"
         if phase_key == "completed" and state.autonomy_status == "STOPPED" and "plan completed" in str(state.stop_reason or "").lower():
             status = "completed"
         if is_current and state.autonomy_status == "STOPPED" and summary.get("failed") and _is_failed_stop_reason(state.stop_reason):
@@ -614,6 +646,8 @@ def _build_phase_detail_payload(state: AttackState, phase_key: str) -> dict[str,
         "source": "",
     }
     selected["status"] = _phase_badge_status(state, normalized_phase, {"summary": selected.get("summary", {}), "is_current": is_current, "source": selected.get("source")})
+    if normalized_phase in _completed_phase_keys_for_state(state) and not is_current:
+        selected["status"] = "completed"
     if is_current and state.autonomy_status == "STOPPED" and selected.get("summary", {}).get("failed") and _is_failed_stop_reason(state.stop_reason):
         selected["status"] = "failed"
     selected["is_current"] = is_current
@@ -1199,6 +1233,27 @@ def test_history(request: HttpRequest) -> HttpResponse:
 
 @login_required(login_url='login')
 @require_POST
+def delete_test_history_item(request: HttpRequest, pk: int) -> HttpResponse:
+    state = get_object_or_404(AttackState, pk=pk)
+    deleted_name = state.name
+    _delete_attack_states(AttackState.objects.filter(pk=pk))
+    messages.success(request, f"Deleted test run '{deleted_name}'.")
+    return redirect('dashboard_test_history')
+
+
+@login_required(login_url='login')
+@require_POST
+def delete_all_test_history(request: HttpRequest) -> HttpResponse:
+    deleted_count = _delete_attack_states(AttackState.objects.all())
+    if deleted_count:
+        messages.success(request, f"Deleted {deleted_count} test run(s).")
+    else:
+        messages.info(request, "No test runs were available to delete.")
+    return redirect('dashboard_test_history')
+
+
+@login_required(login_url='login')
+@require_POST
 def start_attack(request: HttpRequest) -> HttpResponse:
     """
     Handles the 'Start Autonomous Attack' trigger from the dashboard.
@@ -1211,6 +1266,12 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     requested_start_phase = normalize_phase_name(request.POST.get("start_phase") or "reconnaissance")
     start_phase = requested_start_phase if is_valid_dashboard_phase(requested_start_phase, executable_only=True) else "reconnaissance"
     progression_mode = (request.POST.get("progression_mode", "manual") or "manual").strip().lower()
+    install_recommended_tools = str(request.POST.get("install_recommended_tools") or "").lower() in {
+        "1",
+        "on",
+        "true",
+        "yes",
+    }
     runtime_profile = build_runtime_profile(
         {
             "max_retries": request.POST.get("max_retries"),
@@ -1265,6 +1326,10 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         state_data["progression_mode"] = progression_mode if progression_mode in {"manual"} else "manual"
         state_data["plan_command_lock"] = True
         state_data["runtime_profile"] = runtime_profile
+        if install_recommended_tools:
+            state_data[TOOL_PREFLIGHT_STATE_KEY] = build_tool_preflight_state(True)
+        else:
+            state_data.pop(TOOL_PREFLIGHT_STATE_KEY, None)
         state_data["test_uid"] = state_data.get("test_uid") or f"test-{state.id}"
         state_data["completed_commands"] = _prune_completed_commands_for_restart(
             list(state_data.get("completed_commands") or []),
@@ -1301,6 +1366,11 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                     "script_artifacts": [],
                     "report_artifacts": [],
                     "last_report_status": "idle",
+                    **(
+                        {TOOL_PREFLIGHT_STATE_KEY: build_tool_preflight_state(True)}
+                        if install_recommended_tools
+                        else {}
+                    ),
                 },
             )
         else:
@@ -1323,6 +1393,11 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                     "script_artifacts": [],
                     "report_artifacts": [],
                     "last_report_status": "idle",
+                    **(
+                        {TOOL_PREFLIGHT_STATE_KEY: build_tool_preflight_state(True)}
+                        if install_recommended_tools
+                        else {}
+                    ),
                 },
             )
         if not isinstance(state.state_data, dict):

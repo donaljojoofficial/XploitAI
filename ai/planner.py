@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from copy import deepcopy
+from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
 
 from services.command_template_utils import (
@@ -601,7 +602,11 @@ class AIPlanner:
 
     def _merged_attack_findings(self, attack_state) -> dict:
         state_data = attack_state.state_data if isinstance(attack_state.state_data, dict) else {}
-        merged = dict(state_data.get("findings") or {})
+        try:
+            current_state = StateManager(attack_state.id).get_current_state_for_planner()
+            merged = dict(current_state.get("findings") or {})
+        except Exception:
+            merged = dict(state_data.get("findings") or {})
         history = state_data.get("level_history") or state_data.get("phase_reviews") or []
         if isinstance(history, list):
             for item in history:
@@ -1085,6 +1090,27 @@ class AIPlanner:
         )
         return Plan(steps=supplemented_steps, rationale=rationale)
 
+    def _dedupe_plan_steps(self, plan: Optional[Plan]) -> Optional[Plan]:
+        if not plan or not plan.steps:
+            return plan
+
+        seen_actions: set[str] = set()
+        deduped_steps: list[PlanStep] = []
+        for step in plan.steps:
+            action_name = getattr(step, "action_type", None)
+            normalized = self._normalize_command_name(action_name or "")
+            if not normalized:
+                continue
+            if normalized in seen_actions:
+                logger.info("Dropping duplicate plan step for action '%s'.", action_name)
+                continue
+            seen_actions.add(normalized)
+            deduped_steps.append(replace(step, step_number=len(deduped_steps) + 1))
+
+        if not deduped_steps:
+            return None
+        return Plan(steps=deduped_steps, rationale=plan.rationale)
+
     def _recover_phase_plan(
         self,
         decision_input: DecisionInput,
@@ -1145,8 +1171,9 @@ class AIPlanner:
             logger.warning("AIPlanner has no AI planning adapter available.")
             return False
 
+        current_state = StateManager(attack_state.id).get_current_state_for_planner()
         known_services: List[KnownService] = []
-        target = (attack_state.state_data or {}).get("target")
+        target = current_state.get("target") or (attack_state.state_data or {}).get("target")
         if target:
             known_services.append(
                 KnownService(
@@ -1161,7 +1188,7 @@ class AIPlanner:
             known_services=known_services,
             past_actions=[],
             available_commands=available_command_metadata,
-            findings=(attack_state.state_data or {}).get("findings", {}),
+            findings=current_state.get("findings", {}),
         )
         plan_task_key = self._plan_task_key(
             phase=phase or attack_state.current_phase,
@@ -1191,6 +1218,11 @@ class AIPlanner:
                 self.last_plan_error = "AI provider did not return a valid plan with steps."
                 return False
 
+        plan = self._dedupe_plan_steps(plan)
+        if not plan or not plan.steps:
+            self.last_plan_error = "AI provider returned only duplicate or invalid plan steps."
+            return False
+
         if len(plan.steps) < minimum_steps:
             logger.warning(
                 "AIPlanner received only %d step(s) for phase '%s'; supplementing to reach %d.",
@@ -1207,6 +1239,17 @@ class AIPlanner:
                 self.last_plan_error = (
                     f"AI provider returned an incomplete plan with only {len((plan.steps if plan else []) or [])} steps; "
                     f"expected at least {minimum_steps} for this attack."
+                )
+                logger.warning(self.last_plan_error)
+                return False
+            plan = self._dedupe_plan_steps(plan)
+            if not plan or not plan.steps:
+                self.last_plan_error = "Recovered plan contained only duplicate or invalid steps."
+                return False
+            if len(plan.steps) < minimum_steps:
+                self.last_plan_error = (
+                    f"Recovered plan still has only {len(plan.steps)} unique step(s); "
+                    f"expected at least {minimum_steps}."
                 )
                 logger.warning(self.last_plan_error)
                 return False

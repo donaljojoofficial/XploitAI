@@ -27,16 +27,25 @@ from core.levels import (
     parse_positive_int,
 )
 from services.command_template_utils import (
+    bounded_alternative_command,
     build_target_context,
     infer_required_tools,
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
 )
+from services.execution_failure_policy import is_terminal_command_failure
 from services.script_runtime import (
     append_script_artifact,
     build_script_artifact,
     is_script_step,
+)
+from services.tool_preflight import (
+    RECOMMENDED_TOOL_INSTALL_COMMAND,
+    TOOL_PREFLIGHT_TIMEOUT_SECONDS,
+    command_result_summary,
+    should_run_tool_preflight,
+    update_tool_preflight_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -356,6 +365,7 @@ class ExecutionService:
         attack_state.current_phase = next_phase
         attack_state.current_plan = {}
         attack_state.save(update_fields=["state_data", "current_phase", "current_plan"])
+        self.state_manager.record_phase_review(current_phase, review_item)
 
         plan_ready = self.planner.ensure_initial_plan(self.state_manager)
         attack_state.refresh_from_db()
@@ -381,10 +391,48 @@ class ExecutionService:
         thread.start()
         logger.info("Started %s execution loop for AttackState %s", self.execution_mode, self.attack_state_id)
 
+    def _run_tool_preflight_if_requested(self) -> bool:
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        if not should_run_tool_preflight(attack_state.state_data if isinstance(attack_state.state_data, dict) else {}):
+            return True
+
+        logger.info("Running recommended tool installation preflight for AttackState %s", self.attack_state_id)
+        update_tool_preflight_state(attack_state, status="running")
+        AttackState.objects.filter(id=self.attack_state_id).update(
+            stop_reason="Installing recommended phase tools before test commands..."
+        )
+
+        result = self.command_runner(
+            RECOMMENDED_TOOL_INSTALL_COMMAND,
+            timeout_seconds=TOOL_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        summary = command_result_summary(result)
+        success = bool(result and result.get("returncode") == 0)
+
+        attack_state.refresh_from_db()
+        update_tool_preflight_state(
+            attack_state,
+            status="completed" if success else "failed",
+            **summary,
+        )
+
+        if not success:
+            self.stop_assessment(
+                "Recommended tool installation failed before test commands. "
+                "Use a Kali/Debian executor with apt-get and passwordless sudo, or start again without the install option."
+            )
+            return False
+
+        return True
+
     def _run_loop(self):
         """The main execution loop."""
         start_ts = time.time()
         attack_state = AttackState.objects.get(id=self.attack_state_id)
+
+        if not self._run_tool_preflight_if_requested():
+            return
+        attack_state.refresh_from_db()
 
         if not (attack_state.current_plan or {}).get("steps"):
             AttackState.objects.filter(id=self.attack_state_id).update(
@@ -499,6 +547,13 @@ class ExecutionService:
                 return
 
             command = normalize_command_targets(command, command_parameters)
+            alternative_command = bounded_alternative_command(command_obj.name, command, sub_context)
+            if alternative_command:
+                logger.info(
+                    "Replacing potentially long-running command for '%s' with a bounded alternative.",
+                    command_obj.name,
+                )
+                command = alternative_command
             self._persist_step_command(command_obj.name, command)
             attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
             step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
@@ -551,6 +606,7 @@ class ExecutionService:
 
             stdout = result.get("stdout", "")
             stderr = result.get("stderr", "")
+            terminal_failure = is_terminal_command_failure(result, stderr)
             findings = parse_output(command_obj.name, stdout) or {}
             findings = merge_findings(
                 findings,
@@ -563,7 +619,10 @@ class ExecutionService:
             )
             if findings:
                 logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
-                self.state_manager.update_state_with_findings(findings)
+                self.state_manager.update_state_with_findings(
+                    findings,
+                    phase_name=current_state.get("current_phase"),
+                )
 
             if final_status == "SUCCESS":
                 final_status = (
@@ -571,6 +630,7 @@ class ExecutionService:
                     if is_meaningful_action_success(command_obj.name, findings, stdout)
                     else "FAILED"
                 )
+            semantic_no_evidence = bool(result.get("returncode") == 0 and final_status != "SUCCESS")
 
             should_retry = False
             scheduled_retry_count = 0
@@ -580,7 +640,7 @@ class ExecutionService:
             if step_state and final_status != "SUCCESS":
                 max_retries, retry_cooldown = self._get_retry_config(step_state)
                 retries_used = int(step_state.get("command_retry_count") or 0)
-                should_retry = retries_used < max_retries
+                should_retry = (not terminal_failure) and (not semantic_no_evidence) and retries_used < max_retries
                 if should_retry:
                     scheduled_retry_count = 1
                     next_retry_at = time.time() + float(retry_cooldown)
@@ -589,6 +649,16 @@ class ExecutionService:
                         command_obj.name,
                         retries_used + 1,
                         max_retries,
+                    )
+                elif terminal_failure:
+                    logger.info(
+                        "Command '%s' failed terminally; skipping retries and asking for an alternative.",
+                        command_obj.name,
+                    )
+                elif semantic_no_evidence:
+                    logger.info(
+                        "Command '%s' completed without useful evidence; asking for an alternative.",
+                        command_obj.name,
                     )
 
             self._update_step_execution_state(
@@ -649,6 +719,19 @@ class ExecutionService:
                 stdout=stdout,
                 stderr=stderr,
                 findings=persisted_findings,
+            )
+            self.state_manager.record_phase_output(
+                current_state.get("current_phase") or attack_state.current_phase,
+                action_name=command_obj.name,
+                status=final_status,
+                command=command,
+                command_id=command_id,
+                target=target,
+                stdout=stdout,
+                stderr=stderr,
+                findings=persisted_findings,
+                exit_code=result.get("returncode") if isinstance(result, dict) else None,
+                metadata={"execution_mode": self.execution_mode},
             )
 
             self.state_manager.record_action(

@@ -282,6 +282,31 @@ def render_command_template(template: str, context: dict[str, str]) -> str:
     return rendered.replace("{{", "{").replace("}}", "}")
 
 
+def bounded_alternative_command(action_name: str, command: str, context: dict[str, str]) -> str:
+    """
+    Return a bounded stdlib alternative for commands that are known to hang or
+    depend on heavyweight external tools.
+    """
+    action = str(action_name or "").strip()
+    command_text = str(command or "")
+    lowered = command_text.lower()
+    fallback_markers = {
+        "TechnologyFingerprint": ("whatweb",),
+        "EndpointDiscovery": ("dirsearch", "nmap", "nc ", "netcat"),
+        "ParameterDiscovery": ("arjun", "paramspider", "dnsenum"),
+        "VulnerabilityScanning": ("nikto", "nuclei", "wpscan"),
+        "SQLInjectionProbe": ("sqlmap",),
+    }
+    markers = fallback_markers.get(action)
+    if not markers or not any(marker in lowered for marker in markers):
+        return ""
+
+    template = CANONICAL_TEMPLATES.get(action)
+    if not template:
+        return ""
+    return render_command_template(template, context)
+
+
 def build_target_context(target: str) -> dict[str, str]:
     """
     Derive URL/host/domain placeholders from the persisted target value.

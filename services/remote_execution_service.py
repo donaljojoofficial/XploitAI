@@ -25,17 +25,26 @@ from parser.output_parser import (
     parse_output,
 )
 from services.command_template_utils import (
+    bounded_alternative_command,
     build_target_context,
     infer_required_tools,
     normalize_command_targets,
     normalize_command_template,
     render_command_template,
 )
+from services.execution_failure_policy import is_terminal_command_failure
 from services.script_runtime import (
     append_script_artifact,
     build_remote_script_command,
     build_script_artifact,
     is_script_step,
+)
+from services.tool_preflight import (
+    RECOMMENDED_TOOL_INSTALL_COMMAND,
+    TOOL_PREFLIGHT_TIMEOUT_SECONDS,
+    command_result_summary,
+    should_run_tool_preflight,
+    update_tool_preflight_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,6 +361,7 @@ class RemoteExecutionService:
         attack_state.current_phase = next_phase
         attack_state.current_plan = {}
         attack_state.save(update_fields=["state_data", "current_phase", "current_plan"])
+        self.state_manager.record_phase_review(current_phase, review_item)
 
         plan_ready = self.planner.ensure_initial_plan(self.state_manager)
         attack_state.refresh_from_db()
@@ -376,10 +386,87 @@ class RemoteExecutionService:
         thread.start()
         logger.info(f"Started remote execution loop for AttackState {self.attack_state_id}")
 
+    def _run_tool_preflight_if_requested(self) -> bool:
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        if not should_run_tool_preflight(attack_state.state_data if isinstance(attack_state.state_data, dict) else {}):
+            return True
+
+        logger.info("Queueing recommended tool installation preflight for AttackState %s", self.attack_state_id)
+        update_tool_preflight_state(attack_state, status="running")
+        AttackState.objects.filter(id=self.attack_state_id).update(
+            stop_reason="Installing recommended phase tools on remote executor before test commands..."
+        )
+
+        task = ExecutionTask.objects.create(
+            action_name="ToolInstallPreflight",
+            action=None,
+            parameters={
+                "command": RECOMMENDED_TOOL_INSTALL_COMMAND,
+                "target": "",
+                "reasoning": "Install recommended tools before running any generated phase commands.",
+                "required_tools": ["apt-get", "sudo"],
+                "execution_type": "command",
+                "limits": {
+                    "timeout": TOOL_PREFLIGHT_TIMEOUT_SECONDS,
+                    "max_retries": 0,
+                    "retry_cooldown_seconds": 0,
+                },
+            },
+            status="PENDING",
+            requires_approval=False,
+        )
+
+        result = self._wait_for_task_completion(task, timeout=TOOL_PREFLIGHT_TIMEOUT_SECONDS + 20)
+        if not result:
+            attack_state.refresh_from_db()
+            update_tool_preflight_state(
+                attack_state,
+                status="failed",
+                task_id=task.id,
+                returncode=-1,
+                stdout_excerpt="",
+                stderr_excerpt="Recommended tool installation task timed out.",
+            )
+            self.stop_assessment("Recommended tool installation task timed out before test commands.")
+            return False
+
+        if isinstance(result.output, dict):
+            output = result.output
+            summary = command_result_summary(output)
+            success = result.status == "COMPLETED" and output.get("returncode", 0) == 0
+        else:
+            summary = {
+                "returncode": 0 if result.status == "COMPLETED" else 1,
+                "stdout_excerpt": str(result.output or "")[-4000:],
+                "stderr_excerpt": str(result.error_message or "")[-4000:],
+            }
+            success = result.status == "COMPLETED"
+
+        attack_state.refresh_from_db()
+        update_tool_preflight_state(
+            attack_state,
+            status="completed" if success else "failed",
+            task_id=task.id,
+            **summary,
+        )
+
+        if not success:
+            self.stop_assessment(
+                "Recommended tool installation failed before test commands. "
+                "Use a Kali/Debian executor with apt-get and passwordless sudo, or start again without the install option."
+            )
+            return False
+
+        return True
+
     def _run_loop(self):
         """The main remote execution loop."""
         start_ts = time.time()
         attack_state = AttackState.objects.get(id=self.attack_state_id)
+
+        if not self._run_tool_preflight_if_requested():
+            return
+        attack_state.refresh_from_db()
 
         if not (attack_state.current_plan or {}).get("steps"):
             AttackState.objects.filter(id=self.attack_state_id).update(
@@ -492,6 +579,13 @@ class RemoteExecutionService:
                 return
 
             command = normalize_command_targets(command, command_parameters)
+            alternative_command = bounded_alternative_command(command_obj.name, command, sub_context)
+            if alternative_command:
+                logger.info(
+                    "Replacing potentially long-running remote command for '%s' with a bounded alternative.",
+                    command_obj.name,
+                )
+                command = alternative_command
             self._persist_step_command(command_obj.name, command)
             attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
             step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
@@ -574,6 +668,7 @@ class RemoteExecutionService:
                 output = result.output if isinstance(result.output, dict) else {}
                 stdout = output.get("stdout", "") if output else (result.output or "")
                 stderr = output.get("stderr", "") if output else result.error_message
+                terminal_failure = is_terminal_command_failure(output, stderr)
                 findings = parse_output(command_obj.name, stdout)
                 findings = merge_findings(
                     findings,
@@ -591,7 +686,10 @@ class RemoteExecutionService:
                 )
                 if findings:
                     logger.info(f"Parsed findings for '{command_obj.name}': {findings}")
-                    self.state_manager.update_state_with_findings(findings)
+                    self.state_manager.update_state_with_findings(
+                        findings,
+                        phase_name=current_state.get("current_phase"),
+                    )
 
                 should_retry = False
                 scheduled_retry_count = 0
@@ -601,10 +699,21 @@ class RemoteExecutionService:
                     retry_step = self._find_plan_step(attack_state_for_retry, command_obj.name)
                     max_retries, retry_cooldown = self._get_retry_config(retry_step or {})
                     retries_used = int((retry_step or {}).get("command_retry_count") or 0)
-                    should_retry = retries_used < max_retries
+                    semantic_no_evidence = output.get("returncode", 0) == 0
+                    should_retry = (not terminal_failure) and (not semantic_no_evidence) and retries_used < max_retries
                     if should_retry:
                         scheduled_retry_count = 1
                         next_retry_at = time.time() + float(retry_cooldown)
+                    elif terminal_failure:
+                        logger.info(
+                            "Remote command '%s' failed terminally; skipping retries and asking for an alternative.",
+                            command_obj.name,
+                        )
+                    elif semantic_no_evidence:
+                        logger.info(
+                            "Remote command '%s' completed without useful evidence; asking for an alternative.",
+                            command_obj.name,
+                        )
 
                 self._update_step_execution_state(
                     command_obj.name,
@@ -665,6 +774,19 @@ class RemoteExecutionService:
                     stderr=stderr,
                     findings=persisted_findings,
                 )
+                self.state_manager.record_phase_output(
+                    current_state.get("current_phase") or attack_state.current_phase,
+                    action_name=command_obj.name,
+                    status="SUCCESS" if semantic_success else "FAILED",
+                    command=command_for_task,
+                    command_id=command_id,
+                    target=target,
+                    stdout=stdout,
+                    stderr=stderr,
+                    findings=persisted_findings,
+                    exit_code=output.get("returncode") if isinstance(output, dict) else (0 if semantic_success else 1),
+                    metadata={"execution_mode": "remote", "task_id": task.id},
+                )
 
                 self.state_manager.record_action(
                     command_obj.name,
@@ -702,6 +824,7 @@ class RemoteExecutionService:
                 output = result.output if isinstance(result.output, dict) else {}
                 stdout = output.get("stdout", "") if output else (result.output or "")
                 stderr = output.get("stderr", "") if output else result.error_message
+                terminal_failure = is_terminal_command_failure(output, stderr or result.error_message or "")
                 logger.warning(f"Task {task.id} failed: {result.error_message}")
                 findings = merge_findings(
                     parse_output(command_obj.name, stdout) or {},
@@ -714,7 +837,10 @@ class RemoteExecutionService:
                 )
                 if findings:
                     logger.info(f"Parsed findings for failed '{command_obj.name}': {findings}")
-                    self.state_manager.update_state_with_findings(findings)
+                    self.state_manager.update_state_with_findings(
+                        findings,
+                        phase_name=current_state.get("current_phase"),
+                    )
                 should_retry = False
                 scheduled_retry_count = 0
                 next_retry_at = 0.0
@@ -722,10 +848,15 @@ class RemoteExecutionService:
                 retry_step = self._find_plan_step(attack_state_for_retry, command_obj.name)
                 max_retries, retry_cooldown = self._get_retry_config(retry_step or {})
                 retries_used = int((retry_step or {}).get("command_retry_count") or 0)
-                should_retry = retries_used < max_retries
+                should_retry = (not terminal_failure) and retries_used < max_retries
                 if should_retry:
                     scheduled_retry_count = 1
                     next_retry_at = time.time() + float(retry_cooldown)
+                elif terminal_failure:
+                    logger.info(
+                        "Remote command '%s' failed terminally; skipping retries and asking for an alternative.",
+                        command_obj.name,
+                    )
 
                 self._update_step_execution_state(
                     command_obj.name,
@@ -783,6 +914,19 @@ class RemoteExecutionService:
                     stdout=stdout,
                     stderr=stderr or result.error_message or "",
                     findings=persisted_findings,
+                )
+                self.state_manager.record_phase_output(
+                    current_state.get("current_phase") or attack_state.current_phase,
+                    action_name=command_obj.name,
+                    status="FAILED",
+                    command=command_for_task,
+                    command_id=command_id,
+                    target=target,
+                    stdout=stdout,
+                    stderr=stderr or result.error_message or "",
+                    findings=persisted_findings,
+                    exit_code=output.get("returncode") if isinstance(output, dict) else 1,
+                    metadata={"execution_mode": "remote", "task_id": task.id},
                 )
 
                 self.state_manager.record_action(

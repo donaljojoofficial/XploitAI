@@ -1,7 +1,7 @@
 from django.test import TestCase
 
 from ai.planner import AIPlanner
-from ai.schemas import DecisionInput, PlanStep
+from ai.schemas import DecisionInput, Plan, PlanStep
 from core.models import AttackState
 
 
@@ -82,3 +82,19 @@ class PlannerStageSchemaTests(TestCase):
         self.assertEqual(hint.get("resolved_command"), "python -c \"print('locked')\"")
         self.assertEqual(hint.get("execution_type"), "script")
         self.assertEqual(hint.get("script_language"), "python")
+
+    def test_dedupe_plan_steps_removes_repeated_actions(self):
+        planner = AIPlanner(provider="local")
+        plan = Plan(
+            rationale="duplicate plan",
+            steps=[
+                PlanStep(step_number=1, action_type="EndpointDiscovery", parameters={}, rationale="first"),
+                PlanStep(step_number=2, action_type="EndpointDiscovery", parameters={}, rationale="repeat"),
+                PlanStep(step_number=3, action_type="ParameterDiscovery", parameters={}, rationale="next"),
+            ],
+        )
+
+        deduped = planner._dedupe_plan_steps(plan)
+
+        self.assertEqual([step.action_type for step in deduped.steps], ["EndpointDiscovery", "ParameterDiscovery"])
+        self.assertEqual([step.step_number for step in deduped.steps], [1, 2])

@@ -6,6 +6,7 @@ from django.urls import reverse
 
 from core.models import AttackTarget, AttackState, Command, Phase
 from dashboard.views import _launch_assessment
+from services.tool_preflight import TOOL_PREFLIGHT_STATE_KEY, RECOMMENDED_TOOL_INSTALL_COMMAND
 
 
 class LevelStartContractTests(TestCase):
@@ -69,6 +70,26 @@ class LevelStartContractTests(TestCase):
         self.assertEqual(state.current_phase, "discovery")
         self.assertEqual(state.state_data.get("current_phase"), "discovery")
         self.assertEqual(state.state_data.get("start_phase"), "discovery")
+        launch_assessment.assert_called_once()
+
+    @patch("dashboard.views._launch_assessment")
+    def test_start_attack_can_request_recommended_tool_preflight(self, launch_assessment):
+        response = self.client.post(
+            reverse("dashboard_start_attack"),
+            data={
+                "target_id": str(self.target.id),
+                "llm_provider": "auto",
+                "install_recommended_tools": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        state = AttackState.objects.order_by("-created_at").first()
+        preflight = state.state_data.get(TOOL_PREFLIGHT_STATE_KEY)
+        self.assertIsInstance(preflight, dict)
+        self.assertTrue(preflight.get("enabled"))
+        self.assertEqual(preflight.get("status"), "pending")
+        self.assertEqual(preflight.get("command"), RECOMMENDED_TOOL_INSTALL_COMMAND)
         launch_assessment.assert_called_once()
 
     @patch("dashboard.views.ExecutionService")

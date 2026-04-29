@@ -20,7 +20,12 @@ from urllib.parse import urlsplit
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-from services.command_template_utils import normalize_command_targets
+from services.command_template_utils import (
+    CANONICAL_TEMPLATES,
+    build_target_context,
+    normalize_command_targets,
+    render_command_template,
+)
 
 # Attempt to import the LLM adapter (Phase 3/Auto feature)
 try:
@@ -473,14 +478,10 @@ class CommandGenerator:
 
     def _generate_parameter_discovery(self, params: Mapping[str, Any]) -> GeneratedCommand:
         url = self._target_url(params)
-        safe_url = shlex.quote(str(url))
-        domain = self._target_domain(params)
-        dnsenum_cmd = ""
-        if domain and not self._is_ip_address(domain) and domain not in {"localhost"}:
-            dnsenum_cmd = f"dnsenum {shlex.quote(domain)} && "
+        context = build_target_context(str(url))
         return GeneratedCommand(
-            shell_command=f"{dnsenum_cmd}arjun -u {safe_url} --stable -oT /tmp/arjun-params.txt",
-            explanation=f"Uses dnsenum where applicable and Arjun to discover DNS and hidden parameter surface for {url}."
+            shell_command=render_command_template(CANONICAL_TEMPLATES["ParameterDiscovery"], context),
+            explanation=f"Uses bounded Python HTTP probes to discover common parameter surface for {url}."
         )
 
     def _generate_vulnerability_scanning(self, params: Mapping[str, Any]) -> GeneratedCommand:

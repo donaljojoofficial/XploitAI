@@ -111,6 +111,51 @@ class AttackHistoryViewTests(TestCase):
         self.assertContains(response, "Run One")
         self.assertContains(response, "Run Two")
         self.assertContains(response, "Recon complete")
+        self.assertContains(response, "Delete All Tests")
+        self.assertContains(response, "Delete")
+
+    def test_delete_single_test_history_item(self):
+        state = AttackState.objects.create(
+            name="Delete Me",
+            current_phase="reconnaissance",
+            autonomy_status="STOPPED",
+            state_data={},
+            current_plan={},
+        )
+        keep = AttackState.objects.create(
+            name="Keep Me",
+            current_phase="discovery",
+            autonomy_status="STOPPED",
+            state_data={},
+            current_plan={},
+        )
+
+        response = self.client.post(reverse("dashboard_attack_delete", kwargs={"pk": state.pk}))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(AttackState.objects.filter(pk=state.pk).exists())
+        self.assertTrue(AttackState.objects.filter(pk=keep.pk).exists())
+
+    def test_delete_all_test_history_items(self):
+        AttackState.objects.create(
+            name="Run One",
+            current_phase="reconnaissance",
+            autonomy_status="STOPPED",
+            state_data={},
+            current_plan={},
+        )
+        AttackState.objects.create(
+            name="Run Two",
+            current_phase="discovery",
+            autonomy_status="STOPPED",
+            state_data={},
+            current_plan={},
+        )
+
+        response = self.client.post(reverse("dashboard_test_history_delete_all"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(AttackState.objects.count(), 0)
 
     def test_phase_cards_mark_skipped_earlier_phases_for_later_start(self):
         state = AttackState.objects.create(

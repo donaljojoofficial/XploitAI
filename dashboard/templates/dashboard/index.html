@@ -306,8 +306,8 @@
         </div>
     </div>
 
-    <div x-show="startModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-        <div class="shell-panel w-full max-w-2xl rounded-[1.75rem] p-8" @click.away="startModalOpen = false">
+    <div x-show="startModalOpen" x-cloak class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/80 px-4 py-6 backdrop-blur-sm sm:py-10">
+        <div class="shell-panel max-h-[calc(100vh-3rem)] w-full max-w-2xl overflow-y-auto rounded-[1.75rem] p-6 sm:max-h-[calc(100vh-5rem)] sm:p-8" @click.away="startModalOpen = false">
             <form action="{% url 'dashboard_start_attack' %}" method="post" class="space-y-6">
                 {% csrf_token %}
                 {% if attack_state and not start_modal_open %}
@@ -373,6 +373,14 @@
                     </select>
                     <p class="mt-2 text-sm text-slate-400">The router will prefer available cloud adapters and fall back safely. Choose LM Studio only for local-only runs.</p>
                 </div>
+
+                <label class="flex items-start gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-50">
+                    <input type="checkbox" name="install_recommended_tools" value="1" class="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-cyan-400 focus:ring-cyan-400">
+                    <span>
+                        <span class="block font-semibold text-white">Install recommended tools first</span>
+                        <span class="mt-1 block leading-6 text-cyan-100/80">Runs apt-get setup on a Kali/Debian executor before any generated phase command.</span>
+                    </span>
+                </label>
 
                 <input type="hidden" name="progression_mode" value="manual">
                 <input type="hidden" name="max_retries" value="2">

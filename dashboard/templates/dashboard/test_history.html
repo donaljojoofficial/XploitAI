@@ -4,6 +4,14 @@
 
 {% block content %}
 <div class="space-y-8">
+    {% if messages %}
+    <div class="space-y-3">
+        {% for message in messages %}
+        <div class="alert {% if message.tags == 'success' %}alert-success{% elif message.tags == 'error' %}alert-error{% else %}alert-warning{% endif %}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     <section class="glass-panel rounded-2xl overflow-hidden border border-slate-600/50 shadow-2xl">
         <div class="relative p-8 md:p-10 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.16),transparent_32%),radial-gradient(circle_at_top_right,rgba(0,245,255,0.12),transparent_24%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,41,59,0.88))]">
             <div class="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -16,9 +24,17 @@
                         Full run history across all initiated tests, including phases, steps, findings, outputs, and stored phase reviews.
                     </p>
                 </div>
-                <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
-                    <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Runs</div>
-                    <div class="mt-1 font-mono text-sm text-white">{{ attack_histories|length }}</div>
+                <div class="flex flex-col gap-3 sm:flex-row lg:items-center">
+                    <div class="rounded-2xl border border-slate-600/50 bg-slate-900/60 px-4 py-3">
+                        <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Runs</div>
+                        <div class="mt-1 font-mono text-sm text-white">{{ attack_histories|length }}</div>
+                    </div>
+                    {% if attack_histories %}
+                    <form action="{% url 'dashboard_test_history_delete_all' %}" method="post" onsubmit="return confirm('Delete all test runs and their stored outputs? This cannot be undone.');">
+                        {% csrf_token %}
+                        <button type="submit" class="ui-btn ui-btn-danger w-full sm:w-auto">Delete All Tests</button>
+                    </form>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -41,6 +57,10 @@
                     <div class="flex flex-wrap gap-3">
                         <a href="{% url 'dashboard_attack_detail' item.attack_state.id %}" class="rounded-xl border border-slate-600/50 bg-slate-900/60 px-4 py-3 text-sm text-white hover:border-cyan-400/40">Open Operation</a>
                         <a href="{% url 'dashboard_attack_plan' item.attack_state.id %}" class="rounded-xl border border-cyan-500/30 bg-slate-900/60 px-4 py-3 text-sm text-cyan-300 hover:border-cyan-300/60 hover:text-white">Plan View</a>
+                        <form action="{% url 'dashboard_attack_delete' item.attack_state.id %}" method="post" onsubmit="return confirm('Delete this test run and its stored outputs?');">
+                            {% csrf_token %}
+                            <button type="submit" class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 hover:border-rose-300/60 hover:text-white">Delete</button>
+                        </form>
                     </div>
                 </div>
             </div>
