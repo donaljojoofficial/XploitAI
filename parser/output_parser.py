@@ -184,17 +184,32 @@ def parse_output(action_name: str, output: str) -> dict:
             r"AUTH_SUCCESS:\s*([^\s]+)\s+user=([^\s]+)\s+password=([^\r\n]+)",
             output,
         )
+        credential_success = re.findall(
+            r"SUCCESSFUL_CREDENTIAL:\s*path=([^\s]+)\s+username=([^\s]+)\s+password=([^\r\n]+)",
+            output,
+        )
         session_cookies = re.findall(r"SESSION_COOKIE:\s*([^\r\n]+)", output)
         redirects = re.findall(r"REDIRECT_TARGET:\s*([^\r\n]+)", output)
-        if auth_success:
+        successful_login_urls = re.findall(r"SUCCESSFUL_LOGIN_URL:\s*([^\r\n]+)", output)
+        if auth_success or credential_success:
+            seen_credentials = set()
+            valid_credentials = []
+            for path, username, password in [*auth_success, *credential_success]:
+                item = (path.strip(), username.strip(), password.strip())
+                if item in seen_credentials:
+                    continue
+                seen_credentials.add(item)
+                valid_credentials.append({"path": item[0], "username": item[1], "password": item[2]})
             findings["valid_credentials"] = [
-                {"path": path.strip(), "username": username.strip(), "password": password.strip()}
-                for path, username, password in auth_success
+                credential
+                for credential in valid_credentials
             ]
         if session_cookies:
             findings["session_cookies"] = [cookie.strip() for cookie in session_cookies]
         if redirects:
             findings["redirect_targets"] = [target.strip() for target in redirects]
+        if successful_login_urls:
+            findings["successful_login_urls"] = [url.strip() for url in successful_login_urls]
 
     elif action_name == "ProofOfCompromise":
         if "NO_HASH_FILE:" in (output or "") or "NO_CREDENTIAL_LOOT:" in (output or ""):

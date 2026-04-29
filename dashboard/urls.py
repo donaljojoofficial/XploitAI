@@ -23,6 +23,7 @@ urlpatterns = [
     path("history/delete-all/", views.delete_all_test_history, name="dashboard_test_history_delete_all"),
     path("assistant/", views.assistant_page, name="dashboard_assistant"),
     path("start/", views.start_attack, name="dashboard_start_attack"),
+    path("quick-test/start/", views.start_quick_test, name="dashboard_start_quick_test"),
     path("attack/<int:pk>/", views.attack_detail, name="dashboard_attack_detail"),
     path("attack/<int:pk>/phases/<str:phase_key>/", views.attack_phase_detail, name="dashboard_attack_phase_detail"),
     path("attack/<int:pk>/phases/<str:phase_key>/regenerate/", views.regenerate_phase_plan, name="dashboard_regenerate_phase_plan"),

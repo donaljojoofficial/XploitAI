@@ -40,6 +40,7 @@ from services.execution_service import ExecutionService
 from services.remote_execution_service import RemoteExecutionService
 from services.ssh_execution_service import SSHExecutionService
 from services.reporting_service import AttackReportService
+from services.quick_test_service import QuickTestService, quick_action_catalog, selected_quick_actions
 from services.tool_preflight import TOOL_PREFLIGHT_STATE_KEY, build_tool_preflight_state
 from services.command_template_utils import (
     build_target_context,
@@ -50,6 +51,7 @@ from services.command_template_utils import (
     render_command_template,
     uses_disallowed_tool,
 )
+from parser.output_parser import merge_findings, parse_output
 from core.config import get_config, set_config
 from core.levels import (
     DEFAULT_LEVEL_LIMITS,
@@ -102,9 +104,13 @@ def _delete_attack_states(states) -> int:
 def _is_waiting_for_plan_approval(state: AttackState | None) -> bool:
     if not state:
         return False
-    plan = state.current_plan if isinstance(state.current_plan, dict) else {}
-    steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
     state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    if state_data.get("run_type") == "quick_test":
+        return False
+    plan = state.current_plan if isinstance(state.current_plan, dict) else {}
+    if plan.get("scope") == "quick_test":
+        return False
+    steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
     return bool(steps) and not bool(state_data.get("plan_approved", False))
 
 
@@ -157,6 +163,21 @@ def _summarize_findings(findings: Any) -> list[dict[str, Any]]:
     if findings:
         return [{"key": "Finding", "value": findings}]
     return []
+
+
+def _enrich_result_findings_from_stdout(result: Any) -> None:
+    findings = result.findings if isinstance(getattr(result, "findings", None), dict) else {}
+    stdout = getattr(result, "stdout", "") or ""
+    if findings.get("valid_credentials") or "AUTH_SUCCESS:" not in stdout and "SUCCESSFUL_CREDENTIAL:" not in stdout:
+        return
+    parsed = parse_output("ExploitAttempt", stdout)
+    if not parsed.get("valid_credentials"):
+        return
+    result.findings = merge_findings(findings, parsed)
+    try:
+        result.save(update_fields=["findings"])
+    except Exception:
+        logger.warning("Unable to persist enriched credential findings for result %s", getattr(result, "id", "unknown"))
 
 
 def _status_from_result(value: Any) -> str:
@@ -1039,6 +1060,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'start_modal_open': start_modal_open,
         'latest_report': (plan_view or {}).get('last_report'),
         'auto_refresh_seconds': 30,
+        'quick_actions': quick_action_catalog(),
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
         **_get_global_context(),
     }
@@ -1143,12 +1165,20 @@ def assistant_page(request: HttpRequest) -> HttpResponse:
 def attack_command_logs(request: HttpRequest, pk: int) -> HttpResponse:
     """Show raw command output (stdout/stderr/findings) for a given attack."""
     state = get_object_or_404(AttackState, pk=pk)
-    execution_results = state.execution_results.select_related('command').order_by('-created_at')
+    execution_results = list(state.execution_results.select_related('command').order_by('-created_at'))
+    for result in execution_results:
+        _enrich_result_findings_from_stdout(result)
+    state.refresh_from_db()
+    state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    quick_review = {}
+    if state_data.get("run_type") == "quick_test" and state.autonomy_status == "STOPPED":
+        quick_review = QuickTestService(state.id).ensure_review()
 
     context = {
         'attack_state': state,
         'execution_results': execution_results,
         'plan_view': _build_plan_view_state(state),
+        'quick_review': quick_review,
         'auto_refresh_seconds': 30,
         **_get_global_context(),
     }
@@ -1449,6 +1479,92 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         _launch_assessment(state)
 
     return redirect('dashboard_index')
+
+
+@login_required(login_url='login')
+@require_POST
+def start_quick_test(request: HttpRequest) -> HttpResponse:
+    """Start standalone quick actions outside the phased pentest planner."""
+    executor_id = request.POST.get("executor_id")
+    target_id = request.POST.get("target_id")
+    quick_actions = selected_quick_actions(request.POST.getlist("quick_actions"))
+
+    if not target_id:
+        messages.error(request, "Select a target before starting a quick test.")
+        return redirect("dashboard_index")
+
+    target = get_object_or_404(AttackTarget, pk=target_id)
+    target_reference = target.base_url or target.ip_address
+
+    use_remote_executor = False
+    selected_executor = None
+    execution_mode = "local"
+    if executor_id:
+        selected_executor = get_object_or_404(AttackerExecutor, pk=executor_id)
+        is_live, live_reason = _verify_executor_is_live(selected_executor)
+        if not is_live:
+            messages.error(request, live_reason)
+            return redirect("dashboard_index")
+        use_remote_executor = True
+        execution_mode = "ssh" if selected_executor.is_ssh_executor else "remote"
+
+    state_data = {
+        "target": target_reference,
+        "run_type": "quick_test",
+        "quick_actions": quick_actions,
+        "execution_mode": execution_mode,
+        "progression_mode": "quick",
+        "findings": {},
+        "completed_actions": [],
+        "level_history": [],
+        "phase_reviews": [],
+        "script_artifacts": [],
+        "report_artifacts": [],
+        "last_report_status": "idle",
+        "test_uid": f"quick-{uuid.uuid4().hex[:12]}",
+    }
+    if selected_executor and use_remote_executor:
+        state_data["executor_id"] = selected_executor.id
+
+    quick_action_meta = {item["key"]: item for item in quick_action_catalog()}
+    state = AttackState.objects.create(
+        name=f"Quick Test {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        current_phase="RECONNAISSANCE",
+        autonomy_status="IDLE",
+        stop_reason="Quick test queued.",
+        state_data=state_data,
+        current_plan={
+            "scope": "quick_test",
+            "phase": "quick_test",
+            "rationale": "Standalone quick actions selected by the operator.",
+            "steps": [
+                {
+                    "step_number": index,
+                    "action_type": action_key,
+                    "name": quick_action_meta.get(action_key, {}).get("label", action_key),
+                    "description": quick_action_meta.get(action_key, {}).get("description", ""),
+                    "status": "pending",
+                }
+                for index, action_key in enumerate(quick_actions, start=1)
+            ],
+        },
+    )
+
+    if selected_executor and use_remote_executor and not selected_executor.is_ssh_executor:
+        AttackContext.objects.filter(status__in=["READY", "RUNNING"]).update(
+            status="STOPPED",
+            stop_reason="Superseded by quick test",
+            stopped_at=timezone.now(),
+        )
+        AttackContext.objects.create(
+            attacker_executor=selected_executor,
+            target=target,
+            status="READY",
+        )
+
+    QuickTestService(state.id).start()
+    messages.success(request, "Quick test started.")
+    return redirect("dashboard_attack_detail", pk=state.id)
 
 @login_required(login_url='login')
 @require_POST

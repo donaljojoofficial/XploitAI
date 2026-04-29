@@ -21,8 +21,53 @@ def _deep_merge(existing: dict, incoming: dict) -> dict:
     for key, value in (incoming or {}).items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = _deep_merge(merged[key], value)
+        elif isinstance(value, list) and isinstance(merged.get(key), list):
+            combined = list(merged.get(key) or [])
+            seen = {json.dumps(item, sort_keys=True, default=str) for item in combined}
+            for item in value:
+                fingerprint = json.dumps(item, sort_keys=True, default=str)
+                if fingerprint not in seen:
+                    combined.append(deepcopy(item))
+                    seen.add(fingerprint)
+            merged[key] = combined
         else:
             merged[key] = deepcopy(value)
+    return merged
+
+
+def _merge_historical_findings(base: dict, state_data: dict, local_state: dict) -> dict:
+    merged = deepcopy(base or {})
+
+    phase_outputs = local_state.get("phase_outputs") if isinstance(local_state.get("phase_outputs"), dict) else {}
+    for phase_data in phase_outputs.values():
+        if not isinstance(phase_data, dict):
+            continue
+        if isinstance(phase_data.get("findings"), dict):
+            merged = _deep_merge(merged, phase_data.get("findings") or {})
+        for output in phase_data.get("outputs") or []:
+            if isinstance(output, dict) and isinstance(output.get("findings"), dict):
+                merged = _deep_merge(merged, output.get("findings") or {})
+        for review in phase_data.get("reviews") or []:
+            if isinstance(review, dict) and isinstance(review.get("findings"), dict):
+                merged = _deep_merge(merged, review.get("findings") or {})
+
+    histories = []
+    for key in ("level_history", "phase_reviews"):
+        value = state_data.get(key)
+        if isinstance(value, list):
+            histories.extend(value)
+    for item in histories:
+        if not isinstance(item, dict):
+            continue
+        if isinstance(item.get("findings"), dict):
+            merged = _deep_merge(merged, item.get("findings") or {})
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        if isinstance(details.get("current_findings"), dict):
+            merged = _deep_merge(merged, details.get("current_findings") or {})
+        for result in details.get("results_snapshot") or []:
+            if isinstance(result, dict) and isinstance(result.get("findings"), dict):
+                merged = _deep_merge(merged, result.get("findings") or {})
+
     return merged
 
 
@@ -244,11 +289,19 @@ class StateManager:
                 state_obj.save(update_fields=["state_data"])
                 local_state = self.json_store.sync_from_attack_state(state_obj)
 
+        merged_findings = _deep_merge(local_state.get("findings", {}), state_obj.state_data.get("findings", {}))
+        merged_findings = _merge_historical_findings(merged_findings, state_obj.state_data, local_state)
+        if state_obj.state_data.get("findings") != merged_findings:
+            state_obj.state_data["findings"] = merged_findings
+            state_obj.state_data["local_state_file"] = str(self.json_store.path)
+            state_obj.save(update_fields=["state_data"])
+            self.json_store.sync_from_attack_state(state_obj)
+
         return {
             "target": target_ref,
             "current_phase": state_obj.current_phase,
             "completed_commands": completed_commands,
-            "findings": _deep_merge(local_state.get("findings", {}), state_obj.state_data.get("findings", {})),
+            "findings": merged_findings,
             "phase_outputs": local_state.get("phase_outputs", {}),
             "local_state_file": str(self.json_store.path),
         }

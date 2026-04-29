@@ -105,6 +105,18 @@
                 </div>
                 {% if output.stdout_excerpt %}<pre class="mt-3 rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-xs text-emerald-300">{{ output.stdout_excerpt }}</pre>{% endif %}
                 {% if output.stderr_excerpt %}<pre class="mt-3 rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-xs text-rose-300">{{ output.stderr_excerpt }}</pre>{% endif %}
+                {% if output.findings.valid_credentials %}
+                <div class="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-100">
+                    <div class="font-semibold text-white">Successful credential</div>
+                    {% for credential in output.findings.valid_credentials %}
+                    <div class="mt-2 grid gap-2 rounded-lg border border-emerald-300/10 bg-slate-950/40 p-3 font-mono text-xs sm:grid-cols-3">
+                        <div class="break-all"><span class="text-slate-400">Path:</span> {{ credential.path }}</div>
+                        <div class="break-all"><span class="text-slate-400">User:</span> {{ credential.username }}</div>
+                        <div class="break-all"><span class="text-slate-400">Password:</span> {{ credential.password }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
             {% empty %}
             <div class="text-sm text-slate-400">No captured outputs for this phase.</div>

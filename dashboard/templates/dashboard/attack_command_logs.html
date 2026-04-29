@@ -21,6 +21,35 @@
         </div>
     </section>
 
+    {% if quick_review %}
+    {% with details=quick_review.details %}
+    <section class="shell-panel rounded-[1.5rem] p-6">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <div class="section-title">Quick Test Review</div>
+                <h2 class="mt-2 text-2xl font-semibold text-white">{% if details.ai_generated %}AI analysis{% else %}Fallback analysis{% endif %}</h2>
+            </div>
+            {% if details.review_provider %}
+            <span class="ui-badge ui-badge-info">{{ details.review_provider }}</span>
+            {% endif %}
+        </div>
+        <p class="mt-4 text-sm leading-7 text-slate-300">{{ details.summary|default:quick_review.review }}</p>
+        {% if details.key_evidence %}
+        <div class="mt-4 flex flex-wrap gap-2">
+            {% for evidence in details.key_evidence %}
+            <span class="ui-badge ui-badge-success">{{ evidence }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% if details.operator_notes %}
+        <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/55 p-4 text-sm leading-7 text-slate-300">
+            {{ details.operator_notes }}
+        </div>
+        {% endif %}
+    </section>
+    {% endwith %}
+    {% endif %}
+
     {% if execution_results %}
     <div class="space-y-5">
         {% for result in execution_results %}
@@ -59,6 +88,26 @@
             {% if result.findings %}
             <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/55 p-4">
                 <div class="ui-label">Findings</div>
+                {% if result.findings.valid_credentials or result.findings.successful_login_urls %}
+                <div class="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-100">
+                    {% if result.findings.valid_credentials %}
+                    <div class="font-semibold text-white">Successful credential</div>
+                    {% for credential in result.findings.valid_credentials %}
+                    <div class="mt-2 grid gap-2 rounded-lg border border-emerald-300/10 bg-slate-950/40 p-3 font-mono text-xs sm:grid-cols-3">
+                        <div class="break-all"><span class="text-slate-400">Path:</span> {{ credential.path }}</div>
+                        <div class="break-all"><span class="text-slate-400">User:</span> {{ credential.username }}</div>
+                        <div class="break-all"><span class="text-slate-400">Password:</span> {{ credential.password }}</div>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                    {% if result.findings.successful_login_urls %}
+                    <div class="mt-3 font-semibold text-white">Login result URL</div>
+                    {% for url in result.findings.successful_login_urls %}
+                    <div class="mt-1 break-all font-mono text-xs">{{ url }}</div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+                {% endif %}
                 <pre class="mt-2 text-xs leading-6 text-cyan-300">{{ result.findings|pprint }}</pre>
             </div>
             {% endif %}

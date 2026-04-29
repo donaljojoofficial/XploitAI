@@ -32,6 +32,9 @@
             <div class="border-b border-slate-700/60 bg-slate-950/40 px-6 py-5">
                 <div class="flex flex-wrap items-center gap-3">
                     <div class="text-lg font-semibold text-white">{{ review.phase }}</div>
+                    {% if details.ai_generated %}
+                    <div class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-mono text-emerald-300">AI Review</div>
+                    {% endif %}
                     {% if review.next_phase %}
                     <div class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-mono text-cyan-300">Next: {{ review.next_phase }}</div>
                     {% endif %}

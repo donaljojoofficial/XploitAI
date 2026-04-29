@@ -627,6 +627,13 @@ class RemoteExecutionService:
             command_parameters = {**sub_context, **decision_parameters}
             attack_state_for_step = AttackState.objects.get(id=self.attack_state_id)
             step_state = self._find_plan_step(attack_state_for_step, command_obj.name)
+            if step_state and isinstance(step_state.get("parameters"), dict):
+                command_parameters.update(step_state.get("parameters") or {})
+            command_parameters = self.planner._enrich_step_parameters(
+                attack_state_for_step,
+                command_obj.name,
+                command_parameters,
+            )
             locked_step_command = (
                 str((step_state or {}).get("resolved_command") or "").strip()
                 if self.plan_command_lock

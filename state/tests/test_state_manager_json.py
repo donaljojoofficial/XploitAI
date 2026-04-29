@@ -64,3 +64,39 @@ class JsonStateManagerTests(TestCase):
             ["id parameter appears injectable"],
         )
         self.assertTrue(planner_state["local_state_file"].endswith(f"attack_state_{state.id}.json"))
+
+    def test_planner_state_merges_findings_from_phase_outputs_and_reviews(self):
+        state = AttackState.objects.create(
+            name="Planner Historical Findings",
+            current_phase="exploitation",
+            state_data={
+                "target": "http://dvwa.local",
+                "findings": {"identified_technologies": ["PHP"]},
+                "level_history": [
+                    {
+                        "phase": "reconnaissance",
+                        "findings": {"server_banner": "Apache"},
+                        "details": {
+                            "results_snapshot": [
+                                {"findings": {"discovered_endpoints": ["/login"]}},
+                            ],
+                        },
+                    },
+                ],
+            },
+        )
+
+        with override_settings(XPLOITAI_STATE_DIR=self.tmpdir.name):
+            manager = StateManager(state.id)
+            manager.record_phase_output(
+                "vulnerability_analysis",
+                action_name="VulnerabilityScanning",
+                status="SUCCESS",
+                findings={"exposed_paths": [{"path": "/phpinfo.php", "evidence": "PHP Version"}]},
+            )
+            planner_state = manager.get_current_state_for_planner()
+
+        self.assertEqual(planner_state["findings"]["identified_technologies"], ["PHP"])
+        self.assertEqual(planner_state["findings"]["server_banner"], "Apache")
+        self.assertEqual(planner_state["findings"]["discovered_endpoints"], ["/login"])
+        self.assertEqual(planner_state["findings"]["exposed_paths"][0]["path"], "/phpinfo.php")
