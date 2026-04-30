@@ -1042,6 +1042,8 @@ def index(request: HttpRequest) -> HttpResponse:
 
     phase_dashboard = _build_phase_cards(attack_state)
     current_phase_card = next((card for card in phase_dashboard["cards"] if card.get("is_current")), None)
+    quick_actions = quick_action_catalog()
+    quick_action_keys = {item.get("key") for item in quick_actions if isinstance(item, dict)}
 
     context = {
         'attack_state': attack_state,
@@ -1060,7 +1062,8 @@ def index(request: HttpRequest) -> HttpResponse:
         'start_modal_open': start_modal_open,
         'latest_report': (plan_view or {}).get('last_report'),
         'auto_refresh_seconds': 30,
-        'quick_actions': quick_action_catalog(),
+        'quick_actions': quick_actions,
+        'show_vulnerability_analysis_fallback': 'vulnerability_analysis' not in quick_action_keys,
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
         **_get_global_context(),
     }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from json import JSONDecodeError
 from typing import Optional
 
 import requests
@@ -42,7 +43,8 @@ class NvidiaOutputAnalysisAdapter:
             content = self._request_content(payload)
             if not content:
                 return None
-            return json.loads(self._extract_json_text(content))
+            parsed = self._loads_json_lenient(self._extract_json_text(content))
+            return parsed if isinstance(parsed, dict) else None
         except Exception as exc:
             logger.warning("Output analysis request failed: %s", exc)
             return None
@@ -103,3 +105,104 @@ class NvidiaOutputAnalysisAdapter:
         if start >= 0 and end > start:
             return clean[start:end + 1]
         return clean
+
+    def _loads_json_lenient(self, text: str):
+        clean = (text or "").strip()
+        if not clean:
+            return None
+
+        attempts = [clean]
+        escaped = self._escape_control_chars_inside_strings(clean)
+        if escaped != clean:
+            attempts.append(escaped)
+
+        balanced = self._trim_balanced_json(clean)
+        if balanced and balanced not in attempts:
+            attempts.append(balanced)
+
+        if escaped != clean:
+            balanced_escaped = self._trim_balanced_json(escaped)
+            if balanced_escaped and balanced_escaped not in attempts:
+                attempts.append(balanced_escaped)
+
+        last_error = None
+        decoder = json.JSONDecoder()
+        for candidate in attempts:
+            try:
+                return json.loads(candidate)
+            except JSONDecodeError as exc:
+                last_error = exc
+            try:
+                parsed, _ = decoder.raw_decode(candidate)
+                return parsed
+            except JSONDecodeError as exc:
+                last_error = exc
+
+        if last_error:
+            raise last_error
+        return None
+
+    def _escape_control_chars_inside_strings(self, text: str) -> str:
+        output = []
+        in_string = False
+        escaped = False
+        for char in text or "":
+            if escaped:
+                output.append(char)
+                escaped = False
+                continue
+            if char == "\\" and in_string:
+                output.append(char)
+                escaped = True
+                continue
+            if char == '"':
+                output.append(char)
+                in_string = not in_string
+                continue
+            if in_string and char == "\n":
+                output.append("\\n")
+                continue
+            if in_string and char == "\r":
+                output.append("\\r")
+                continue
+            if in_string and char == "\t":
+                output.append("\\t")
+                continue
+            output.append(char)
+        return "".join(output)
+
+    def _trim_balanced_json(self, text: str) -> str:
+        start = -1
+        for index, char in enumerate(text or ""):
+            if char in "{[":
+                start = index
+                break
+        if start < 0:
+            return ""
+
+        stack = []
+        in_string = False
+        escaped = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\" and in_string:
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char in "{[":
+                stack.append("}" if char == "{" else "]")
+                continue
+            if char in "}]":
+                if not stack or stack[-1] != char:
+                    return ""
+                stack.pop()
+                if not stack:
+                    return text[start:index + 1].strip()
+        return ""

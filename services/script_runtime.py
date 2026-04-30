@@ -39,7 +39,15 @@ def build_remote_script_command(script_content: str, script_language: str = "pyt
 
     if language == "bash":
         return (
-            "python -c \"import base64,tempfile,subprocess,os;"
+            "python3 -c \"import base64,tempfile,subprocess,os;"
+            f"data=base64.b64decode('{encoded}').decode('utf-8');"
+            "f=tempfile.NamedTemporaryFile('w',suffix='.sh',delete=False);"
+            "f.write(data);f.close();"
+            "res=subprocess.run(['bash',f.name],capture_output=True,text=True);"
+            "print(res.stdout, end='');"
+            "print(res.stderr, end='');"
+            "os.remove(f.name);"
+            "raise SystemExit(res.returncode)\" || python -c \"import base64,tempfile,subprocess,os;"
             f"data=base64.b64decode('{encoded}').decode('utf-8');"
             "f=tempfile.NamedTemporaryFile('w',suffix='.sh',delete=False);"
             "f.write(data);f.close();"
@@ -51,11 +59,19 @@ def build_remote_script_command(script_content: str, script_language: str = "pyt
         )
 
     return (
-        "python -c \"import base64,tempfile,subprocess,os;"
+        "python3 -c \"import base64,tempfile,subprocess,os,sys;"
         f"data=base64.b64decode('{encoded}').decode('utf-8');"
         "f=tempfile.NamedTemporaryFile('w',suffix='.py',delete=False);"
         "f.write(data);f.close();"
-        "res=subprocess.run(['python',f.name],capture_output=True,text=True);"
+        "res=subprocess.run([sys.executable,f.name],capture_output=True,text=True);"
+        "print(res.stdout, end='');"
+        "print(res.stderr, end='');"
+        "os.remove(f.name);"
+        "raise SystemExit(res.returncode)\" || python -c \"import base64,tempfile,subprocess,os,sys;"
+        f"data=base64.b64decode('{encoded}').decode('utf-8');"
+        "f=tempfile.NamedTemporaryFile('w',suffix='.py',delete=False);"
+        "f.write(data);f.close();"
+        "res=subprocess.run([sys.executable,f.name],capture_output=True,text=True);"
         "print(res.stdout, end='');"
         "print(res.stderr, end='');"
         "os.remove(f.name);"

@@ -4,6 +4,7 @@ import os
 import platform
 import shutil
 import signal
+import sys
 import tempfile
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ def run_script(script_content: str, script_language: str = "python", timeout_sec
     """Execute generated script content through a controlled tempfile wrapper."""
     language = (script_language or "python").strip().lower()
     suffix = ".py" if language == "python" else ".sh"
-    interpreter = "python" if language == "python" else "bash"
+    interpreter = sys.executable if language == "python" else "bash"
 
     if language == "bash" and not shutil.which("bash"):
         return {

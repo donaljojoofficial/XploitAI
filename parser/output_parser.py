@@ -157,6 +157,8 @@ def parse_output(action_name: str, output: str) -> dict:
         missing_headers = re.findall(r"HEADER_MISSING:\s*([^\r\n]+)", output)
         exposed_paths = re.findall(r"EXPOSED_PATH:\s*([^\s]+)\s*=>\s*([^\r\n]+)", output)
         suspicious_paths = re.findall(r"SUSPICIOUS_PATH:\s*([^\s]+)\s*status=([^\r\n]+)", output)
+        server_banner = re.search(r"SERVER_BANNER:\s*([^\r\n]+)", output)
+        powered_by = re.search(r"POWERED_BY:\s*([^\r\n]+)", output)
         if missing_headers:
             findings["missing_security_headers"] = sorted(set(h.strip() for h in missing_headers))
         if exposed_paths:
@@ -169,6 +171,10 @@ def parse_output(action_name: str, output: str) -> dict:
                 {"path": path.strip(), "status": status.strip()}
                 for path, status in suspicious_paths
             ]
+        if server_banner:
+            findings["server_banner"] = server_banner.group(1).strip()
+        if powered_by:
+            findings["x_powered_by"] = powered_by.group(1).strip()
         if _has_completed_scan_output((output or "").lower()):
             findings["scan_completed"] = True
 

@@ -10,9 +10,10 @@ from django.utils import timezone
 
 from core.models import Action, AttackState, AttackTimelineEvent, Command, ExecutionResult, ExecutionTask, Phase
 from ai.llm.nvidia_output_analysis_adapter import NvidiaOutputAnalysisAdapter
-from executor.local_executor import run_command
+from executor.local_executor import run_command, run_script as run_local_script
 from executor import ssh_executor
 from parser.output_parser import merge_findings, parse_output
+from services.script_runtime import build_remote_script_command
 from state.state_manager import StateManager
 from services.command_template_utils import build_target_context, infer_required_tools
 
@@ -35,6 +36,11 @@ QUICK_ACTIONS: dict[str, dict[str, str]] = {
         "action_name": "QuickPathCheck",
         "description": "Probe a short list of common exposed paths.",
     },
+    "vulnerability_analysis": {
+        "label": "Vulnerability analysis",
+        "action_name": "QuickVulnerabilityAnalysis",
+        "description": "Run a compact vulnerability analysis for missing headers, exposed files, and risky endpoints.",
+    },
     "sqli": {
         "label": "SQLi smoke test",
         "action_name": "QuickSQLiSmoke",
@@ -45,7 +51,7 @@ QUICK_ACTIONS: dict[str, dict[str, str]] = {
 
 def selected_quick_actions(raw_actions: list[str] | None) -> list[str]:
     selected = [item for item in (raw_actions or []) if item in QUICK_ACTIONS]
-    return selected or ["default_credentials", "headers", "paths"]
+    return selected or ["default_credentials", "headers", "paths", "vulnerability_analysis"]
 
 
 def quick_action_catalog() -> list[dict[str, str]]:
@@ -120,7 +126,7 @@ class QuickTestService:
                     data={"command": command, "quick_action": action_key},
                 )
 
-                result = self._execute_command(state, action, command, mode)
+                result = self._execute_command(state, action, command, mode, action_key)
                 stdout = str(result.get("stdout") or "")
                 stderr = str(result.get("stderr") or result.get("error") or "")
                 returncode = int(result.get("returncode", result.get("exit_code", -1)) or 0)
@@ -148,7 +154,7 @@ class QuickTestService:
                     event_type="STATE_UPDATE",
                     phase=state.current_phase or "RECONNAISSANCE",
                     message=f"Quick action finished: {action_meta['label']} ({status})",
-                    data={"findings": findings, "returncode": returncode},
+                    data={"findings": findings, "returncode": returncode, "stderr": stderr[:1000]},
                 )
 
             review_item = self._store_quick_review(target)
@@ -167,15 +173,21 @@ class QuickTestService:
                 stop_reason=f"Quick test failed: {exc}",
             )
 
-    def _execute_command(self, state: AttackState, action: Action, command: str, mode: str) -> dict[str, Any]:
+    def _execute_command(self, state: AttackState, action: Action, command: str, mode: str, action_key: str = "") -> dict[str, Any]:
         state_data = state.state_data if isinstance(state.state_data, dict) else {}
+        target = str(state_data.get("target") or "").rstrip("/")
+        script_content = self._quick_action_script(action_key, target)
         if mode == "ssh":
             from core.models import AttackerExecutor
 
             executor = AttackerExecutor.objects.get(id=state_data.get("executor_id"))
+            if script_content:
+                return ssh_executor.run_script(executor, script_content, "python", timeout_seconds=0)
             return ssh_executor.run_command(executor, command, timeout_seconds=0)
 
         if mode == "remote":
+            if script_content:
+                command = build_remote_script_command(script_content, "python")
             task = ExecutionTask.objects.create(
                 action_name=action.name,
                 action=action,
@@ -192,6 +204,8 @@ class QuickTestService:
             )
             return self._wait_for_task(task)
 
+        if script_content:
+            return run_local_script(script_content, "python", timeout_seconds=0)
         return run_command(command, timeout_seconds=0)
 
     def _store_quick_review(self, target: str) -> dict[str, Any]:
@@ -354,7 +368,7 @@ class QuickTestService:
                 {
                     "status": status,
                     "command": command,
-                    "stdout_excerpt": self._credential_output_excerpt(findings),
+                    "stdout_excerpt": self._quick_output_excerpt(findings),
                     "stderr_excerpt": "",
                     "findings": findings or {},
                     "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -369,12 +383,12 @@ class QuickTestService:
         findings = findings or {}
         credentials = findings.get("valid_credentials")
         if isinstance(credentials, list) and credentials:
-            lines = ["Successful credential(s):"]
+            lines = ["Successful brute force credential(s):"]
             for credential in credentials:
                 if not isinstance(credential, dict):
                     continue
                 lines.append(
-                    "path={path} username={username} password={password}".format(
+                    "path={path} username:{username} password:{password}".format(
                         path=credential.get("path") or "",
                         username=credential.get("username") or "",
                         password=credential.get("password") or "",
@@ -382,6 +396,34 @@ class QuickTestService:
                 )
             return "\n".join(lines)
         return ""
+
+    def _quick_output_excerpt(self, findings: dict | None) -> str:
+        credential_excerpt = self._credential_output_excerpt(findings)
+        if credential_excerpt:
+            return credential_excerpt
+
+        findings = findings or {}
+        lines = []
+        missing_headers = findings.get("missing_security_headers")
+        if isinstance(missing_headers, list) and missing_headers:
+            lines.append("Missing security headers: " + ", ".join(str(item) for item in missing_headers[:8]))
+        exposed_paths = findings.get("exposed_paths")
+        if isinstance(exposed_paths, list) and exposed_paths:
+            lines.append("Exposed path(s):")
+            for item in exposed_paths[:5]:
+                if isinstance(item, dict):
+                    lines.append("path={path} evidence={evidence}".format(path=item.get("path") or "", evidence=item.get("evidence") or ""))
+                else:
+                    lines.append(str(item))
+        suspicious_paths = findings.get("suspicious_paths")
+        if isinstance(suspicious_paths, list) and suspicious_paths:
+            lines.append("Suspicious path(s):")
+            for item in suspicious_paths[:5]:
+                if isinstance(item, dict):
+                    lines.append("path={path} status={status}".format(path=item.get("path") or "", status=item.get("status") or ""))
+                else:
+                    lines.append(str(item))
+        return "\n".join(lines)
 
     def _wait_for_task(self, task: ExecutionTask) -> dict[str, Any]:
         while True:
@@ -426,6 +468,9 @@ class QuickTestService:
             return "python3 -c " + shlex.quote(self._default_credential_script(str(context.get("target_url") or target).rstrip("/")))
         if action_key == "headers":
             return f"curl -k -I --max-time 20 {base}"
+        if action_key == "vulnerability_analysis":
+            script = self._vulnerability_analysis_script(str(context.get("target_url") or target).rstrip("/"))
+            return build_remote_script_command(script, "python")
         if action_key == "sqli":
             return (
                 "python3 -c "
@@ -471,26 +516,41 @@ class QuickTestService:
 
     def _default_credential_script(self, target_url: str) -> str:
         return (
-            "import urllib.parse,urllib.request,urllib.error,http.cookiejar\n"
+            "import re,urllib.parse,urllib.request,urllib.error,http.cookiejar\n"
             f"base={target_url!r}\n"
             "creds=[('admin','admin'),('admin','password'),('admin','123456'),('root','root'),('test','test')]\n"
             "paths=['/login.php','/login','/admin/login','/admin/login.php']\n"
-            "positive=['logout','dashboard','welcome','profile','account','settings']\n"
+            "positive=['logout','dashboard','welcome','profile','account','settings','dvwa security','damn vulnerable web application']\n"
             "negative=['login failed','invalid password','invalid username','incorrect','try again']\n"
+            "def hidden_fields(html):\n"
+            "  fields={}\n"
+            "  for attrs in re.findall(r'<input\\b([^>]*)>', html, flags=re.I):\n"
+            "    name=re.search(r'\\bname=[\"\\']?([^\"\\'\\s>]+)', attrs, flags=re.I)\n"
+            "    if not name: continue\n"
+            "    value=re.search(r'\\bvalue=[\"\\']([^\"\\']*)', attrs, flags=re.I)\n"
+            "    fields[name.group(1)]=value.group(1) if value else ''\n"
+            "  return fields\n"
             "print('QUICK_BRUTE_FORCE_START')\n"
             "found=False\n"
             "for path in paths:\n"
             "  if found: break\n"
             "  for user,pwd in creds:\n"
             "    jar=http.cookiejar.CookieJar(); opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))\n"
-            "    data=urllib.parse.urlencode({'username':user,'password':pwd,'Login':'Login'}).encode()\n"
             "    try:\n"
+            "      fields={}\n"
+            "      try:\n"
+            "        preq=urllib.request.Request(base+path,headers={'User-Agent':'XploitAI-QuickTest/1.0'})\n"
+            "        presp=opener.open(preq,timeout=10); fields=hidden_fields(presp.read(250000).decode('utf-8','ignore')); presp.close()\n"
+            "      except Exception: pass\n"
+            "      fields.update({'username':user,'password':pwd,'Login':'Login'})\n"
+            "      data=urllib.parse.urlencode(fields).encode()\n"
             "      req=urllib.request.Request(base+path,data=data,headers={'User-Agent':'XploitAI-QuickTest/1.0','Content-Type':'application/x-www-form-urlencoded'})\n"
             "      resp=opener.open(req,timeout=10)\n"
             "      raw=resp.read(250000); body=raw.decode('utf-8','ignore'); lower=body.lower()\n"
             "      ok=any(x in lower for x in positive) and not any(x in lower for x in negative)\n"
             "      print(('AUTH_SUCCESS: ' if ok else 'AUTH_FAIL: ')+path+' user='+user+' password='+pwd)\n"
             "      if ok:\n"
+            "        print('Successful brute force credential: username:'+user+' password:'+pwd)\n"
             "        print('SUCCESSFUL_CREDENTIAL: path='+path+' username='+user+' password='+pwd)\n"
             "        print('SUCCESSFUL_LOGIN_URL: '+resp.geturl())\n"
             "        found=True\n"
@@ -504,6 +564,43 @@ class QuickTestService:
             "      print('AUTH_ERROR: '+path+' user='+user+' error='+str(e))\n"
             "if not found: print('NO_VALID_DEFAULT_CREDENTIALS')\n"
             "print('QUICK_BRUTE_FORCE_COMPLETE')\n"
+        )
+
+    def _quick_action_script(self, action_key: str, target_url: str) -> str:
+        if action_key == "vulnerability_analysis":
+            return self._vulnerability_analysis_script(target_url)
+        return ""
+
+    def _vulnerability_analysis_script(self, target_url: str) -> str:
+        return (
+            "import urllib.request,urllib.error\n"
+            f"base={target_url!r}\n"
+            "targets=[('', 'root'),('/.env','env'),('/config.php','config'),('/config.inc.php','config'),('/backup','backup'),('/backup.zip','backup'),('/db.sql','database dump'),('/server-status','server status'),('/actuator','actuator'),('/phpinfo.php','phpinfo'),('/admin','admin panel'),('/robots.txt','robots')]\n"
+            "security_headers=['X-Frame-Options','X-Content-Type-Options','Content-Security-Policy','Strict-Transport-Security','Referrer-Policy','Permissions-Policy']\n"
+            "print('QUICK_VULNERABILITY_ANALYSIS_START')\n"
+            "for path,label in targets:\n"
+            "  url=base+path\n"
+            "  try:\n"
+            "    req=urllib.request.Request(url,headers={'User-Agent':'XploitAI-QuickTest/1.0'})\n"
+            "    resp=urllib.request.urlopen(req,timeout=10)\n"
+            "    body=resp.read(1200).decode('utf-8','ignore').replace('\\r',' ').replace('\\n',' ')\n"
+            "    print('VULN_CHECK ['+str(resp.status)+'] '+label+' '+url)\n"
+            "    if path=='':\n"
+            "      hdrs=dict(resp.headers)\n"
+            "      for header in security_headers:\n"
+            "        if header in hdrs: print('HEADER_PRESENT: '+header+'='+hdrs[header])\n"
+            "        else: print('HEADER_MISSING: '+header)\n"
+            "      if hdrs.get('Server'): print('SERVER_BANNER: '+hdrs['Server'])\n"
+            "      if hdrs.get('X-Powered-By'): print('POWERED_BY: '+hdrs['X-Powered-By'])\n"
+            "    if path and resp.status < 400:\n"
+            "      print('EXPOSED_PATH: '+path+' => '+body[:180])\n"
+            "    resp.close()\n"
+            "  except urllib.error.HTTPError as e:\n"
+            "    print('VULN_CHECK ['+str(e.code)+'] '+label+' '+url)\n"
+            "    if path and e.code not in (403,404,410): print('SUSPICIOUS_PATH: '+path+' status='+str(e.code))\n"
+            "  except Exception as e:\n"
+            "    print('SCAN_ERROR: '+url+' => '+str(e))\n"
+            "print('QUICK_VULNERABILITY_ANALYSIS_COMPLETE')\n"
         )
 
     def _parse_quick_output(self, action_name: str, stdout: str) -> dict:
@@ -523,6 +620,12 @@ class QuickTestService:
             findings = parse_output("EndpointDiscovery", stdout)
             if "QUICK_PATH_CHECK_COMPLETE" in (stdout or ""):
                 findings["quick_path_check_completed"] = True
+            return findings
+        if action_name == "QuickVulnerabilityAnalysis":
+            findings = parse_output("VulnerabilityScanning", stdout)
+            if "QUICK_VULNERABILITY_ANALYSIS_COMPLETE" in (stdout or ""):
+                findings["quick_vulnerability_analysis_completed"] = True
+                findings["scan_completed"] = True
             return findings
         if action_name == "QuickHeaderCheck":
             findings = parse_output("HTTPHeaderFetch", stdout)

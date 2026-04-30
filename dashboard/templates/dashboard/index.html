@@ -351,13 +351,22 @@
                     <div class="mt-3 grid gap-3 md:grid-cols-2">
                         {% for action in quick_actions %}
                         <label class="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
-                            <input type="checkbox" name="quick_actions" value="{{ action.key }}" class="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-cyan-400 focus:ring-cyan-400" {% if action.key == 'default_credentials' or action.key == 'headers' or action.key == 'paths' %}checked{% endif %}>
+                            <input type="checkbox" name="quick_actions" value="{{ action.key }}" class="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-cyan-400 focus:ring-cyan-400" {% if action.key == 'default_credentials' or action.key == 'headers' or action.key == 'paths' or action.key == 'vulnerability_analysis' %}checked{% endif %}>
                             <span>
                                 <span class="block font-semibold text-white">{{ action.label }}</span>
                                 <span class="mt-1 block leading-6 text-slate-400">{{ action.description }}</span>
                             </span>
                         </label>
                         {% endfor %}
+                        {% if show_vulnerability_analysis_fallback %}
+                        <label class="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
+                            <input type="checkbox" name="quick_actions" value="vulnerability_analysis" class="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-cyan-400 focus:ring-cyan-400" checked>
+                            <span>
+                                <span class="block font-semibold text-white">Vulnerability analysis</span>
+                                <span class="mt-1 block leading-6 text-slate-400">Run a compact vulnerability analysis for missing headers, exposed files, and risky endpoints.</span>
+                            </span>
+                        </label>
+                        {% endif %}
                     </div>
                 </div>
 
