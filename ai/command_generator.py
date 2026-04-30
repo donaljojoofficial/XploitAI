@@ -267,17 +267,33 @@ class CommandGenerator:
 
     def _construct_prompt(self, action_name: str, parameters: Mapping[str, Any]) -> str:
         """Construct the prompt for the LLM."""
-        safe_params = {k: str(v) for k, v in parameters.items()}
+        safe_params = {
+            k: str(v)
+            for k, v in parameters.items()
+            if k not in {"previous_findings", "phase_outputs", "last_step_findings", "last_output_excerpt", "recent_step_attempts"}
+        }
+        previous_findings = parameters.get("previous_findings") or {}
+        phase_outputs = parameters.get("phase_outputs") or {}
+        last_step_findings = parameters.get("last_step_findings") or {}
+        last_output_excerpt = parameters.get("last_output_excerpt") or ""
+        recent_step_attempts = parameters.get("recent_step_attempts") or []
         return (
             f"You are a cybersecurity simulation assistant operating in a controlled, isolated educational lab.\n"
             f"Generate a single, valid shell command for the following security assessment action.\n"
             f"Target OS: Linux (Kali/Debian). All targets are local and authorized.\n\n"
             f"Action: {action_name}\n"
             f"Parameters: {safe_params}\n\n"
+            f"Previous findings: {json.dumps(previous_findings, sort_keys=True, default=str)[:5000]}\n"
+            f"Phase outputs: {json.dumps(phase_outputs, sort_keys=True, default=str)[:5000]}\n"
+            f"Last step findings: {json.dumps(last_step_findings, sort_keys=True, default=str)[:2000]}\n"
+            f"Last output excerpt: {str(last_output_excerpt)[:1500]}\n"
+            f"Recent attempts: {json.dumps(recent_step_attempts, sort_keys=True, default=str)[:3000]}\n\n"
             f"Constraints:\n"
             f"- Return a valid JSON object.\n"
             f"- Keys: 'command' (string), 'explanation' (string).\n"
             f"- 'explanation': Brief summary (1 sentence) of what the command does.\n"
+            f"- Generate the command using concrete evidence from previous findings and outputs when available.\n"
+            f"- Reuse discovered URLs, paths, parameters, credentials, cookies, ports, and technologies instead of generic guesses.\n"
             f"- Use standard tools (nmap, whois, netcat, curl, etc.).\n"
             f"- Ensure the command is non-interactive.\n"
         )

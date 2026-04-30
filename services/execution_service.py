@@ -79,8 +79,9 @@ class ExecutionService:
         self.state_manager = StateManager(attack_state_id=attack_state_id)
         self.planner = AIPlanner(provider=llm_provider)
         self.llm_provider = (llm_provider or "auto").lower()
+        self.ai_command_generation_enabled = self.llm_provider not in {"local", "rule", "rules", "rule_only", "deterministic", "off", "none"}
         self.command_generator = CommandGenerator(
-            use_llm=self.llm_provider == "hybrid",
+            use_llm=self.ai_command_generation_enabled,
             llm_provider="groq" if self.llm_provider == "hybrid" else llm_provider,
         )
         self.output_analyzer = OutputAnalysisService()
@@ -199,6 +200,21 @@ class ExecutionService:
                 break
         attack_state.current_plan = plan
         attack_state.save(update_fields=["current_plan"])
+
+    def _command_generation_context(self, current_state: dict, step_state: dict | None) -> dict:
+        context = {
+            "previous_findings": current_state.get("findings", {}) or {},
+            "phase_outputs": current_state.get("phase_outputs", {}) or {},
+        }
+        if isinstance(step_state, dict):
+            if step_state.get("last_findings"):
+                context["last_step_findings"] = step_state.get("last_findings")
+            if step_state.get("last_output_excerpt"):
+                context["last_output_excerpt"] = step_state.get("last_output_excerpt")
+            history = step_state.get("execution_history")
+            if isinstance(history, list) and history:
+                context["recent_step_attempts"] = history[-3:]
+        return context
 
     def _persist_script_artifact(self, action_name: str, artifact: dict) -> None:
         attack_state = AttackState.objects.get(id=self.attack_state_id)
@@ -534,6 +550,7 @@ class ExecutionService:
                 command_obj.name,
                 command_parameters,
             )
+            command_parameters.update(self._command_generation_context(current_state, step_state))
             locked_step_command = (
                 str((step_state or {}).get("resolved_command") or "").strip()
                 if self.plan_command_lock
@@ -541,7 +558,15 @@ class ExecutionService:
             )
 
             try:
-                if locked_step_command and uses_placeholder_loot_path(locked_step_command):
+                if self.ai_command_generation_enabled:
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                    if not str(command or "").strip():
+                        command = render_command_template(command_template, sub_context)
+                elif locked_step_command and uses_placeholder_loot_path(locked_step_command):
                     logger.warning(
                         "Ignoring placeholder loot command for '%s': %s",
                         command_obj.name,
