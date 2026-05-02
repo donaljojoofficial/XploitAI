@@ -6,22 +6,27 @@ This script tests that the system correctly uses the selected executor instead o
 
 import os
 import sys
-import django
-from django.test import TestCase, Client
-from django.contrib.auth import get_user_model
-from django.urls import reverse
+from pathlib import Path
 
-# Setup Django environment
+from dotenv import load_dotenv
+import django
+from django.contrib.auth import get_user_model
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+load_dotenv(PROJECT_ROOT / ".env")
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'xploitai.settings')
 django.setup()
 
-from core.models import AttackState, AttackerExecutor, AttackTarget, AttackContext
+from core.models import AttackState, AttackerExecutor, AttackTarget
 from dashboard.views import start_attack
 from django.http import HttpRequest, QueryDict
 
 User = get_user_model()
 
-def test_executor_selection():
+def check_executor_selection():
     """Test that the system correctly selects between local and remote executors."""
     print("Testing executor selection fix...")
     
@@ -59,7 +64,7 @@ def test_executor_selection():
     request.POST = post_data
     
     # Call start_attack view
-    response = start_attack(request)
+    start_attack(request)
     
     # Check that the attack state was created with remote execution mode
     attack_state = AttackState.objects.latest('created_at')
@@ -70,12 +75,12 @@ def test_executor_selection():
     
     # Verify remote execution was selected
     if attack_state.state_data.get('execution_mode') == 'remote':
-        print("✅ SUCCESS: Remote execution mode correctly selected")
+        print("[PASS] Remote execution mode correctly selected")
         print(f"   - Attack state name includes executor name: {'Test Executor' in attack_state.name}")
         print(f"   - Autonomy status is RUNNING: {attack_state.autonomy_status == 'RUNNING'}")
         print(f"   - Stop reason mentions remote execution: {'remote' in attack_state.stop_reason.lower()}")
     else:
-        print("❌ FAILURE: Remote execution mode not selected")
+        print("[FAIL] Remote execution mode not selected")
         print(f"   - Expected: remote, Got: {attack_state.state_data.get('execution_mode')}")
         return False
     
@@ -89,7 +94,7 @@ def test_executor_selection():
     post_data2['llm_provider'] = 'gemini'
     request2.POST = post_data2
     
-    response2 = start_attack(request2)
+    start_attack(request2)
     
     # Check that the attack state was created with local execution mode
     attack_state2 = AttackState.objects.latest('created_at')
@@ -99,11 +104,11 @@ def test_executor_selection():
     
     # Verify local execution was selected
     if attack_state2.state_data.get('execution_mode') == 'local':
-        print("✅ SUCCESS: Local execution mode correctly selected when no executor chosen")
+        print("[PASS] Local execution mode correctly selected when no executor chosen")
         print(f"   - Attack state name includes 'Local Run': {'Local Run' in attack_state2.name}")
         print(f"   - Autonomy status is IDLE (waiting for service): {attack_state2.autonomy_status == 'IDLE'}")
     else:
-        print("❌ FAILURE: Local execution mode not selected")
+        print("[FAIL] Local execution mode not selected")
         print(f"   - Expected: local, Got: {attack_state2.state_data.get('execution_mode')}")
         return False
     
@@ -121,7 +126,7 @@ def test_executor_selection():
     post_data3['llm_provider'] = 'gemini'
     request3.POST = post_data3
     
-    response3 = start_attack(request3)
+    start_attack(request3)
     
     # Check that the attack state was created with local execution mode (fallback)
     attack_state3 = AttackState.objects.latest('created_at')
@@ -131,28 +136,28 @@ def test_executor_selection():
     
     # Verify local execution was selected as fallback
     if attack_state3.state_data.get('execution_mode') == 'local':
-        print("✅ SUCCESS: Local execution mode correctly selected as fallback for disconnected executor")
+        print("[PASS] Local execution mode correctly selected as fallback for disconnected executor")
         print(f"   - Attack state name includes 'Local Run': {'Local Run' in attack_state3.name}")
         print(f"   - Autonomy status is IDLE (waiting for service): {attack_state3.autonomy_status == 'IDLE'}")
     else:
-        print("❌ FAILURE: Local execution mode not selected as fallback")
+        print("[FAIL] Local execution mode not selected as fallback")
         print(f"   - Expected: local, Got: {attack_state3.state_data.get('execution_mode')}")
         return False
     
-    print("\n🎉 All tests passed! The executor selection fix is working correctly.")
+    print("\nAll checks passed. The executor selection fix is working correctly.")
     return True
 
 if __name__ == "__main__":
     try:
-        success = test_executor_selection()
+        success = check_executor_selection()
         if success:
-            print("\n✅ Test completed successfully!")
+            print("\nCheck completed successfully.")
             sys.exit(0)
         else:
-            print("\n❌ Test failed!")
+            print("\nCheck failed.")
             sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Test failed with exception: {e}")
+        print(f"\nCheck failed with exception: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

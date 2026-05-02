@@ -4,12 +4,20 @@ Integration test: Full execution loop simulation.
 """
 import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 import django
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+load_dotenv(PROJECT_ROOT / ".env")
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'xploitai.settings')
 django.setup()
 
-from core.models import AttackState, Phase, Command, ExecutionResult
+from core.models import AttackState, Command, ExecutionResult
 from state.state_manager import StateManager
 from ai.planner import AIPlanner
 from executor.local_executor import run_command
@@ -74,7 +82,7 @@ for step in range(3):
         result = run_command(command_str)
         status = "SUCCESS" if result.get('returncode') == 0 else "FAILED"
         
-        print(f"[✓] Status: {status}")
+        print(f"[OK] Status: {status}")
         if result.get('stdout'):
             print(f"    Output: {result.get('stdout')[:100]}...")
         

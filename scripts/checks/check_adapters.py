@@ -9,7 +9,7 @@ Adapters tested:
   - NvidiaAdapter (requires NVIDIA_API_KEY or a model-specific NVIDIA_API_KEY_<MODEL>)
 
 Run from the XploitAI directory:
-    python test_adapters.py
+    python scripts/checks/check_adapters.py
 """
 
 import io
@@ -26,13 +26,12 @@ if hasattr(sys.stdout, "reconfigure"):
 else:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-# Make sure the XploitAI package root is on sys.path so imports work.
-HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 # Load local .env so standalone runs pick up API keys like manage.py does.
-load_dotenv(Path(HERE) / ".env")
+load_dotenv(PROJECT_ROOT / ".env")
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -114,7 +113,7 @@ def record(adapter_name, test_name, passed, skipped=False, detail=""):
         fail(f"{test_name}{suffix}")
 
 
-def test_adapter(name, adapter, skip_reason=None):
+def check_adapter(name, adapter, skip_reason=None):
     print(f"\n{BOLD}{CYAN}{'-' * 60}{RESET}")
     print(f"{BOLD}  Adapter: {name}{RESET}")
     if skip_reason:
@@ -199,7 +198,7 @@ def main():
             skip = "GOOGLE_API_KEY / GEMINI_API_KEY not set"
         elif not adapter._client:
             skip = "Gemini client failed to initialise"
-        test_adapter("GeminiAdapter", adapter, skip_reason=skip)
+        check_adapter("GeminiAdapter", adapter, skip_reason=skip)
         quota_skip = quota_skip_reason(adapter)
         if quota_skip:
             results["GeminiAdapter"] = {"passed": 0, "failed": 0, "skipped": 6}
@@ -216,7 +215,7 @@ def main():
             skip = "GROQ_API_KEY not set"
         elif not adapter._client:
             skip = "Groq client failed to initialise"
-        test_adapter("GroqAdapter", adapter, skip_reason=skip)
+        check_adapter("GroqAdapter", adapter, skip_reason=skip)
     except Exception as e:
         print(f"\n{RED}Failed to import/init GroqAdapter: {e}{RESET}")
 
@@ -229,7 +228,7 @@ def main():
             skip = "NVIDIA_API_KEY or model-specific NVIDIA_API_KEY_<MODEL> not set"
         elif not adapter._available:
             skip = "NVIDIA adapter is unavailable"
-        test_adapter("NvidiaAdapter", adapter, skip_reason=skip)
+        check_adapter("NvidiaAdapter", adapter, skip_reason=skip)
     except Exception as e:
         print(f"\n{RED}Failed to import/init NvidiaAdapter: {e}{RESET}")
 
