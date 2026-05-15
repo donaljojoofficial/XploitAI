@@ -848,9 +848,12 @@ class AIPlanner:
 
         for next_phase_name in all_phases[current_idx + 1:]:
             if state_manager.get_available_commands(next_phase_name).exists():
+                if isinstance(attack_state.state_data, dict):
+                    attack_state.state_data["_preserved_plan_for_review"] = attack_state.current_plan or {}
+                    attack_state.state_data["_preserved_phase_for_review"] = current_lower or attack_state.current_phase
                 attack_state.current_phase = next_phase_name
                 attack_state.current_plan = {}
-                attack_state.save(update_fields=["current_phase", "current_plan"])
+                attack_state.save(update_fields=["current_phase", "current_plan", "state_data"])
                 logger.info(
                     "AIPlanner advancing from phase '%s' to '%s'.",
                     current_lower or attack_state.current_phase,

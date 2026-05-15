@@ -404,6 +404,81 @@ class ExecutionService:
         )
         return True
 
+    def _handle_planner_phase_advance(self, original_phase: str) -> bool:
+        attack_state = AttackState.objects.get(id=self.attack_state_id)
+        if not isinstance(attack_state.state_data, dict):
+            attack_state.state_data = {}
+
+        old_phase = attack_state.state_data.pop("_preserved_phase_for_review", original_phase)
+        preserved_plan = attack_state.state_data.pop("_preserved_plan_for_review", {})
+
+        new_plan = attack_state.current_plan
+        attack_state.current_plan = preserved_plan
+        attack_state.save(update_fields=["current_plan", "state_data"])
+
+        review = self.planner.review_phase(self.state_manager, old_phase)
+
+        attack_state.refresh_from_db()
+        attack_state.current_plan = new_plan
+
+        new_phase = attack_state.current_phase
+
+        level_meta = (preserved_plan or {}).get("level") if isinstance((preserved_plan or {}).get("level"), dict) else {}
+        if level_meta:
+            level_meta["status"] = "completed"
+        plan_runtime = (preserved_plan or {}).get("runtime") if isinstance((preserved_plan or {}).get("runtime"), dict) else {}
+
+        if not isinstance(attack_state.state_data, dict):
+            attack_state.state_data = {}
+        reviews = attack_state.state_data.get("phase_reviews", [])
+        if not isinstance(reviews, list):
+            reviews = []
+        level_history = attack_state.state_data.get("level_history", [])
+        if not isinstance(level_history, list):
+            level_history = []
+
+        review_item = {
+            "phase": old_phase,
+            "review": (review or {}).get("summary", ""),
+            "details": review or {},
+            "next_phase": new_phase,
+            "completed_at": time.time(),
+            "findings": (attack_state.state_data.get("findings") or {}).copy(),
+            "level": {
+                "index": level_meta.get("index"),
+                "phase_name": normalize_phase_name(old_phase),
+                "kill_chain_label": level_meta.get("kill_chain_label") or canonical_kill_chain_label(old_phase),
+            },
+            "metrics": {
+                "attempts": int(plan_runtime.get("total_attempts") or 0),
+                "failures": int(plan_runtime.get("total_failures") or 0),
+            },
+        }
+        reviews.append(review_item)
+        level_history.append(review_item)
+        transition_payload = {
+            "from_phase": old_phase,
+            "to_phase": new_phase,
+            "next_phase": new_phase,
+            "review": review_item.get("review", ""),
+            "key_evidence": ((review or {}).get("key_evidence") or []),
+            "level": review_item.get("level", {}),
+        }
+        attack_state.state_data["phase_reviews"] = reviews
+        attack_state.state_data["level_history"] = level_history
+        attack_state.state_data["phase_transition_pending"] = transition_payload
+        attack_state.state_data["level_transition_pending"] = transition_payload
+        attack_state.state_data["progression_mode"] = "manual"
+        attack_state.state_data["plan_approved"] = False
+        attack_state.save(update_fields=["state_data", "current_plan"])
+
+        self.state_manager.record_phase_review(old_phase, review_item)
+
+        self.stop_assessment(
+            f"Level '{old_phase}' reviewed. Plan for '{new_phase}' generated and waiting for approval."
+        )
+        return True
+
     def start_assessment(self):
         """Starts the assessment in a background thread."""
         mode_label = "SSH" if str(self.execution_mode).lower() == "ssh" else str(self.execution_mode).title()
@@ -505,10 +580,15 @@ class ExecutionService:
             # the planner will advance to the next phase and pick from there.
             decision = self.planner.get_next_command(self.state_manager)
 
+            attack_state_check = AttackState.objects.get(id=self.attack_state_id)
+            if attack_state_check.current_phase != current_phase:
+                if self._handle_planner_phase_advance(current_phase):
+                    return
+
             if not decision:
                 # Planner returned None only when ALL phases are exhausted
                 # or the kill-chain is genuinely complete.
-                attack_state_obj = AttackState.objects.get(id=self.attack_state_id)
+                attack_state_obj = attack_state_check
                 if attack_state_obj.current_phase.upper() == "COMPLETED":
                     findings = ((attack_state_obj.state_data or {}).get("findings") or {})
                     if has_attack_completion_evidence(findings):
