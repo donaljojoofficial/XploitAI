@@ -1017,7 +1017,7 @@ def index(request: HttpRequest) -> HttpResponse:
     selected_attack_id = request.GET.get("attack_id")
     start_modal_open = selected_attack_id == "__new__" or request.GET.get("create_new_test") == "1"
     chat_phase_key = _normalize_phase_key(request.GET.get("chat_phase") or "")
-    attacks_queryset = AttackState.objects.order_by('-updated_at')
+    attacks_queryset = AttackState.objects.filter(owner=request.user).order_by('-updated_at')
     if selected_attack_id and str(selected_attack_id).isdigit():
         attack_state = attacks_queryset.filter(pk=int(selected_attack_id)).first() or attacks_queryset.first()
     else:
@@ -1073,7 +1073,7 @@ def index(request: HttpRequest) -> HttpResponse:
 @login_required(login_url='login')
 def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """Show details for a specific AttackState, including actions and timeline."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
 
     actions = Action.objects.filter(attack_state=state).order_by("created_at")
     tasks = ExecutionTask.objects.filter(action__attack_state=state).order_by("-created_at")
@@ -1122,7 +1122,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required(login_url='login')
 def attack_phase_detail(request: HttpRequest, pk: int, phase_key: str) -> HttpResponse:
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     selected_tab = (request.GET.get("tab") or "overview").strip().lower()
     if selected_tab not in {"overview", "plan", "outputs", "review", "timeline"}:
         selected_tab = "overview"
@@ -1144,7 +1144,7 @@ def attack_phase_detail(request: HttpRequest, pk: int, phase_key: str) -> HttpRe
 def assistant_page(request: HttpRequest) -> HttpResponse:
     selected_attack_id = request.GET.get("attack_id")
     chat_phase_key = _normalize_phase_key(request.GET.get("chat_phase") or "")
-    attacks_queryset = AttackState.objects.order_by('-updated_at')
+    attacks_queryset = AttackState.objects.filter(owner=request.user).order_by('-updated_at')
     if selected_attack_id and str(selected_attack_id).isdigit():
         attack_state = attacks_queryset.filter(pk=int(selected_attack_id)).first() or attacks_queryset.first()
     else:
@@ -1167,7 +1167,7 @@ def assistant_page(request: HttpRequest) -> HttpResponse:
 @login_required(login_url='login')
 def attack_command_logs(request: HttpRequest, pk: int) -> HttpResponse:
     """Show raw command output (stdout/stderr/findings) for a given attack."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     execution_results = list(state.execution_results.select_related('command').order_by('-created_at'))
     for result in execution_results:
         _enrich_result_findings_from_stdout(result)
@@ -1191,7 +1191,7 @@ def attack_command_logs(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required(login_url='login')
 def attack_replay(request: HttpRequest, pk: int) -> HttpResponse:
     """Show a sequential replay of the attack lifecycle."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     unified_events = _get_unified_events(state)
     events_json = json.dumps(unified_events, cls=DjangoJSONEncoder)
     context = {
@@ -1208,7 +1208,7 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
     Dedicated view to show the full AI generated plan (Actions) for an attack.
     Highlights the current stage and completion status.
     """
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     actions = Action.objects.filter(attack_state=state).order_by("created_at")
     plan_view = _build_plan_view_state(state)
 
@@ -1228,7 +1228,7 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required(login_url='login')
 @require_POST
 def generate_attack_report(request: HttpRequest, pk: int) -> HttpResponse:
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     report_service = AttackReportService(state)
     report_service.generate_report()
     return redirect('dashboard_attack_detail', pk=pk)
@@ -1236,7 +1236,7 @@ def generate_attack_report(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required(login_url='login')
 def latest_attack_report(request: HttpRequest, pk: int) -> HttpResponse:
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     report_service = AttackReportService(state)
     report = report_service.latest_report()
     if not report:
@@ -1247,7 +1247,7 @@ def latest_attack_report(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required(login_url='login')
 def attack_phase_reviews(request: HttpRequest, pk: int) -> HttpResponse:
     """Show detailed stored phase reviews for an attack."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     plan_view = _build_plan_view_state(state)
     context = {
         'attack_state': state,
@@ -1262,7 +1262,7 @@ def attack_phase_reviews(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required(login_url='login')
 def test_history(request: HttpRequest) -> HttpResponse:
     """Show all initiated attack runs with their stored plans, outputs, and reviews."""
-    attacks = list(AttackState.objects.order_by('-created_at'))
+    attacks = list(AttackState.objects.filter(owner=request.user).order_by('-created_at'))
     attack_histories = [
         {
             "attack_state": attack,
@@ -1281,7 +1281,7 @@ def test_history(request: HttpRequest) -> HttpResponse:
 @login_required(login_url='login')
 @require_POST
 def delete_test_history_item(request: HttpRequest, pk: int) -> HttpResponse:
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     deleted_name = state.name
     _delete_attack_states(AttackState.objects.filter(pk=pk))
     messages.success(request, f"Deleted test run '{deleted_name}'.")
@@ -1291,7 +1291,7 @@ def delete_test_history_item(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required(login_url='login')
 @require_POST
 def delete_all_test_history(request: HttpRequest) -> HttpResponse:
-    deleted_count = _delete_attack_states(AttackState.objects.all())
+    deleted_count = _delete_attack_states(AttackState.objects.filter(owner=request.user))
     if deleted_count:
         messages.success(request, f"Deleted {deleted_count} test run(s).")
     else:
@@ -1397,6 +1397,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                 name=f"Remote Run {selected_executor.name} {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 current_phase=start_phase,
                 autonomy_status="IDLE",
+                owner=request.user,
                 state_data={
                     "target": target_reference,
                     "current_phase": start_phase,
@@ -1425,6 +1426,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                 name=f"Local Run {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 current_phase=start_phase,
                 autonomy_status="IDLE",
+                owner=request.user,
                 state_data={
                     "target": target_reference,
                     "current_phase": start_phase,
@@ -1718,6 +1720,7 @@ def stop_attack(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect('dashboard_attack_detail', pk=pk)
 
 @login_required(login_url='login')
+@auth.admin_required
 def configuration(request: HttpRequest) -> HttpResponse:
     """
     View to manage system configuration and API keys.

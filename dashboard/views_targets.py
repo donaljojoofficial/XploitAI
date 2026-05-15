@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django import forms
 from core.models import AttackTarget
+from django.contrib.auth.models import User
 
 class WebTargetForm(forms.ModelForm):
     """Form focused on Web Targets (Phase 2)."""

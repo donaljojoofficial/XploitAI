@@ -2,6 +2,7 @@
 
 from django.db import models
 from django.utils import timezone
+from django.contrib.auth.models import User
 
 # According to project_scope.md, the cyber attack lifecycle has several phases.
 # These will be used as states in our simulation.
@@ -121,6 +122,13 @@ class AttackTarget(models.Model):
     Defines an explicit, approved target system for the cyber range.
     Autonomy can only target registered, active targets.
     """
+    
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='attack_targets',
+        help_text="The user who owns this target"
+    )
     name = models.CharField(
         max_length=100,
         unique=True,
@@ -174,6 +182,13 @@ class AttackState(models.Model):
     It acts as the "single source of truth" for a given attack scenario.
     """
 
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='attack_states',
+        help_text="The user who owns this attack state"
+    )
+    
     name = models.CharField(
         max_length=255,
         help_text="A unique name for this attack simulation scenario.",

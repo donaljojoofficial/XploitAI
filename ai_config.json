@@ -1,5 +1,5 @@
 {
-    "DEFAULT_LLM_PROVIDER": "auto",
+    "DEFAULT_LLM_PROVIDER": "hybrid",
     "LMSTUDIO_HOST": "http://localhost:1234",
     "LMSTUDIO_MODEL": "phi-4-mini-instruct",
     "LMSTUDIO_TIMEOUT_SECONDS": "12",
@@ -10,5 +10,9 @@
     "LMSTUDIO_PLAN_TIMEOUT_SECONDS": "1000",
     "LMSTUDIO_TIMEOUT_RETRIES": "1",
     "LMSTUDIO_MAX_TOKENS_DECISION": "96",
-    "LMSTUDIO_MAX_TOKENS_PLAN": "220"
+    "LMSTUDIO_MAX_TOKENS_PLAN": "220",
+    "OPENAI_MODEL": "gpt-4o-mini",
+    "OPENAI_HOST": "https://api.openai.com",
+    "NVIDIA_MODEL": "mistralai/mistral-small-4-119b-2603",
+    "NVIDIA_HOST": "https://integrate.api.nvidia.com"
 }
