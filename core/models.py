@@ -22,6 +22,13 @@ class AttackerExecutor(models.Model):
     Represents a real attacker machine (VM) running the executor daemon.
     Used for heartbeat tracking, availability checks, and autonomy gating.
     """
+    
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='attacker_executors',
+        help_text="The user who owns this executor"
+    )
     class ExecutorType(models.TextChoices):
         DAEMON = 'DAEMON', 'Daemon'
         SSH = 'SSH', 'SSH'
@@ -641,6 +648,14 @@ class AttackContext(models.Model):
     Defines the operational context for an autonomous attack.
     Binds a specific attacker executor to a specific target.
     """
+    
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='attack_contexts',
+        help_text="The user who owns this context"
+    )
+    
     class Status(models.TextChoices):
         READY = 'READY', 'Ready'
         RUNNING = 'RUNNING', 'Running'

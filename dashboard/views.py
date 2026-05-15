@@ -977,12 +977,26 @@ def _get_unified_events(state: AttackState) -> list[dict]:
     return unified
 
 
-def _get_global_context() -> dict[str, Any]:
+def _get_global_context(request: HttpRequest) -> dict[str, Any]:
     """Helper to provide global context variables (executors, targets) for navigation/modals."""
-    executors = AttackerExecutor.objects.all().order_by('-last_heartbeat')
-    targets = AttackTarget.objects.all().order_by('name')
-    active_context = AttackContext.objects.filter(status__in=['READY', 'RUNNING']).first()
-    recent_attacks = AttackState.objects.order_by('-created_at')[:5]
+    if not request.user.is_authenticated:
+        # Return empty context for unauthenticated users
+        return {
+            'executors': AttackerExecutor.objects.none(),
+            'targets': AttackTarget.objects.none(),
+            'recent_attacks': AttackState.objects.none(),
+            'connected_executors': [],
+            'active_targets': AttackTarget.objects.none(),
+            'has_connected_executor': False,
+            'has_local_executor': True,
+            'has_active_target': False,
+            'active_context': None,
+        }
+    
+    executors = AttackerExecutor.objects.filter(owner=request.user).order_by('-last_heartbeat')
+    targets = AttackTarget.objects.filter(owner=request.user).order_by('name')
+    active_context = AttackContext.objects.filter(owner=request.user, status__in=['READY', 'RUNNING']).first()
+    recent_attacks = AttackState.objects.filter(owner=request.user).order_by('-created_at')[:5]
 
     connected_executors = [executor for executor in executors if executor.is_remote_ready]
     active_targets = targets.filter(is_active=True)
@@ -1010,7 +1024,7 @@ def index(request: HttpRequest) -> HttpResponse:
         landing_context = {
             'latest_attack': attack_state,
             'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
-            **_get_global_context(),
+            **_get_global_context(request),
         }
         return render(request, 'dashboard/landing.html', landing_context)
 
@@ -1065,7 +1079,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'quick_actions': quick_actions,
         'show_vulnerability_analysis_fallback': 'vulnerability_analysis' not in quick_action_keys,
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
-        **_get_global_context(),
+        **_get_global_context(request),
     }
     return render(request, 'dashboard/index.html', context)
 
@@ -1115,7 +1129,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'plan_view': plan_view,
         'latest_report': plan_view.get('last_report'),
         'auto_refresh_seconds': 30,
-        **_get_global_context(),
+        **_get_global_context(request),
     }
     return render(request, 'dashboard/attack_detail.html', context)
 
@@ -1135,7 +1149,7 @@ def attack_phase_detail(request: HttpRequest, pk: int, phase_key: str) -> HttpRe
         "waiting_for_approval": _is_waiting_for_plan_approval(state),
         "plan_view": _build_plan_view_state(state),
         "auto_refresh_seconds": 30,
-        **_get_global_context(),
+        **_get_global_context(request),
     }
     return render(request, "dashboard/attack_phase_detail.html", context)
 
@@ -1159,7 +1173,7 @@ def assistant_page(request: HttpRequest) -> HttpResponse:
         "phase_map": dashboard_phase_catalog(),
         "phase_dashboard": _build_phase_cards(attack_state),
         "latest_report": (plan_view or {}).get("last_report"),
-        **_get_global_context(),
+        **_get_global_context(request),
     }
     return render(request, "dashboard/assistant.html", context)
 
@@ -1183,7 +1197,7 @@ def attack_command_logs(request: HttpRequest, pk: int) -> HttpResponse:
         'plan_view': _build_plan_view_state(state),
         'quick_review': quick_review,
         'auto_refresh_seconds': 30,
-        **_get_global_context(),
+        **_get_global_context(request),
     }
     return render(request, 'dashboard/attack_command_logs.html', context)
 
@@ -1220,7 +1234,7 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
         'latest_report': plan_view.get('last_report'),
         'waiting_for_approval': _is_waiting_for_plan_approval(state),
         'auto_refresh_seconds': 30,
-        **_get_global_context(),
+        **_get_global_context(request),
     }
     return render(request, 'dashboard/attack_plan.html', context)
 
@@ -1254,7 +1268,7 @@ def attack_phase_reviews(request: HttpRequest, pk: int) -> HttpResponse:
         'plan_view': plan_view,
         'phase_reviews': (state.state_data or {}).get('level_history') or (state.state_data or {}).get('phase_reviews', []),
         'auto_refresh_seconds': 30,
-        **_get_global_context(),
+        **_get_global_context(request),
     }
     return render(request, 'dashboard/phase_reviews.html', context)
 
@@ -1273,7 +1287,7 @@ def test_history(request: HttpRequest) -> HttpResponse:
     ]
     context = {
         'attack_histories': attack_histories,
-        **_get_global_context(),
+        **_get_global_context(request),
     }
     return render(request, 'dashboard/test_history.html', context)
 
@@ -1463,7 +1477,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
 
     # Create or update context for UI display
     if selected_executor and use_remote_executor:
-        AttackContext.objects.filter(status__in=['READY', 'RUNNING']).update(
+        AttackContext.objects.filter(owner=request.user, status__in=['READY', 'RUNNING']).update(
             status='STOPPED',
             stop_reason='Superseded by new attack start',
             stopped_at=timezone.now()
@@ -1472,6 +1486,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         AttackContext.objects.create(
             attacker_executor=selected_executor,
             target=target,
+            owner=request.user,
             status='READY'
         )
 
@@ -1556,7 +1571,7 @@ def start_quick_test(request: HttpRequest) -> HttpResponse:
     )
 
     if selected_executor and use_remote_executor and not selected_executor.is_ssh_executor:
-        AttackContext.objects.filter(status__in=["READY", "RUNNING"]).update(
+        AttackContext.objects.filter(owner=request.user, status__in=["READY", "RUNNING"]).update(
             status="STOPPED",
             stop_reason="Superseded by quick test",
             stopped_at=timezone.now(),
@@ -1564,6 +1579,7 @@ def start_quick_test(request: HttpRequest) -> HttpResponse:
         AttackContext.objects.create(
             attacker_executor=selected_executor,
             target=target,
+            owner=request.user,
             status="READY",
         )
 
@@ -1784,10 +1800,10 @@ def configuration(request: HttpRequest) -> HttpResponse:
             set_config('LMSTUDIO_MAX_TOKENS_DECISION', lmstudio_tokens_decision)
         if lmstudio_tokens_plan:
             set_config('LMSTUDIO_MAX_TOKENS_PLAN', lmstudio_tokens_plan)
-            
+
         return redirect('configuration')
-        
-    context = _get_global_context()
+
+    context = _get_global_context(request)
     context['has_gemini_key'] = bool(get_config('GOOGLE_API_KEY', ''))
     context['has_openai_key'] = bool(get_config('OPENAI_API_KEY', ''))
     context['has_groq_key'] = bool(get_config('GROQ_API_KEY', ''))

@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from core.models import AttackerExecutor
 from .forms import AttackerExecutorForm
+from django.contrib.auth.models import User
 
 @login_required(login_url='login')
 def executor_management(request):
@@ -15,6 +16,7 @@ def executor_management(request):
             form = AttackerExecutorForm(request.POST)
             if form.is_valid():
                 executor = form.save(commit=False)
+                executor.owner = request.user
                 if executor.executor_type == AttackerExecutor.ExecutorType.SSH:
                     executor.status = AttackerExecutor.Status.DISCONNECTED
                 executor.save()
@@ -30,8 +32,8 @@ def executor_management(request):
             messages.success(request, f"Executor '{executor.name}' removed.")
             return redirect('executor_management')
 
-    # Fetch all executors
-    executors = AttackerExecutor.objects.all().order_by('-last_heartbeat')
+    # Fetch executors owned by the current user
+    executors = AttackerExecutor.objects.filter(owner=request.user).order_by('-last_heartbeat')
     
     context = {
         'executors': executors,

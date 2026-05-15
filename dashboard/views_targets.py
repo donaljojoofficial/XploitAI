@@ -35,14 +35,16 @@ def target_management(request):
 
         form = WebTargetForm(request.POST)
         if form.is_valid():
-            target = form.save()
+            target = form.save(commit=False)
+            target.owner = request.user
+            target.save()
             messages.success(request, f"Target '{target.name}' added successfully.")
             return redirect('target_management')
     else:
         form = WebTargetForm()
 
     # Filter to show only Web Targets (Phase 2 focus) and hide legacy VM-only targets
-    targets = AttackTarget.objects.exclude(base_url='').order_by('-created_at')
+    targets = AttackTarget.objects.filter(owner=request.user).exclude(base_url='').order_by('-created_at')
     
     context = {
         'targets': targets,

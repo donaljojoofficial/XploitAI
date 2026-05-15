@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from core.models import AttackState, Action, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
+from django.contrib.auth.models import User
 
 @login_required(login_url='login')
 def index(request):
@@ -9,7 +10,7 @@ def index(request):
     Displays system status, recent activity, and control options using the new template.
     """
     # Fetch the latest attack state (Mission Control)
-    attack_state = AttackState.objects.last()
+    attack_state = AttackState.objects.filter(owner=request.user).last()
 
     # Fetch recent activity (current session only)
     if attack_state:
@@ -18,11 +19,11 @@ def index(request):
         actions = []
     
     # Fetch recent alerts
-    alerts = DefenderAlert.objects.all().order_by('-created_at')[:5]
+    alerts = DefenderAlert.objects.filter(owner=request.user).order_by('-created_at')[:5]
     
     # Fetch infrastructure status
-    executors = AttackerExecutor.objects.all()
-    targets = AttackTarget.objects.exclude(base_url='')
+    executors = AttackerExecutor.objects.filter(owner=request.user)
+    targets = AttackTarget.objects.filter(owner=request.user).exclude(base_url='')
     
     # Determine readiness for new simulations
     connected_executors = [executor for executor in executors.order_by('-last_heartbeat') if executor.is_remote_ready]
@@ -31,7 +32,7 @@ def index(request):
     has_active_target = active_targets.exists()
     
     # Fetch currently active operational context
-    active_context = AttackContext.objects.filter(status__in=['READY', 'RUNNING']).last()
+    active_context = AttackContext.objects.filter(owner=request.user, status__in=['READY', 'RUNNING']).last()
 
     context = {
         'attack_state': attack_state,
