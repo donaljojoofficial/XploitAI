@@ -12,6 +12,7 @@ class AuthenticationTests(TestCase):
         self.dashboard_url = reverse('dashboard_index')
         self.profile_url = reverse('profile')
         self.config_url = reverse('configuration')
+        self.user_management_url = reverse('user_management')
 
     def test_registration_and_login_flow(self):
         # Registration page opens
@@ -30,17 +31,22 @@ class AuthenticationTests(TestCase):
         user = User.objects.get(username='tester')
         self.assertFalse(user.is_active)
 
-        # simulate activation link
-        from django.utils.http import urlsafe_base64_encode
-        from django.utils.encoding import force_bytes
-        from django.contrib.auth.tokens import default_token_generator
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-        activate_url = reverse('activate', kwargs={'uidb64': uid, 'token': token})
-        resp = self.client.get(activate_url, follow=True)
-        self.assertRedirects(resp, self.login_url)
+        # pending user cannot log in before admin approval
+        response = self.client.post(self.login_url, {
+            'username': 'tester',
+            'password': 'complexpassword'
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "pending administrator approval")
+
+        # admin approves the request
+        admin = User.objects.create_superuser('admin', 'admin@example.com', 'adminpass123')
+        self.client.login(username='admin', password='adminpass123')
+        resp = self.client.post(reverse('approve_user', kwargs={'user_id': user.id}), follow=True)
+        self.assertRedirects(resp, self.user_management_url)
         user.refresh_from_db()
         self.assertTrue(user.is_active)
+        self.client.post(self.logout_url, follow=True)
 
         # now try login flow
         response = self.client.post(self.login_url, {
@@ -83,7 +89,7 @@ class AuthenticationTests(TestCase):
 
     def test_access_control(self):
         # Unauthenticated should be redirected when accessing protected routes
-        for url in [self.dashboard_url, self.profile_url, self.config_url]:
+        for url in [self.dashboard_url, self.profile_url, self.config_url, self.user_management_url]:
             response = self.client.get(url, follow=True)
             self.assertRedirects(response, f"{self.login_url}?next={url}")
 
@@ -98,10 +104,14 @@ class AuthenticationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         response = self.client.get(self.config_url, follow=True)
         self.assertRedirects(response, f"{self.login_url}?next={self.config_url}")
+        response = self.client.get(self.user_management_url, follow=True)
+        self.assertRedirects(response, f"{self.login_url}?next={self.user_management_url}")
 
         # grant admin group and try again
         from django.contrib.auth.models import Group
         admin_group, _ = Group.objects.get_or_create(name='Admin')
         u.groups.add(admin_group)
         response = self.client.get(self.config_url)
+        self.assertEqual(response.status_code, 200)
+        response = self.client.get(self.user_management_url)
         self.assertEqual(response.status_code, 200)

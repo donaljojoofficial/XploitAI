@@ -1,0 +1,97 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}User Management - XploitAI{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <section class="shell-panel rounded-[1.6rem] p-8">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+                <div class="section-title">Administration</div>
+                <h1 class="mt-2 text-4xl font-extrabold tracking-tight text-white">User Management</h1>
+                <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-400">
+                    Review registration requests and approve accounts before they can access the console.
+                </p>
+            </div>
+            <div class="ui-badge ui-badge-warning">{{ pending_users|length }} Pending</div>
+        </div>
+    </section>
+
+    {% if messages %}
+    <div class="space-y-3">
+        {% for message in messages %}
+        <div class="alert {% if message.tags == 'error' %}alert-error{% else %}alert-success{% endif %}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+        <div class="border-b border-white/10 px-6 py-5">
+            <div class="section-title">Pending Requests</div>
+            <h2 class="mt-2 text-2xl font-semibold text-white">Accounts awaiting approval</h2>
+        </div>
+        <div class="divide-y divide-white/5">
+            {% for pending_user in pending_users %}
+            <div class="grid gap-4 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div class="text-lg font-semibold text-white">{{ pending_user.username }}</div>
+                        <span class="ui-badge ui-badge-warning">Pending</span>
+                    </div>
+                    <div class="mt-2 text-sm text-slate-400">
+                        {{ pending_user.email|default:"No email provided" }}
+                        {% if pending_user.first_name or pending_user.last_name %}
+                        · {{ pending_user.first_name }} {{ pending_user.last_name }}
+                        {% endif %}
+                    </div>
+                    <div class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">Requested {{ pending_user.date_joined|timesince }} ago</div>
+                </div>
+                <div class="flex flex-wrap gap-3">
+                    <form method="post" action="{% url 'approve_user' pending_user.id %}">
+                        {% csrf_token %}
+                        <button type="submit" class="ui-btn ui-btn-success">Approve</button>
+                    </form>
+                    <form method="post" action="{% url 'reject_user' pending_user.id %}" onsubmit="return confirm('Reject this registration request?');">
+                        {% csrf_token %}
+                        <button type="submit" class="ui-btn ui-btn-danger">Reject</button>
+                    </form>
+                </div>
+            </div>
+            {% empty %}
+            <div class="px-6 py-10 text-center text-slate-400">
+                <div class="text-lg font-semibold text-white">No pending requests</div>
+                <div class="mt-2 text-sm">New registrations will appear here for review.</div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+        <div class="border-b border-white/10 px-6 py-5">
+            <div class="section-title">Approved Users</div>
+            <h2 class="mt-2 text-2xl font-semibold text-white">Active accounts</h2>
+        </div>
+        <div class="divide-y divide-white/5">
+            {% for active_user in active_users %}
+            <div class="grid gap-3 px-6 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                <div>
+                    <div class="font-semibold text-white">{{ active_user.username }}</div>
+                    <div class="mt-1 text-sm text-slate-400">{{ active_user.email|default:"No email provided" }}</div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    {% if active_user.is_superuser %}
+                    <span class="ui-badge ui-badge-info">Superuser</span>
+                    {% elif active_user.is_staff %}
+                    <span class="ui-badge ui-badge-info">Staff</span>
+                    {% else %}
+                    <span class="ui-badge ui-badge-success">Active</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% empty %}
+            <div class="px-6 py-10 text-center text-slate-400">No active users found.</div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}

@@ -3,6 +3,7 @@
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
+from django.db.models import Q
 
 # According to project_scope.md, the cyber attack lifecycle has several phases.
 # These will be used as states in our simulation.
@@ -25,9 +26,11 @@ class AttackerExecutor(models.Model):
     
     owner = models.ForeignKey(
         User,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name='attacker_executors',
-        help_text="The user who owns this executor"
+        help_text="The user who owns this executor. Empty means this is a shared built-in executor."
     )
     class ExecutorType(models.TextChoices):
         DAEMON = 'DAEMON', 'Daemon'
@@ -43,7 +46,6 @@ class AttackerExecutor(models.Model):
 
     name = models.CharField(
         max_length=100,
-        unique=True,
         help_text="Human-readable identifier for this attacker machine"
     )
     executor_type = models.CharField(
@@ -123,6 +125,20 @@ class AttackerExecutor(models.Model):
     def __str__(self):
         return f"{self.name} ({self.connection_display}) [{self.status}]"
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner', 'name'],
+                name='unique_executor_name_per_owner',
+                condition=Q(owner__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=['name'],
+                name='unique_shared_executor_name',
+                condition=Q(owner__isnull=True),
+            ),
+        ]
+
 
 class AttackTarget(models.Model):
     """
@@ -138,7 +154,6 @@ class AttackTarget(models.Model):
     )
     name = models.CharField(
         max_length=100,
-        unique=True,
         help_text="Human-readable identifier for this target system"
     )
     ip_address = models.GenericIPAddressField(
@@ -171,6 +186,11 @@ class AttackTarget(models.Model):
         status = "Active" if self.is_active else "Inactive"
         target_ref = self.base_url if self.base_url else self.ip_address
         return f"{self.name} ({target_ref}) [{status}]"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['owner', 'name'], name='unique_target_name_per_owner'),
+        ]
 
 AUTONOMY_STATUS_CHOICES = [
     ("IDLE", "Idle"),

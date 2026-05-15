@@ -372,7 +372,8 @@
                             <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Targets</a>
                             <a href="{% url 'executor_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Executors</a>
                             <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">History</a>
-                            {% if user.is_authenticated %}
+                            {% if user.is_superuser or user.is_staff or user|in_group:'Admin' %}
+                            <a href="{% url 'user_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Users</a>
                             <a href="{% url 'configuration' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Configuration</a>
                             {% endif %}
                         </div>
@@ -417,7 +418,8 @@
                     <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Targets</a>
                     <a href="{% url 'executor_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Executors</a>
                     <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">History</a>
-                    {% if user.is_authenticated %}
+                    {% if user.is_superuser or user.is_staff or user|in_group:'Admin' %}
+                    <a href="{% url 'user_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Users</a>
                     <a href="{% url 'configuration' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Configuration</a>
                     {% endif %}
                 </div>

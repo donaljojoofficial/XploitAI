@@ -51,6 +51,7 @@ def heartbeat(request):
         # Update or create executor record
         AttackerExecutor.objects.update_or_create(
             name=name,
+            owner=None,
             defaults={
                 "ip_address": ip_address,
                 "last_heartbeat": timezone.now(),

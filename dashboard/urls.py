@@ -16,6 +16,9 @@ urlpatterns = [
     path("logout/", auth.logout_view, name="logout"),
     path("profile/", auth.profile, name="profile"),
     path("profile/change-password/", auth.change_password, name="change_password"),
+    path("users/", auth.user_management, name="user_management"),
+    path("users/<int:user_id>/approve/", auth.approve_user, name="approve_user"),
+    path("users/<int:user_id>/reject/", auth.reject_user, name="reject_user"),
 
     # Dashboard routes (root level)
     path("", views.index, name="dashboard_index"),

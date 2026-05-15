@@ -3,7 +3,6 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django import forms
 from core.models import AttackTarget
-from django.contrib.auth.models import User
 
 class WebTargetForm(forms.ModelForm):
     """Form focused on Web Targets (Phase 2)."""
@@ -28,7 +27,7 @@ def target_management(request):
         # Handle Deletion
         if 'delete_target' in request.POST:
             target_id = request.POST.get('target_id')
-            target = get_object_or_404(AttackTarget, pk=target_id)
+            target = get_object_or_404(AttackTarget, pk=target_id, owner=request.user)
             target.delete()
             messages.success(request, f"Target '{target.name}' removed.")
             return redirect('target_management')
@@ -37,9 +36,13 @@ def target_management(request):
         if form.is_valid():
             target = form.save(commit=False)
             target.owner = request.user
-            target.save()
-            messages.success(request, f"Target '{target.name}' added successfully.")
-            return redirect('target_management')
+            if AttackTarget.objects.filter(owner=request.user, name=target.name).exists():
+                form.add_error('name', 'You already have a target with this name.')
+                messages.warning(request, "Please correct the target form and try again.")
+            else:
+                target.save()
+                messages.success(request, f"Target '{target.name}' added successfully.")
+                return redirect('target_management')
     else:
         form = WebTargetForm()
 

@@ -12,13 +12,13 @@
                     <div>
                         <div class="section-title">Create Workspace Access</div>
                         <h1 class="mt-4 max-w-xl text-5xl font-extrabold tracking-tight text-white">Set up an operator account for controlled security operations.</h1>
-                        <p class="mt-5 max-w-2xl text-base leading-8 text-slate-300">Registration opens access to the landing workspace first, then email activation unlocks the full console.</p>
+                        <p class="mt-5 max-w-2xl text-base leading-8 text-slate-300">Registration creates an access request. An administrator reviews and approves the account before console login is enabled.</p>
                     </div>
 
                     <div class="space-y-4">
                         <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-5">
-                            <div class="text-sm font-semibold text-white">Activation by email</div>
-                            <p class="mt-2 text-sm leading-6 text-slate-400">New accounts stay inactive until the verification link is used.</p>
+                            <div class="text-sm font-semibold text-white">Admin approval</div>
+                            <p class="mt-2 text-sm leading-6 text-slate-400">New accounts stay inactive until an administrator approves the request.</p>
                         </div>
                         <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-5">
                             <div class="text-sm font-semibold text-white">Operator-friendly onboarding</div>
@@ -37,7 +37,7 @@
                 </div>
                 <a href="{% url 'dashboard_index' %}" class="text-sm text-cyan-200 transition hover:text-white">Back to overview</a>
             </div>
-            <p class="mt-4 text-sm leading-7 text-slate-400">Register an account to access the console. Activation is completed by email verification after submission.</p>
+            <p class="mt-4 text-sm leading-7 text-slate-400">Register an account to request console access. You can sign in after an administrator approves the request.</p>
 
             {% if messages %}
             <div class="mt-6 space-y-3">

@@ -3,15 +3,10 @@
         <h5 class="card-title mb-0">Mission Control</h5>
     </div>
     <div class="card-body">
-        {% if not has_connected_executor or not has_active_target %}
+        {% if not has_active_target %}
             <div class="alert alert-warning">
                 <strong>System Not Ready:</strong>
-                {% if not has_connected_executor %}
-                    No connected executors found. Run the executor daemon.
-                {% endif %}
-                {% if not has_active_target %}
-                    No active targets configured.
-                {% endif %}
+                No active targets configured.
             </div>
         {% endif %}
 
@@ -20,12 +15,12 @@
             
             <div class="col-md-4">
                 <label for="executorSelect" class="form-label">Attacker Executor</label>
-                <select name="executor_id" id="executorSelect" class="form-select" required>
-                    <option value="" selected disabled>Select Executor...</option>
+                <select name="executor_id" id="executorSelect" class="form-select">
+                    <option value="" selected>Local executor (default)</option>
                     {% for executor in executors %}
-                        <option value="{{ executor.id }}" {% if executor.status != 'CONNECTED' %}disabled{% endif %}>
-                            {{ executor.name }} ({{ executor.ip_address }}) 
-                            {% if executor.status != 'CONNECTED' %}[OFFLINE]{% endif %}
+                        <option value="{{ executor.id }}" {% if not executor.is_remote_ready %}disabled{% endif %}>
+                            {{ executor.name }} ({{ executor.connection_display }})
+                            {% if not executor.is_remote_ready %}[OFFLINE]{% endif %}
                         </option>
                     {% endfor %}
                 </select>
@@ -35,9 +30,9 @@
                 <label for="targetSelect" class="form-label">Target System</label>
                 <select name="target_id" id="targetSelect" class="form-select" required>
                     <option value="" selected disabled>Select Target...</option>
-                    {% for target in targets %}
+                    {% for target in active_targets %}
                         <option value="{{ target.id }}" {% if not target.is_active %}disabled{% endif %}>
-                            {{ target.name }} ({{ target.ip_address }})
+                            {{ target.name }} ({{ target.base_url|default:target.ip_address }})
                             {% if not target.is_active %}[INACTIVE]{% endif %}
                         </option>
                     {% endfor %}
@@ -60,7 +55,7 @@
         const startBtn = document.getElementById('startAttackBtn');
 
         function checkReadiness() {
-            if (executorSelect.value && targetSelect.value) {
+            if (targetSelect.value) {
                 startBtn.disabled = false;
             } else {
                 startBtn.disabled = true;

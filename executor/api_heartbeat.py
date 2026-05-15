@@ -37,6 +37,7 @@ def heartbeat(request: HttpRequest) -> JsonResponse:
         # Register or update the executor status
         executor, created = AttackerExecutor.objects.update_or_create(
             name=name,
+            owner=None,
             defaults={
                 "ip_address": ip_address,
                 "status": AttackerExecutor.Status.CONNECTED,

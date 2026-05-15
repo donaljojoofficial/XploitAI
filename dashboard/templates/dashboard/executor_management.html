@@ -116,11 +116,15 @@
                     </div>
                 </div>
 
+                {% if executor.owner_id %}
                 <form method="POST" onsubmit="return confirm('Are you sure you want to remove this executor node?');">
                     {% csrf_token %}
                     <input type="hidden" name="executor_id" value="{{ executor.id }}">
                     <button type="submit" name="delete_executor" class="ui-btn ui-btn-danger !px-4 !py-2.5">Remove</button>
                 </form>
+                {% else %}
+                <span class="ui-badge ui-badge-muted">Shared</span>
+                {% endif %}
             </div>
 
             <div class="mt-6 space-y-3 text-sm text-slate-300">

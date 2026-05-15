@@ -134,7 +134,7 @@
                         <button type="button" @click="startModalOpen = true" class="ui-btn ui-btn-primary w-full !py-4">Initiate Test</button>
                         <button type="button" @click="quickModalOpen = true" class="ui-btn ui-btn-secondary w-full !py-4">Quick Test</button>
                         {% else %}
-                        <button type="button" class="ui-btn ui-btn-secondary w-full !py-4 opacity-60" disabled>System Not Ready</button>
+                        <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary w-full !py-4">Add Active Target</a>
                         {% endif %}
                     </div>
                 </div>

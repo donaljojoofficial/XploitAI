@@ -32,6 +32,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
 from django.urls import reverse
+from django.db.models import Q
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext, Command
 from ai.command_generator import CommandGenerator
@@ -993,7 +994,7 @@ def _get_global_context(request: HttpRequest) -> dict[str, Any]:
             'active_context': None,
         }
     
-    executors = AttackerExecutor.objects.filter(owner=request.user).order_by('-last_heartbeat')
+    executors = AttackerExecutor.objects.filter(Q(owner=request.user) | Q(owner__isnull=True)).order_by('-last_heartbeat')
     targets = AttackTarget.objects.filter(owner=request.user).order_by('name')
     active_context = AttackContext.objects.filter(owner=request.user, status__in=['READY', 'RUNNING']).first()
     recent_attacks = AttackState.objects.filter(owner=request.user).order_by('-created_at')[:5]
@@ -1020,9 +1021,8 @@ def index(request: HttpRequest) -> HttpResponse:
     authenticated dashboard for signed-in users.
     """
     if not request.user.is_authenticated:
-        attack_state = AttackState.objects.order_by('-updated_at').first()
         landing_context = {
-            'latest_attack': attack_state,
+            'latest_attack': None,
             'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
             **_get_global_context(request),
         }
@@ -1348,7 +1348,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     if not target_id:
         return redirect('dashboard_index')
 
-    target = get_object_or_404(AttackTarget, pk=target_id)
+    target = get_object_or_404(AttackTarget, pk=target_id, owner=request.user)
     target_reference = target.base_url or target.ip_address
 
     # Determine execution mode based on executor selection
@@ -1356,7 +1356,11 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     selected_executor = None
     
     if executor_id:
-        selected_executor = get_object_or_404(AttackerExecutor, pk=executor_id)
+        selected_executor = get_object_or_404(
+            AttackerExecutor,
+            Q(owner=request.user) | Q(owner__isnull=True),
+            pk=executor_id,
+        )
         is_live, live_reason = _verify_executor_is_live(selected_executor)
         if is_live:
             use_remote_executor = True
@@ -1366,7 +1370,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
 
     existing_state = None
     if str(continue_attack_id or "").isdigit():
-        existing_state = AttackState.objects.filter(pk=int(continue_attack_id)).first()
+        existing_state = AttackState.objects.filter(pk=int(continue_attack_id), owner=request.user).first()
 
     if existing_state:
         state = existing_state
@@ -1513,14 +1517,18 @@ def start_quick_test(request: HttpRequest) -> HttpResponse:
         messages.error(request, "Select a target before starting a quick test.")
         return redirect("dashboard_index")
 
-    target = get_object_or_404(AttackTarget, pk=target_id)
+    target = get_object_or_404(AttackTarget, pk=target_id, owner=request.user)
     target_reference = target.base_url or target.ip_address
 
     use_remote_executor = False
     selected_executor = None
     execution_mode = "local"
     if executor_id:
-        selected_executor = get_object_or_404(AttackerExecutor, pk=executor_id)
+        selected_executor = get_object_or_404(
+            AttackerExecutor,
+            Q(owner=request.user) | Q(owner__isnull=True),
+            pk=executor_id,
+        )
         is_live, live_reason = _verify_executor_is_live(selected_executor)
         if not is_live:
             messages.error(request, live_reason)
@@ -1591,7 +1599,7 @@ def start_quick_test(request: HttpRequest) -> HttpResponse:
 @require_POST
 def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     """Approves the current plan for the given attack state."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     
     if not state.state_data:
         state.state_data = {}
@@ -1602,7 +1610,7 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     state.save(update_fields=['state_data'])
 
     # Auto-resume the attack
-    last_context = AttackContext.objects.order_by('-created_at').first()
+    last_context = AttackContext.objects.filter(owner=request.user).order_by('-created_at').first()
     if last_context and last_context.status == 'STOPPED':
         last_context.status = 'READY'
         last_context.save()
@@ -1617,10 +1625,10 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
     """Resumes an existing attack state."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     
     # Attempt to reactivate the last context if it was stopped
-    last_context = AttackContext.objects.order_by('-created_at').first()
+    last_context = AttackContext.objects.filter(owner=request.user).order_by('-created_at').first()
     if last_context and last_context.status == 'STOPPED':
         last_context.status = 'READY'
         last_context.save()
@@ -1635,7 +1643,7 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def retry_failed_phase(request: HttpRequest, pk: int) -> HttpResponse:
     """Reset unresolved steps in the current phase and retry them manually."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     plan = state.current_plan if isinstance(state.current_plan, dict) else {}
     steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
     state_data = state.state_data if isinstance(state.state_data, dict) else {}
@@ -1681,7 +1689,7 @@ def retry_failed_phase(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def regenerate_phase_plan(request: HttpRequest, pk: int, phase_key: str) -> HttpResponse:
     """Force a fresh plan for a phase while preserving earlier findings/history."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     normalized_phase = _normalize_phase_key(phase_key)
     if not is_valid_dashboard_phase(normalized_phase, executable_only=True):
         messages.error(request, f"Cannot restart unknown phase '{phase_key}'.")
@@ -1719,14 +1727,14 @@ def regenerate_phase_plan(request: HttpRequest, pk: int, phase_key: str) -> Http
 @require_POST
 def stop_attack(request: HttpRequest, pk: int) -> HttpResponse:
     """Manually stops the autonomous attack."""
-    state = get_object_or_404(AttackState, pk=pk)
+    state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     
     state.autonomy_status = "STOPPED"
     state.stop_reason = "Manual Stop via Dashboard"
     state.save(update_fields=['autonomy_status', 'stop_reason'])
 
     # Close active context
-    context = AttackContext.objects.filter(status__in=['READY', 'RUNNING']).first()
+    context = AttackContext.objects.filter(owner=request.user, status__in=['READY', 'RUNNING']).first()
     if context:
         context.status = 'STOPPED'
         context.stop_reason = "Manual Stop via Dashboard"

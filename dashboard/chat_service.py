@@ -30,7 +30,7 @@ class DashboardChatService:
         phase_key: Optional[str] = None,
         include_recommendations: bool = True,
     ) -> dict[str, Any]:
-        attack_state = AttackState.objects.filter(pk=attack_id).first()
+        attack_state = AttackState.objects.filter(pk=attack_id, owner=self.request.user).first()
         if not attack_state:
             return {
                 "answer": "",

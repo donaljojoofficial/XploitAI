@@ -8,6 +8,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.tokens import default_token_generator
+from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
 from django.core.cache import cache
 from django.template.loader import render_to_string
@@ -127,6 +128,9 @@ class LoginForm(forms.Form):
         if username and password:
             self.user = authenticate(username=username, password=password)
             if self.user is None:
+                pending_user = User.objects.filter(username=username).first()
+                if pending_user and check_password(password, pending_user.password) and not pending_user.is_active:
+                    raise forms.ValidationError("Your account is pending administrator approval.")
                 raise forms.ValidationError("Invalid username or password.")
         
         return cleaned_data
@@ -155,7 +159,7 @@ def send_activation_email(user: User, request: HttpRequest) -> None:
 
 
 def register(request: HttpRequest) -> HttpResponse:
-    """Handle user registration and send confirmation email."""
+    """Handle user registration and queue the account for administrator approval."""
     
     if request.user.is_authenticated:
         return redirect('dashboard_index')
@@ -165,8 +169,7 @@ def register(request: HttpRequest) -> HttpResponse:
         if form.is_valid():
             user = form.save()
             _add_to_default_group(user)
-            send_activation_email(user, request)
-            messages.success(request, "Account created! Check your email to activate your account.")
+            messages.success(request, "Account request submitted. An administrator must approve it before you can log in.")
             return redirect('login')
         else:
             for field, errors in form.errors.items():
@@ -189,7 +192,7 @@ def login_view(request: HttpRequest) -> HttpResponse:
         if form.is_valid():
             user = form.user
             if not user.is_active:
-                messages.error(request, "Account inactive. Please check your email for activation link.")
+                messages.error(request, "Your account is pending administrator approval.")
                 return render(request, 'dashboard/auth/login.html', {'form': form})
             login(request, user)
             
@@ -224,21 +227,9 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 
 
 def activate(request: HttpRequest, uidb64: str, token: str) -> HttpResponse:
-    """Handle account activation via emailed link."""
-    try:
-        uid = force_str(urlsafe_base64_decode(uidb64))
-        user = User.objects.get(pk=uid)
-    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-        user = None
-
-    if user is not None and default_token_generator.check_token(user, token):
-        user.is_active = True
-        user.save(update_fields=['is_active'])
-        messages.success(request, "Your account has been activated. You may now log in.")
-        return redirect('login')
-    else:
-        messages.error(request, "Activation link is invalid or expired.")
-        return redirect('register')
+    """Email activation is disabled; new accounts require administrator approval."""
+    messages.info(request, "Account activation is handled by an administrator. Please wait for approval before logging in.")
+    return redirect('login')
 
 
 def password_reset_request(request: HttpRequest) -> HttpResponse:
@@ -344,6 +335,43 @@ def admin_required(view_func):
         ),
         login_url='login'
     )(view_func)
+
+
+@login_required(login_url='login')
+@admin_required
+def user_management(request: HttpRequest) -> HttpResponse:
+    """Admin page for approving pending user registrations."""
+    pending_users = User.objects.filter(is_active=False, is_superuser=False).order_by('date_joined')
+    active_users = User.objects.filter(is_active=True).order_by('username')
+    return render(request, 'dashboard/auth/user_management.html', {
+        'pending_users': pending_users,
+        'active_users': active_users,
+    })
+
+
+@login_required(login_url='login')
+@admin_required
+@require_POST
+def approve_user(request: HttpRequest, user_id: int) -> HttpResponse:
+    """Approve a pending user so they can log in."""
+    user = get_object_or_404(User, pk=user_id, is_active=False)
+    user.is_active = True
+    user.save(update_fields=['is_active'])
+    _add_to_default_group(user)
+    messages.success(request, f"User '{user.username}' has been approved.")
+    return redirect('user_management')
+
+
+@login_required(login_url='login')
+@admin_required
+@require_POST
+def reject_user(request: HttpRequest, user_id: int) -> HttpResponse:
+    """Reject a pending user registration."""
+    user = get_object_or_404(User, pk=user_id, is_active=False)
+    username = user.username
+    user.delete()
+    messages.success(request, f"User request '{username}' has been rejected.")
+    return redirect('user_management')
 
 
 @login_required(login_url='login')

@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from core.models import AttackState, Action, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext
-from django.contrib.auth.models import User
 
 @login_required(login_url='login')
 def index(request):
@@ -22,7 +22,7 @@ def index(request):
     alerts = DefenderAlert.objects.filter(owner=request.user).order_by('-created_at')[:5]
     
     # Fetch infrastructure status
-    executors = AttackerExecutor.objects.filter(owner=request.user)
+    executors = AttackerExecutor.objects.filter(Q(owner=request.user) | Q(owner__isnull=True))
     targets = AttackTarget.objects.filter(owner=request.user).exclude(base_url='')
     
     # Determine readiness for new simulations
@@ -57,7 +57,7 @@ def load_more_activity(request):
     """
     offset = int(request.GET.get('offset', 0))
     limit = 50
-    attack_state = AttackState.objects.last()
+    attack_state = AttackState.objects.filter(owner=request.user).last()
     
     actions = []
     if attack_state:
