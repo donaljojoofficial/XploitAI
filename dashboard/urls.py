@@ -22,6 +22,9 @@ urlpatterns = [
 
     # Dashboard routes (root level)
     path("", views.index, name="dashboard_index"),
+    path("planner-map/", views.planner_map, name="dashboard_planner_map"),
+    path("agent-run/", views.agent_run_live, name="dashboard_agent_run"),
+    path("activity/", views_main.activity_page, name="dashboard_activity"),
     path("history/", views.test_history, name="dashboard_test_history"),
     path("history/delete-all/", views.delete_all_test_history, name="dashboard_test_history_delete_all"),
     path("assistant/", views.assistant_page, name="dashboard_assistant"),

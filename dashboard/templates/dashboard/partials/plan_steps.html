@@ -1,9 +1,14 @@
-<div class="shell-panel h-full overflow-hidden rounded-[1.5rem]">
+<div class="shell-panel h-full overflow-hidden">
+    <div class="console-titlebar">
+        <div class="console-dots"><span></span><span></span><span></span></div>
+        <div class="truncate">agent-plan.md</div>
+        {% if plan_view and plan_view.steps %}<div>{{ plan_view.summary.completed }}/{{ plan_view.summary.total }}</div>{% endif %}
+    </div>
     <div class="border-b border-white/10 px-5 py-4">
         <div class="flex items-center justify-between gap-4">
             <div>
-                <div class="section-title">Strategic Plan</div>
-                <h3 class="mt-2 text-xl font-semibold text-white">Execution outline</h3>
+                <div class="section-title">Agent Todo List</div>
+                <h3 class="mt-2 font-mono text-xl font-semibold text-white">Current run plan</h3>
             </div>
             {% if plan_view and plan_view.steps %}
             <span class="ui-badge ui-badge-info">{{ plan_view.summary.total }} steps</span>
@@ -27,25 +32,27 @@
             <span class="ui-badge ui-badge-muted">Pending {{ plan_view.summary.pending }}</span>
         </div>
 
-        <div class="mt-5 space-y-4">
+        <div class="mt-5 space-y-3">
             {% for step in plan_view.steps %}
-            <div class="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+            <div class="agent-node p-4">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <div class="flex items-center gap-3">
-                        <div class="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-bold text-white">{{ step.step_number|default:forloop.counter }}</div>
-                        <h4 class="text-base font-semibold text-white">{% if step.action_type %}{{ step.action_type }}{% elif step.action %}{{ step.action }}{% else %}Unknown Step{% endif %}</h4>
+                        <div class="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-black/30 font-mono text-sm font-bold {% if step.status == 'completed' %}text-emerald-300{% elif step.status == 'running' %}text-sky-300{% elif step.status == 'failed' %}text-rose-300{% else %}text-slate-400{% endif %}">
+                            {% if step.status == 'completed' %}OK{% elif step.status == 'running' %}..{% elif step.status == 'failed' %}!{% else %}{{ step.step_number|default:forloop.counter }}{% endif %}
+                        </div>
+                        <h4 class="font-mono text-sm font-semibold text-white">{% if step.action_type %}{{ step.action_type }}{% elif step.action %}{{ step.action }}{% else %}Unknown Step{% endif %}</h4>
                     </div>
                     <span class="ui-badge {% if step.status == 'completed' %}ui-badge-success{% elif step.status == 'running' %}ui-badge-info{% elif step.status == 'failed' %}ui-badge-danger{% else %}ui-badge-muted{% endif %}">
                         {{ step.status|default:"pending" }}
                     </span>
                 </div>
                 {% if step.rationale %}
-                <p class="mt-3 text-sm leading-7 text-slate-400">{{ step.rationale }}</p>
+                <p class="mt-3 text-sm leading-6 text-slate-400">{{ step.rationale }}</p>
                 {% endif %}
                 {% if step.command_preview %}
-                <div class="mt-3 rounded-xl border border-white/10 bg-slate-950/70 p-3">
-                    <div class="ui-label">Command</div>
-                    <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-6 text-cyan-300">{{ step.command_preview }}</pre>
+                <div class="mt-3 border border-white/10 bg-black/40 p-3">
+                    <div class="ui-label">Tool Command</div>
+                    <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-6 text-emerald-300">$ {{ step.command_preview }}</pre>
                 </div>
                 {% endif %}
             </div>

@@ -1,6 +1,6 @@
 {% extends 'dashboard/base.html' %}
 
-{% block title %}AI Assistant - XploitAI{% endblock %}
+{% block title %}Copilot Console - XploitAI{% endblock %}
 
 {% block content %}
 <div
@@ -12,16 +12,24 @@
         csrfToken: '{{ csrf_token }}'
     })"
 >
-    <section class="shell-panel overflow-hidden rounded-[1.75rem] border border-white/10">
+    <section class="shell-panel agent-grid overflow-hidden border border-white/10">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">/xploitai/copilot/query</div>
+            <div class="hidden text-emerald-200 sm:block">context aware</div>
+        </div>
         <div class="p-8 md:p-10">
             <div class="flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
                 <div class="max-w-4xl space-y-5">
-                    <div class="section-title">AI Assistant</div>
+                    <div class="section-title">Copilot Console</div>
                     <div>
-                        <h1 class="headline-gradient text-4xl font-extrabold tracking-tight md:text-5xl">Explain runs, failures, phases, and next steps.</h1>
+                        <h1 class="headline-gradient font-mono text-3xl font-bold tracking-tight md:text-5xl">Ask questions. Get readable answers.</h1>
                         <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
-                            This assistant uses the selected run's findings, reviews, execution history, and latest report to answer operator questions with context.
+                            The copilot uses the selected run's findings, policy gates, execution history, phase reviews, and reports to explain what happened in normal language.
                         </p>
+                    </div>
+                    <div class="console-command max-w-3xl text-sm">
+                        ask --run {% if attack_state %}{{ attack_state.name }}{% else %}none{% endif %} --phase {{ chat_phase_key|default:"all" }}
                     </div>
                     <div class="flex flex-wrap gap-3">
                         {% if attack_state %}
@@ -35,8 +43,8 @@
                     </div>
                 </div>
 
-                <div class="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-6">
-                    <div class="section-title">Context Selection</div>
+                <div class="console-table w-full max-w-md p-6">
+                    <div class="section-title">Agent Context</div>
                     <form action="{% url 'dashboard_assistant' %}" method="get" class="mt-4 space-y-4">
                         {% if chat_phase_key %}
                         <input type="hidden" name="chat_phase" value="{{ chat_phase_key }}">
@@ -50,7 +58,7 @@
                             </select>
                         </div>
                         <div class="text-sm text-slate-400">
-                            Choose the run you want the assistant to explain. Phase focus is preserved when you arrive here from a phase page.
+                            Choose the run you want the copilot to explain. Phase focus is preserved when you arrive here from a phase page.
                         </div>
                     </form>
                 </div>
@@ -59,7 +67,12 @@
     </section>
 
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_380px]">
-        <section class="shell-panel rounded-[1.5rem] p-6">
+        <section class="shell-panel p-6">
+            <div class="console-titlebar -mx-6 -mt-6 mb-6">
+                <div class="console-dots"><span></span><span></span><span></span></div>
+                <div class="truncate">interactive-question</div>
+                <div class="hidden sm:block">plain English OK</div>
+            </div>
             {% if attack_state %}
             <div class="space-y-4">
                 <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -71,19 +84,19 @@
                             Include next-step recommendations
                         </label>
                         <button type="button" class="ui-btn ui-btn-primary" @click="send()" :disabled="loading || !message.trim()">
-                            <span x-show="!loading">Ask Assistant</span>
+                            <span x-show="!loading">Ask Copilot</span>
                             <span x-show="loading" x-cloak>Thinking...</span>
                         </button>
                         <button type="button" class="ui-btn ui-btn-secondary" @click="resetChat()" :disabled="loading">Reset Session Chat</button>
                     </div>
                 </div>
 
-                <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-5">
+                <div class="rounded border border-white/10 bg-slate-950/40 p-5">
                     <div class="section-title">Conversation</div>
                     <div class="mt-4 space-y-3" x-show="messages.length">
                         <template x-for="(item, idx) in messages" :key="idx">
                             <div class="rounded-2xl border border-white/10 px-4 py-3" :class="item.role === 'assistant' ? 'bg-white/5' : 'bg-slate-950/50'">
-                                <div class="text-xs uppercase tracking-[0.18em] text-slate-500" x-text="item.role === 'assistant' ? 'Assistant' : 'You'"></div>
+                                <div class="text-xs uppercase tracking-[0.18em] text-slate-500" x-text="item.role === 'assistant' ? 'Copilot Agent' : 'You'"></div>
                                 <div class="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200" x-text="item.content"></div>
                             </div>
                         </template>
@@ -110,13 +123,35 @@
             </div>
             {% else %}
             <div class="rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-slate-400">
-                No attack run is available yet. Start a run first so the assistant has real execution context to explain.
+                No attack run is available yet. Start a run first so the copilot has real execution context to explain.
             </div>
             {% endif %}
         </section>
 
         <div class="space-y-6">
-            <section class="shell-panel rounded-[1.5rem] p-6">
+            <section class="shell-panel p-6">
+                <div class="console-titlebar -mx-6 -mt-6 mb-6">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">runtime-agents</div>
+                </div>
+                <div class="section-title">Architecture</div>
+                <div class="mt-4 space-y-3">
+                    {% for node in agentic_architecture.nodes %}
+                    <div class="agent-node p-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="text-sm font-semibold text-white">{{ node.name }}</div>
+                            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">{{ node.status }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="shell-panel p-6">
+                <div class="console-titlebar -mx-6 -mt-6 mb-6">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">starter-prompts</div>
+                </div>
                 <div class="section-title">Starter Prompts</div>
                 <div class="mt-4 grid gap-3">
                     <button type="button" class="ui-btn ui-btn-secondary justify-start" @click="usePrompt('Why did this run fail?')">Why did this run fail?</button>
@@ -127,7 +162,7 @@
                 </div>
             </section>
 
-            <section class="shell-panel rounded-[1.5rem] p-6" x-show="followups.length">
+            <section class="shell-panel p-6" x-show="followups.length">
                 <div class="section-title">Suggested Follow-ups</div>
                 <div class="mt-4 grid gap-3">
                     <template x-for="prompt in followups" :key="prompt">
@@ -137,7 +172,7 @@
             </section>
 
             {% if attack_state %}
-            <section class="shell-panel rounded-[1.5rem] p-6">
+            <section class="shell-panel p-6">
                 <div class="section-title">Quick Links</div>
                 <div class="mt-4 space-y-3">
                     <a href="{% url 'dashboard_index' %}?attack_id={{ attack_state.id }}" class="ui-btn ui-btn-secondary w-full justify-between">Back to Dashboard <span class="text-slate-500">Run View</span></a>

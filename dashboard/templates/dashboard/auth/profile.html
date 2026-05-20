@@ -3,182 +3,154 @@
 {% block title %}Profile - XploitAI{% endblock %}
 
 {% block content %}
-<div class="max-w-6xl mx-auto px-6 py-8">
-    <!-- Header -->
-    <div class="mb-8">
-        <h1 class="text-3xl font-bold text-white mb-2">User Profile</h1>
-        <p class="text-gray-400">Manage your account settings and security</p>
-    </div>
-
-    <!-- Messages -->
-    {% if messages %}
-    <div class="mb-6 grid grid-cols-1 gap-2">
-        {% for message in messages %}
-        <div class="p-4 rounded border {% if message.tags == 'error' %}border-red-500 bg-red-900 bg-opacity-20 text-red-200{% else %}border-green-500 bg-green-900 bg-opacity-20 text-green-200{% endif %}">
-            {{ message }}
+<div class="space-y-6">
+    <section class="shell-panel agent-grid overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">profile --identity --security</div>
+            <div class="hidden text-emerald-200 sm:block">account terminal</div>
         </div>
+        <div class="p-6 md:p-8">
+            <div class="max-w-4xl space-y-4">
+                <div class="section-title">Operator Profile</div>
+                <h1 class="font-mono text-3xl font-bold text-white md:text-5xl">{{ user.username }}</h1>
+                <p class="max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                    Review identity details, account state, and security controls from one console-style surface.
+                </p>
+                <div class="console-command max-w-4xl text-sm">
+                    whoami --user {{ user.username }} --email {{ user.email|default:"not-set" }}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {% if messages %}
+    <div class="space-y-3">
+        {% for message in messages %}
+        <div class="alert {% if message.tags == 'error' %}alert-error{% elif message.tags == 'success' %}alert-success{% else %}alert-warning{% endif %}">{{ message }}</div>
         {% endfor %}
     </div>
     {% endif %}
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <!-- Main Content -->
-        <div class="lg:col-span-2 space-y-6">
-            <!-- Profile Information -->
-            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
-                <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                    <span class="text-accent">→</span> Profile Information
-                </h2>
-
-                <div class="space-y-4">
-                    <!-- Username -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-400 mb-1">Username</label>
-                        <div class="px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white">
-                            {{ user.username }}
-                        </div>
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <div class="space-y-6">
+            <section class="shell-panel overflow-hidden">
+                <div class="console-titlebar">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">identity-record</div>
+                    <div class="hidden sm:block">read-only</div>
+                </div>
+                <div class="divide-y divide-white/5">
+                    <div class="grid gap-2 px-5 py-4 md:grid-cols-[190px_minmax(0,1fr)]">
+                        <div class="section-title">Username</div>
+                        <div class="break-all font-mono text-sm text-white">{{ user.username }}</div>
                     </div>
-
-                    <!-- Email -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-400 mb-1">Email Address</label>
-                        <div class="px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white">
-                            {{ user.email }}
-                        </div>
+                    <div class="grid gap-2 px-5 py-4 md:grid-cols-[190px_minmax(0,1fr)]">
+                        <div class="section-title">Email</div>
+                        <div class="break-all font-mono text-sm text-white">{{ user.email|default:"Not set" }}</div>
                     </div>
-
-                    <!-- Full Name -->
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-400 mb-1">First Name</label>
-                            <div class="px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white">
-                                {{ user.first_name|default:"Not set" }}
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-400 mb-1">Last Name</label>
-                            <div class="px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white">
-                                {{ user.last_name|default:"Not set" }}
-                            </div>
-                        </div>
+                    <div class="grid gap-2 px-5 py-4 md:grid-cols-[190px_minmax(0,1fr)]">
+                        <div class="section-title">First Name</div>
+                        <div class="font-mono text-sm text-white">{{ user.first_name|default:"Not set" }}</div>
                     </div>
-
-                    <!-- Account Created -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-400 mb-1">Account Created</label>
-                        <div class="px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm">
-                            {{ user.date_joined|date:"M d, Y H:i" }}
-                        </div>
+                    <div class="grid gap-2 px-5 py-4 md:grid-cols-[190px_minmax(0,1fr)]">
+                        <div class="section-title">Last Name</div>
+                        <div class="font-mono text-sm text-white">{{ user.last_name|default:"Not set" }}</div>
                     </div>
-
-                    <!-- Last Login -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-400 mb-1">Last Login</label>
-                        <div class="px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm">
-                            {% if user.last_login %}
-                                {{ user.last_login|date:"M d, Y H:i" }}
-                            {% else %}
-                                This is your first login
-                            {% endif %}
+                    <div class="grid gap-2 px-5 py-4 md:grid-cols-[190px_minmax(0,1fr)]">
+                        <div class="section-title">Created</div>
+                        <div class="font-mono text-sm text-slate-300">{{ user.date_joined|date:"Y-m-d H:i" }}</div>
+                    </div>
+                    <div class="grid gap-2 px-5 py-4 md:grid-cols-[190px_minmax(0,1fr)]">
+                        <div class="section-title">Last Login</div>
+                        <div class="font-mono text-sm text-slate-300">
+                            {% if user.last_login %}{{ user.last_login|date:"Y-m-d H:i" }}{% else %}First login session{% endif %}
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- Change Password -->
-            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
-                <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                    <span class="text-accent">→</span> Change Password
-                </h2>
-
-                <form method="post" action="{% url 'change_password' %}" class="space-y-4">
+            <section class="shell-panel overflow-hidden">
+                <div class="console-titlebar">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">passwd --rotate</div>
+                    <div class="hidden sm:block">credential update</div>
+                </div>
+                <form method="post" action="{% url 'change_password' %}" class="space-y-5 p-5 md:p-6">
                     {% csrf_token %}
+                    <div class="console-hint text-sm">Password must be at least 8 characters long.</div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-2">Current Password</label>
-                        <input type="password" name="old_password" required class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent" placeholder="Enter current password">
+                        <label class="ui-label">Current Password</label>
+                        <input type="password" name="old_password" required placeholder="Enter current password">
                     </div>
 
-                    <div class="grid grid-cols-2 gap-4">
+                    <div class="grid gap-4 md:grid-cols-2">
                         <div>
-                            <label class="block text-sm font-medium text-gray-300 mb-2">New Password</label>
-                            <input type="password" name="new_password" required class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent" placeholder="Enter new password">
+                            <label class="ui-label">New Password</label>
+                            <input type="password" name="new_password" required placeholder="Enter new password">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-300 mb-2">Confirm Password</label>
-                            <input type="password" name="confirm_password" required class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent" placeholder="Confirm new password">
+                            <label class="ui-label">Confirm Password</label>
+                            <input type="password" name="confirm_password" required placeholder="Confirm new password">
                         </div>
                     </div>
 
-                    <p class="text-gray-400 text-xs">Password must be at least 8 characters long.</p>
-
-                    <button type="submit" class="w-full py-2 px-4 bg-accent hover:bg-accent-hover text-black font-bold rounded transition-colors">
-                        UPDATE PASSWORD
-                    </button>
+                    <button type="submit" class="ui-btn ui-btn-primary w-full">UPDATE PASSWORD</button>
                 </form>
-            </div>
+            </section>
         </div>
 
-        <!-- Sidebar -->
-        <div class="lg:col-span-1 space-y-6">
-            <!-- Account Status -->
-            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
-                <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <span class="text-accent">→</span> Account Status
-                </h3>
-
-                <div class="space-y-3">
-                    <div class="flex items-center justify-between">
-                        <span class="text-gray-400 text-sm">Status</span>
-                        <span class="px-2 py-1 bg-green-900 bg-opacity-30 border border-green-500 text-green-200 text-xs rounded font-bold">
-                            Active
-                        </span>
+        <aside class="space-y-6">
+            <section class="shell-panel overflow-hidden">
+                <div class="console-titlebar">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">account-status</div>
+                </div>
+                <div class="space-y-3 p-5">
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="console-hint text-sm">Status</span>
+                        <span class="ui-badge ui-badge-success">Active</span>
                     </div>
-                    <div class="flex items-center justify-between">
-                        <span class="text-gray-400 text-sm">Email Verified</span>
-                        <span class="text-accent font-bold">Yes</span>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="console-hint text-sm">Email Verified</span>
+                        <span class="font-mono text-sm text-emerald-200">Yes</span>
                     </div>
-                    <div class="flex items-center justify-between">
-                        <span class="text-gray-400 text-sm">Two-Factor Auth</span>
-                        <span class="text-gray-500 font-bold">Disabled</span>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="console-hint text-sm">Two-Factor Auth</span>
+                        <span class="font-mono text-sm text-slate-500">Disabled</span>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- Actions -->
-            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
-                <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <span class="text-accent">→</span> Actions
-                </h3>
-
-                <div class="space-y-2">
-                    <a href="{% url 'dashboard_index' %}" class="block w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white text-center rounded font-bold transition-colors text-sm">
-                        BACK TO DASHBOARD
-                    </a>
-                    <form method="post" action="{% url 'logout' %}" class="w-full">
+            <section class="shell-panel overflow-hidden">
+                <div class="console-titlebar">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">quick-actions</div>
+                </div>
+                <div class="space-y-3 p-5">
+                    <a href="{% url 'dashboard_index' %}" class="ui-btn ui-btn-secondary w-full">BACK TO CONSOLE</a>
+                    <form method="post" action="{% url 'logout' %}">
                         {% csrf_token %}
-                        <button type="submit" class="w-full py-2 px-4 bg-red-900 bg-opacity-30 hover:bg-opacity-50 text-red-200 rounded font-bold transition-colors text-sm border border-red-500">
-                            LOGOUT
-                        </button>
+                        <button type="submit" class="ui-btn ui-btn-danger w-full">LOGOUT</button>
                     </form>
                 </div>
-            </div>
+            </section>
 
-            <!-- Security Tips -->
-            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
-                <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <span class="text-accent">→</span> Security Tips
-                </h3>
-
-                <ul class="space-y-2 text-xs text-gray-400 list-disc list-inside">
-                    <li>Use a strong, unique password</li>
-                    <li>Never share your credentials</li>
-                    <li>Keep your email secure</li>
-                    <li>Review login activity regularly</li>
-                    <li>Logout after each session</li>
-                </ul>
-            </div>
-        </div>
+            <section class="shell-panel overflow-hidden">
+                <div class="console-titlebar">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">security-notes</div>
+                </div>
+                <div class="space-y-3 p-5 font-mono text-xs leading-6 text-slate-400">
+                    <div># Use a strong, unique password.</div>
+                    <div># Never share your credentials.</div>
+                    <div># Keep your email account protected.</div>
+                    <div># Review run and login activity regularly.</div>
+                    <div># End shared-machine sessions with logout.</div>
+                </div>
+            </section>
+        </aside>
     </div>
 </div>
 {% endblock %}

@@ -1,25 +1,30 @@
 {% extends 'dashboard/base.html' %}
 
-{% block title %}XploitAI - Autonomous Security Operations{% endblock %}
+{% block title %}XploitAI - Operator Console{% endblock %}
 
 {% block content %}
 <div class="space-y-8 pb-10">
-    <section class="shell-panel overflow-hidden rounded-[2rem] border border-white/10">
+    <section class="shell-panel agent-grid overflow-hidden border border-white/10">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">/xploitai/public/console-preview</div>
+            <div class="hidden text-emerald-200 sm:block">online</div>
+        </div>
         <div class="relative isolate px-6 py-10 sm:px-8 lg:px-12 lg:py-14">
-            <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(79,209,255,0.16),transparent_28%),radial-gradient(circle_at_85%_20%,rgba(82,199,154,0.14),transparent_24%),linear-gradient(135deg,rgba(255,255,255,0.03),transparent_58%)]"></div>
-            <div class="absolute -right-16 top-16 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl"></div>
-            <div class="absolute bottom-0 left-1/3 h-44 w-44 rounded-full bg-emerald-400/10 blur-3xl"></div>
-
             <div class="relative grid gap-10 xl:grid-cols-[minmax(0,1.2fr)_420px] xl:items-center">
                 <div class="max-w-4xl space-y-7">
-                    <div class="section-title">Autonomous Security Platform</div>
+                    <div class="section-title">Readable Security Console</div>
                     <div class="space-y-4">
-                        <h1 class="headline-gradient text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
-                            Professional offensive security orchestration with human control built in.
+                        <h1 class="headline-gradient font-mono text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+                            XploitAI
                         </h1>
                         <p class="max-w-3xl text-base leading-8 text-slate-300 sm:text-lg">
-                            XploitAI unifies target management, executor coordination, AI-guided planning, and approval-aware execution in one operations-grade workspace.
+                            A console-based control plane for authorized security testing. It shows what the agents are planning, what is approved, what ran, and what evidence came back.
                         </p>
+                    </div>
+
+                    <div class="console-command max-w-3xl text-sm">
+                        explain --targets {{ targets.count }} --executors {{ executors.count }} --recent-runs {{ recent_attacks|length }}
                     </div>
 
                     <div class="flex flex-col gap-3 sm:flex-row">
@@ -31,12 +36,12 @@
                         <div class="rounded-[1.4rem] border border-white/10 bg-slate-950/45 p-5">
                             <div class="text-[11px] uppercase tracking-[0.24em] text-slate-500">Targets</div>
                             <div class="mt-3 text-3xl font-bold text-white">{{ targets.count }}</div>
-                            <p class="mt-2 text-sm leading-6 text-slate-400">Configured environments ready for controlled testing.</p>
+                            <p class="mt-2 text-sm leading-6 text-slate-400">Systems the console is allowed to test.</p>
                         </div>
                         <div class="rounded-[1.4rem] border border-white/10 bg-slate-950/45 p-5">
                             <div class="text-[11px] uppercase tracking-[0.24em] text-slate-500">Executors</div>
                             <div class="mt-3 text-3xl font-bold text-white">{{ executors.count }}</div>
-                            <p class="mt-2 text-sm leading-6 text-slate-400">Distributed operators and local execution paths in one fabric.</p>
+                            <p class="mt-2 text-sm leading-6 text-slate-400">Machines available to run approved tasks.</p>
                         </div>
                         <div class="rounded-[1.4rem] border border-white/10 bg-slate-950/45 p-5">
                             <div class="text-[11px] uppercase tracking-[0.24em] text-slate-500">Recent Runs</div>
@@ -46,11 +51,11 @@
                     </div>
                 </div>
 
-                <div class="panel-strong rounded-[1.75rem] p-6 shadow-shell">
+                <div class="panel-strong p-6 shadow-shell">
                     <div class="flex items-start justify-between gap-4">
                         <div>
-                            <div class="section-title">Live Operations Snapshot</div>
-                            <h2 class="mt-2 text-2xl font-semibold text-white">Console preview</h2>
+                            <div class="section-title">Runtime Snapshot</div>
+                            <h2 class="mt-2 font-mono text-2xl font-semibold text-white">Console preview</h2>
                         </div>
                         <span class="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">
                             {{ default_llm_provider|upper }}
@@ -61,8 +66,8 @@
                         <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
                             <div class="flex items-center justify-between gap-4">
                                 <div>
-                                    <div class="text-sm font-semibold text-white">Approval-aware execution</div>
-                                    <div class="mt-1 text-sm text-slate-400">Phase reviews and resumable operator decisions.</div>
+                                    <div class="text-sm font-semibold text-white">Guarded execution</div>
+                                    <div class="mt-1 text-sm text-slate-400">Policy checks, phase reviews, and clear resume points.</div>
                                 </div>
                                 <div class="rounded-2xl border border-emerald-400/15 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Active</div>
                             </div>
@@ -103,18 +108,35 @@
         </div>
     </section>
 
+    <section class="shell-panel p-7 sm:p-8">
+        <div class="console-hint text-sm">Each row below is a real responsibility in the runtime, not decoration.</div>
+        <div class="section-title">Agentic Architecture</div>
+        <h2 class="mt-3 font-mono text-3xl font-semibold text-white">Six agents, one controlled loop</h2>
+        <div class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {% for node in agentic_architecture.nodes %}
+            <div class="agent-node p-5">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="font-semibold text-white">{{ node.name }}</div>
+                    <span class="ui-badge ui-badge-muted">{{ node.signal }}</span>
+                </div>
+                <p class="mt-3 text-sm leading-7 text-slate-400">{{ node.role }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
     <section class="grid gap-6 lg:grid-cols-3">
-        <article class="shell-panel rounded-[1.6rem] p-6">
+        <article class="shell-panel p-6">
             <div class="section-title">Why Teams Use It</div>
-            <h2 class="mt-3 text-2xl font-semibold text-white">Built for operator confidence</h2>
-            <p class="mt-4 text-sm leading-7 text-slate-400">A clear control surface for launching, reviewing, and supervising autonomous workflows without losing situational awareness.</p>
+            <h2 class="mt-3 font-mono text-2xl font-semibold text-white">Built for clarity</h2>
+            <p class="mt-4 text-sm leading-7 text-slate-400">The interface keeps console precision while naming each status, decision, and next action in plain language.</p>
         </article>
-        <article class="shell-panel rounded-[1.6rem] p-6">
+        <article class="shell-panel p-6">
             <div class="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200 w-fit">01</div>
             <h3 class="mt-5 text-xl font-semibold text-white">Mission-first dashboard</h3>
             <p class="mt-3 text-sm leading-7 text-slate-400">Track status, context, and live activity in one place instead of juggling disconnected tooling.</p>
         </article>
-        <article class="shell-panel rounded-[1.6rem] p-6">
+        <article class="shell-panel p-6">
             <div class="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200 w-fit">02</div>
             <h3 class="mt-5 text-xl font-semibold text-white">Approval checkpoints</h3>
             <p class="mt-3 text-sm leading-7 text-slate-400">Pause at important transitions, inspect results, and resume only when the operator is satisfied.</p>
@@ -122,9 +144,9 @@
     </section>
 
     <section class="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <div class="shell-panel rounded-[1.75rem] p-7 sm:p-8">
+        <div class="shell-panel p-7 sm:p-8">
             <div class="section-title">Workflow</div>
-            <h2 class="mt-3 text-3xl font-semibold text-white">A cleaner path from planning to execution</h2>
+            <h2 class="mt-3 font-mono text-3xl font-semibold text-white">A cleaner path from planning to execution</h2>
 
             <div class="mt-8 grid gap-4 md:grid-cols-3">
                 <div class="rounded-[1.35rem] border border-white/10 bg-white/5 p-5">
@@ -142,9 +164,9 @@
             </div>
         </div>
 
-        <div class="shell-panel rounded-[1.75rem] p-7 sm:p-8">
+        <div class="shell-panel p-7 sm:p-8">
             <div class="section-title">Access</div>
-            <h2 class="mt-3 text-3xl font-semibold text-white">Start with a focused operator account</h2>
+            <h2 class="mt-3 font-mono text-3xl font-semibold text-white">Start with an operator account</h2>
             <p class="mt-4 text-sm leading-7 text-slate-400">Sign in if you already have credentials, or create a new account and activate it by email before entering the console.</p>
 
             <div class="mt-8 space-y-4">

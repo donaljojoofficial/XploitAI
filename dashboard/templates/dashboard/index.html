@@ -1,6 +1,6 @@
 {% extends 'dashboard/base.html' %}
 
-{% block title %}Mission Control - XploitAI{% endblock %}
+{% block title %}Operator Console - XploitAI{% endblock %}
 
 {% block content %}
 <div x-data="{ startModalOpen: {{ start_modal_open|yesno:'true,false' }}, quickModalOpen: false }" class="space-y-8">
@@ -12,17 +12,25 @@
     </div>
     {% endif %}
 
-    <section class="shell-panel overflow-hidden rounded-[1.75rem] border border-white/10">
-        <div class="relative p-8 md:p-10">
-            <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(79,209,255,0.16),transparent_26%),radial-gradient(circle_at_top_right,rgba(82,199,154,0.12),transparent_22%)]"></div>
+    <section class="shell-panel agent-grid overflow-hidden border border-white/10">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">/xploitai/operator/session</div>
+            <div class="hidden text-emerald-200 sm:block">readable mode</div>
+        </div>
+        <div class="relative p-6 md:p-8">
             <div class="relative flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
                 <div class="max-w-4xl space-y-6">
-                    <div class="section-title">Mission Control</div>
+                    <div class="section-title">Operator Console</div>
                     <div>
-                        <h1 class="headline-gradient text-4xl font-extrabold tracking-tight md:text-5xl">Phase-centric pentest control for every run.</h1>
+                        <h1 class="headline-gradient font-mono text-3xl font-bold tracking-tight md:text-5xl">Monitor the run. Understand every step.</h1>
                         <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
-                            Track the full pentest lifecycle, inspect one phase at a time, and launch a run from the exact starting phase you need.
+                            A console-style view for targets, executors, approvals, plans, alerts, and evidence. It keeps the technical details visible without forcing you to read raw logs first.
                         </p>
+                    </div>
+
+                    <div class="console-command max-w-3xl text-sm">
+                        status --run {% if attack_state %}{{ attack_state.name }}{% else %}none{% endif %} --phase {{ attack_state.current_phase|default:"N/A" }}
                     </div>
 
                     <div class="flex flex-wrap gap-3">
@@ -64,12 +72,12 @@
                         <div class="ui-kpi">
                             <div class="section-title">Targets</div>
                             <div class="mt-2 text-3xl font-bold text-white">{{ targets.count }}</div>
-                            <div class="mt-1 text-sm text-slate-400">Configured environments</div>
+                            <div class="mt-1 text-sm text-slate-400">Approved systems</div>
                         </div>
                         <div class="ui-kpi">
                             <div class="section-title">Executors</div>
                             <div class="mt-2 text-3xl font-bold text-white">{{ executors.count }}</div>
-                            <div class="mt-1 text-sm text-slate-400">Available nodes</div>
+                            <div class="mt-1 text-sm text-slate-400">Machines that run tasks</div>
                         </div>
                         <div class="ui-kpi">
                             <div class="section-title">Alerts</div>
@@ -107,11 +115,11 @@
                     {% endif %}
                 </div>
 
-                <div class="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-6">
-                    <div class="section-title">Run Selection</div>
-                    <h2 class="mt-3 text-2xl font-semibold text-white">Choose the run in focus</h2>
+                <div class="console-table w-full max-w-md p-6">
+                    <div class="section-title">Session Selector</div>
+                    <h2 class="mt-3 font-mono text-2xl font-semibold text-white">Choose active run</h2>
                     <p class="mt-3 text-sm leading-7 text-slate-400">
-                        Switch the dashboard between recent runs while keeping the phase map and launch controls nearby.
+                        Pick a previous run or create a new one. The rest of the console updates to match this selection.
                     </p>
 
                     <div class="mt-6 space-y-3">
@@ -142,68 +150,93 @@
         </div>
     </section>
 
-    <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+    <section class="shell-panel overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">agent-topology --explain</div>
+            <div class="hidden sm:block">{{ agentic_architecture.version }}</div>
+        </div>
         <div class="border-b border-white/10 px-6 py-5">
-            <div class="section-title">Pentest Phase Map</div>
-            <h2 class="mt-2 text-2xl font-semibold text-white">Default execution order</h2>
+            <div class="section-title">Agentic Architecture</div>
+            <div class="mt-2 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <h2 class="font-mono text-2xl font-semibold text-white">What each agent is doing</h2>
+                <span class="ui-badge ui-badge-info">{{ agentic_architecture.version }}</span>
+            </div>
         </div>
         <div class="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
-            {% for phase in phase_map %}
-            <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <div class="flex items-center justify-between gap-3">
-                    <div class="text-sm font-semibold text-white">{{ phase.display_name }}</div>
-                    <span class="ui-badge ui-badge-muted">{{ forloop.counter }}</span>
+            {% for node in agentic_architecture.nodes %}
+            <div class="agent-node agent-link p-5">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <div class="text-base font-semibold text-white">{{ node.name }}</div>
+                        <div class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">{{ node.signal }}</div>
+                    </div>
+                    <span class="ui-badge {% if node.status == 'RUNNING' or node.status == 'APPROVED' %}ui-badge-success{% elif node.status == 'GATED' or node.status == 'STANDBY' %}ui-badge-warning{% else %}ui-badge-muted{% endif %}">{{ node.status }}</span>
                 </div>
-                <p class="mt-3 text-sm leading-7 text-slate-400">{{ phase.description }}</p>
+                <p class="mt-4 text-sm leading-7 text-slate-400">{{ node.role }}</p>
             </div>
             {% endfor %}
         </div>
+        <div class="border-t border-white/10 px-6 py-5">
+            <div class="grid gap-3 md:grid-cols-5">
+                {% for loop in agentic_architecture.loops %}
+                <div class="rounded-lg border border-white/10 bg-white/5 p-4">
+                    <div class="text-sm font-semibold text-white">{{ loop.name }}</div>
+                    <p class="mt-2 text-xs leading-5 text-slate-400">{{ loop.description }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
     </section>
 
-    <section class="shell-panel overflow-hidden rounded-[1.5rem]">
-        <div class="border-b border-white/10 px-6 py-5">
-            <div class="section-title">Run Phase Status</div>
-            <h2 class="mt-2 text-2xl font-semibold text-white">{% if attack_state %}{{ attack_state.name }}{% else %}No selected run{% endif %}</h2>
+    <section class="shell-panel overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">planner-map --redirect</div>
+            <div class="hidden sm:block">separate page</div>
         </div>
-        <div class="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
-            {% for card in phase_dashboard.cards %}
-            <a href="{{ card.detail_url|default:'#' }}" class="rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-cyan-400/30">
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <div class="text-sm font-semibold text-white">{{ card.display_name }}</div>
-                        <p class="mt-2 text-sm leading-6 text-slate-400">{{ card.description }}</p>
-                    </div>
-                    <span class="ui-badge {% if card.status == 'completed' %}ui-badge-success{% elif card.status == 'running' %}ui-badge-info{% elif card.status == 'failed' %}ui-badge-danger{% else %}ui-badge-muted{% endif %}">{{ card.status }}</span>
-                </div>
-                <div class="mt-4 grid grid-cols-3 gap-3 text-sm">
-                    <div class="rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2">
-                        <div class="text-slate-500">Steps</div>
-                        <div class="mt-1 font-mono text-white">{{ card.summary.total }}</div>
-                    </div>
-                    <div class="rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2">
-                        <div class="text-slate-500">Findings</div>
-                        <div class="mt-1 font-mono text-white">{{ card.findings_count }}</div>
-                    </div>
-                    <div class="rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2">
-                        <div class="text-slate-500">Outputs</div>
-                        <div class="mt-1 font-mono text-white">{{ card.outputs_count }}</div>
-                    </div>
-                </div>
-                {% if card.is_current %}
-                <div class="mt-4 text-xs uppercase tracking-[0.18em] text-cyan-300">Current Phase</div>
-                {% elif card.is_skipped_by_start %}
-                <div class="mt-4 text-xs uppercase tracking-[0.18em] text-amber-300">Not executed in this run</div>
-                {% endif %}
+        <div class="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div>
+                <div class="section-title">Planner Map</div>
+                <h2 class="mt-2 font-mono text-2xl font-semibold text-white">Open the dedicated phase map</h2>
+                <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
+                    The phase map now lives on its own page so the console can stay focused on the live agent session, activity, and controls.
+                </p>
+            </div>
+            <a href="{% url 'dashboard_planner_map' %}{% if attack_state %}?attack_id={{ attack_state.id }}{% endif %}" class="ui-btn ui-btn-primary !py-4">
+                Open Planner Map
             </a>
-            {% endfor %}
         </div>
     </section>
 
-    <section class="shell-panel overflow-hidden rounded-[1.5rem]">
+    <section class="shell-panel overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">agent-run --redirect</div>
+            <div class="hidden sm:block">separate page</div>
+        </div>
+        <div class="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div>
+                <div class="section-title">Agent Run Status</div>
+                <h2 class="mt-2 font-mono text-2xl font-semibold text-white">Open the dedicated live terminal</h2>
+                <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
+                    The live run terminal now has its own page with a tall scrollable viewport for plan generation, tool calls, outputs, and phase status.
+                </p>
+            </div>
+            <a href="{% url 'dashboard_agent_run' %}{% if attack_state %}?attack_id={{ attack_state.id }}{% endif %}" class="ui-btn ui-btn-primary !py-4">Open Agent Run</a>
+        </div>
+    </section>
+
+    <section class="shell-panel overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">copilot --contextual-help</div>
+            <div class="hidden sm:block">ask questions</div>
+        </div>
         <div class="border-b border-white/10 px-6 py-5">
-            <div class="section-title">AI Assistant</div>
+            <div class="section-title">Copilot Agent</div>
             <div class="mt-2 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <h2 class="text-2xl font-semibold text-white">Open the dedicated assistant workspace</h2>
+                <h2 class="font-mono text-2xl font-semibold text-white">Ask for explanations in normal language</h2>
                 <div class="flex flex-wrap gap-2">
                     {% if attack_state %}
                     <span class="ui-badge ui-badge-info">Run {{ attack_state.name }}</span>
@@ -216,9 +249,9 @@
         </div>
         <div class="grid gap-6 p-6 xl:grid-cols-[minmax(0,1.2fr)_340px]">
             <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <div class="text-lg font-semibold text-white">Use the assistant on its own page</div>
+                <div class="font-mono text-lg font-semibold text-white">Open the copilot workspace</div>
                 <p class="mt-3 text-sm leading-7 text-slate-400">
-                    The assistant now has a dedicated workspace so it can focus on run context, phase-specific questions, conversation history, and evidence-backed answers without crowding the main dashboard.
+                    The copilot reads run context, phase-specific results, conversation history, and evidence-backed answers without crowding this console.
                 </p>
                 <div class="mt-5 flex flex-wrap gap-3">
                     <a href="{% url 'dashboard_assistant' %}{% if attack_state %}?attack_id={{ attack_state.id }}{% if chat_phase_key %}&chat_phase={{ chat_phase_key }}{% endif %}{% endif %}" class="ui-btn ui-btn-primary">Open Assistant</a>
@@ -240,71 +273,40 @@
         </div>
     </section>
 
-    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.95fr)]">
-        <section class="shell-panel overflow-hidden rounded-[1.5rem]">
-            <div class="border-b border-white/10 px-6 py-5">
-                <div class="section-title">Live Activity</div>
-                <h2 class="mt-2 text-2xl font-semibold text-white">Recent operation feed</h2>
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.75fr)]">
+        <section class="shell-panel overflow-hidden">
+            <div class="console-titlebar">
+                <div class="console-dots"><span></span><span></span><span></span></div>
+                <div class="truncate">activity --redirect</div>
+                <div class="hidden sm:block">separate page</div>
             </div>
-            <div id="activity-list" class="max-h-[560px] overflow-y-auto">
-                {% include "dashboard/partials/activity_items.html" %}
-                {% if not actions %}
-                <div class="px-6 py-10 text-center text-slate-500">
-                    <div class="text-lg font-semibold text-slate-300">No activity captured yet</div>
-                    <div class="mt-2 text-sm">Start a test to populate the live feed.</div>
+            <div class="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div>
+                    <div class="section-title">Live Activity</div>
+                    <h2 class="mt-2 font-mono text-2xl font-semibold text-white">Open the dedicated activity stream</h2>
+                    <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
+                        Activity now lives on its own page with actions, tool calls, observations, and summary counts.
+                    </p>
                 </div>
-                {% endif %}
+                <a href="{% url 'dashboard_activity' %}{% if attack_state %}?attack_id={{ attack_state.id }}{% endif %}" class="ui-btn ui-btn-primary !py-4">Open Live Activity</a>
             </div>
-            {% if actions|length >= 50 %}
-            <div class="border-t border-white/10 px-6 py-4">
-                <button id="load-more-btn" class="ui-btn ui-btn-secondary w-full sm:w-auto" onclick="loadMoreActivity()">Load More Activity</button>
-            </div>
-            {% endif %}
         </section>
 
-        <div class="space-y-6">
-            <section class="shell-panel overflow-hidden rounded-[1.5rem]">
-                <div class="border-b border-white/10 px-6 py-5">
-                    <div class="section-title">Security Alerts</div>
-                    <div class="mt-2 flex items-center justify-between gap-3">
-                        <h2 class="text-xl font-semibold text-white">Defender signals</h2>
-                        <span class="ui-badge {% if alerts.count %}ui-badge-danger{% else %}ui-badge-success{% endif %}">
-                            {{ alerts.count }} active
-                        </span>
-                    </div>
-                </div>
-                <div class="divide-y divide-white/5">
-                    {% for alert in alerts %}
-                    <div class="px-6 py-4">
-                        <div class="flex items-start justify-between gap-4">
-                            <div>
-                                <div class="font-semibold text-white">{{ alert.title }}</div>
-                                <div class="mt-2 text-sm text-slate-400">{{ alert.created_at|timesince }} ago</div>
-                            </div>
-                            <span class="ui-badge ui-badge-danger">{{ alert.severity }}</span>
-                        </div>
-                    </div>
-                    {% empty %}
-                    <div class="px-6 py-8 text-center text-slate-400">
-                        <div class="font-semibold text-white">No current security alerts</div>
-                        <div class="mt-2 text-sm">The system has not raised a defender alert in the recent activity window.</div>
-                    </div>
-                    {% endfor %}
-                </div>
-            </section>
-
-            <section class="shell-panel overflow-hidden rounded-[1.5rem]">
-                <div class="border-b border-white/10 px-6 py-5">
-                    <div class="section-title">Operations</div>
-                    <h2 class="mt-2 text-xl font-semibold text-white">Quick access</h2>
-                </div>
-                <div class="space-y-3 p-6">
-                    <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary w-full justify-between">Manage Targets <span class="text-slate-500">{{ targets.count }}</span></a>
-                    <a href="{% url 'executor_management' %}" class="ui-btn ui-btn-secondary w-full justify-between">Manage Executors <span class="text-slate-500">{{ executors.count }}</span></a>
-                    <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary w-full">Open Test History</a>
-                </div>
-            </section>
-        </div>
+        <section class="shell-panel overflow-hidden">
+            <div class="console-titlebar">
+                <div class="console-dots"><span></span><span></span><span></span></div>
+                <div class="truncate">quick-links</div>
+            </div>
+            <div class="border-b border-white/10 px-6 py-5">
+                <div class="section-title">Operations</div>
+                <h2 class="mt-2 text-xl font-semibold text-white">Quick access</h2>
+            </div>
+            <div class="space-y-3 p-6">
+                <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary w-full justify-between">Manage Targets <span class="text-slate-500">{{ targets.count }}</span></a>
+                <a href="{% url 'executor_management' %}" class="ui-btn ui-btn-secondary w-full justify-between">Manage Executors <span class="text-slate-500">{{ executors.count }}</span></a>
+                <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary w-full">Open Test History</a>
+            </div>
+        </section>
     </div>
 
     <div x-show="quickModalOpen" x-cloak class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/80 px-4 py-6 backdrop-blur-sm sm:py-10">

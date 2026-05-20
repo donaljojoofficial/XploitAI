@@ -36,6 +36,10 @@ from django.db.models import Q
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext, Command
 from ai.command_generator import CommandGenerator
+from ai.agentic_architecture import (
+    AGENTIC_ARCHITECTURE_VERSION,
+    build_agentic_architecture_snapshot,
+)
 from executor import ssh_executor
 from services.execution_service import ExecutionService
 from services.remote_execution_service import RemoteExecutionService
@@ -992,6 +996,7 @@ def _get_global_context(request: HttpRequest) -> dict[str, Any]:
             'has_local_executor': True,
             'has_active_target': False,
             'active_context': None,
+            'agentic_architecture': build_agentic_architecture_snapshot(),
         }
     
     executors = AttackerExecutor.objects.filter(Q(owner=request.user) | Q(owner__isnull=True)).order_by('-last_heartbeat')
@@ -1001,6 +1006,8 @@ def _get_global_context(request: HttpRequest) -> dict[str, Any]:
 
     connected_executors = [executor for executor in executors if executor.is_remote_ready]
     active_targets = targets.filter(is_active=True)
+
+    latest_attack = recent_attacks[0] if recent_attacks else None
 
     return {
         'executors': executors,
@@ -1012,6 +1019,7 @@ def _get_global_context(request: HttpRequest) -> dict[str, Any]:
         'has_local_executor': True,
         'has_active_target': active_targets.exists(),
         'active_context': active_context,
+        'agentic_architecture': build_agentic_architecture_snapshot(latest_attack),
     }
 
 
@@ -1078,10 +1086,77 @@ def index(request: HttpRequest) -> HttpResponse:
         'auto_refresh_seconds': 30,
         'quick_actions': quick_actions,
         'show_vulnerability_analysis_fallback': 'vulnerability_analysis' not in quick_action_keys,
-        'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
         **_get_global_context(request),
+        'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
+        'agentic_architecture': build_agentic_architecture_snapshot(attack_state),
     }
     return render(request, 'dashboard/index.html', context)
+
+
+@login_required(login_url='login')
+def planner_map(request: HttpRequest) -> HttpResponse:
+    """Dedicated page for the static planner map and selected run phase state."""
+    selected_attack_id = request.GET.get("attack_id")
+    attacks_queryset = AttackState.objects.filter(owner=request.user).order_by("-updated_at")
+    if selected_attack_id and str(selected_attack_id).isdigit():
+        attack_state = attacks_queryset.filter(pk=int(selected_attack_id)).first() or attacks_queryset.first()
+    else:
+        attack_state = attacks_queryset.first()
+
+    phase_dashboard = _build_phase_cards(attack_state)
+    context = {
+        "attack_state": attack_state,
+        "selected_attack_id": attack_state.pk if attack_state else None,
+        "all_attacks": list(attacks_queryset[:20]),
+        "phase_map": dashboard_phase_catalog(),
+        "phase_dashboard": phase_dashboard,
+        "current_phase_card": next((card for card in phase_dashboard["cards"] if card.get("is_current")), None),
+        "auto_refresh_seconds": 30,
+        **_get_global_context(request),
+        "agentic_architecture": build_agentic_architecture_snapshot(attack_state),
+    }
+    return render(request, "dashboard/planner_map.html", context)
+
+
+@login_required(login_url='login')
+def agent_run_live(request: HttpRequest) -> HttpResponse:
+    """Dedicated Claude Code-style live run page with a scrollable terminal."""
+    selected_attack_id = request.GET.get("attack_id")
+    attacks_queryset = AttackState.objects.filter(owner=request.user).order_by("-updated_at")
+    if selected_attack_id and str(selected_attack_id).isdigit():
+        attack_state = attacks_queryset.filter(pk=int(selected_attack_id)).first() or attacks_queryset.first()
+    else:
+        attack_state = attacks_queryset.first()
+
+    actions = []
+    tasks = []
+    alerts = []
+    plan_view = None
+    waiting_for_approval = False
+    phase_dashboard = _build_phase_cards(attack_state)
+    if attack_state:
+        actions = Action.objects.filter(attack_state=attack_state).order_by("-created_at")[:50]
+        tasks = ExecutionTask.objects.filter(action__attack_state=attack_state).order_by("-created_at")[:50]
+        alerts = DefenderAlert.objects.filter(attack_state=attack_state).order_by("-created_at")[:20]
+        plan_view = _build_plan_view_state(attack_state)
+        waiting_for_approval = _is_waiting_for_plan_approval(attack_state)
+
+    context = {
+        "attack_state": attack_state,
+        "selected_attack_id": attack_state.pk if attack_state else None,
+        "all_attacks": list(attacks_queryset[:20]),
+        "actions": actions,
+        "tasks": tasks,
+        "alerts": alerts,
+        "plan_view": plan_view,
+        "waiting_for_approval": waiting_for_approval,
+        "phase_dashboard": phase_dashboard,
+        "current_phase_card": next((card for card in phase_dashboard["cards"] if card.get("is_current")), None),
+        "auto_refresh_seconds": 30,
+        **_get_global_context(request),
+        "agentic_architecture": build_agentic_architecture_snapshot(attack_state),
+    }
+    return render(request, "dashboard/agent_run_live.html", context)
 
 
 @login_required(login_url='login')
@@ -1174,6 +1249,7 @@ def assistant_page(request: HttpRequest) -> HttpResponse:
         "phase_dashboard": _build_phase_cards(attack_state),
         "latest_report": (plan_view or {}).get("last_report"),
         **_get_global_context(request),
+        "agentic_architecture": build_agentic_architecture_snapshot(attack_state),
     }
     return render(request, "dashboard/assistant.html", context)
 
@@ -1401,6 +1477,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
             restart_phase,
         )
         state_data["plan_approved"] = False
+        state_data["architecture_version"] = AGENTIC_ARCHITECTURE_VERSION
         state.current_phase = restart_phase
         state.autonomy_status = "IDLE"
         state.stop_reason = f"Restarting test {state_data['test_uid']} from phase '{restart_phase}'."
@@ -1423,6 +1500,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                     "completed_actions": [],
                     "findings": {},
                     "llm_provider": llm_provider,
+                    "architecture_version": AGENTIC_ARCHITECTURE_VERSION,
                     "execution_mode": execution_mode,
                     "executor_id": selected_executor.id,
                     "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
@@ -1452,6 +1530,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
                     "completed_actions": [],
                     "findings": {},
                     "llm_provider": llm_provider,
+                    "architecture_version": AGENTIC_ARCHITECTURE_VERSION,
                     "execution_mode": "local",
                     "progression_mode": progression_mode if progression_mode in {"manual"} else "manual",
                     "plan_command_lock": True,
@@ -1475,6 +1554,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     if not state.state_data:
         state.state_data = {}
     state.state_data['llm_provider'] = llm_provider
+    state.state_data['architecture_version'] = AGENTIC_ARCHITECTURE_VERSION
     state.state_data['progression_mode'] = state.state_data.get('progression_mode') or "manual"
     state.state_data['runtime_profile'] = build_runtime_profile(state.state_data.get('runtime_profile') or runtime_profile)
     state.save(update_fields=['state_data'])
@@ -1539,6 +1619,7 @@ def start_quick_test(request: HttpRequest) -> HttpResponse:
     state_data = {
         "target": target_reference,
         "run_type": "quick_test",
+        "architecture_version": AGENTIC_ARCHITECTURE_VERSION,
         "quick_actions": quick_actions,
         "execution_mode": execution_mode,
         "progression_mode": "quick",

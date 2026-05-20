@@ -1,0 +1,113 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Planner Map - XploitAI{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <section class="shell-panel agent-grid overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">planner-map --dedicated</div>
+            <div class="hidden text-emerald-200 sm:block">phase navigation</div>
+        </div>
+        <div class="p-6 md:p-8">
+            <div class="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+                <div class="max-w-4xl space-y-4">
+                    <div class="section-title">Planner Map</div>
+                    <h1 class="font-mono text-3xl font-bold text-white md:text-5xl">Pentest phase map</h1>
+                    <p class="max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                        This page isolates the planner map from the main console. Use it to understand the phase order, see the selected run's current phase, and jump into phase details.
+                    </p>
+                    <div class="console-command max-w-3xl text-sm">
+                        show-plan --run {% if attack_state %}{{ attack_state.name }}{% else %}none{% endif %} --phase {{ attack_state.current_phase|default:"N/A" }}
+                    </div>
+                </div>
+
+                <div class="console-table w-full max-w-md p-5">
+                    <div class="section-title">Selected Run</div>
+                    <form action="{% url 'dashboard_planner_map' %}" method="get" class="mt-4 space-y-4">
+                        <div>
+                            <label for="plannerRunSelect" class="ui-label">Run</label>
+                            <select id="plannerRunSelect" name="attack_id" onchange="this.form.submit()">
+                                {% for run in all_attacks %}
+                                <option value="{{ run.id }}" {% if selected_attack_id == run.id %}selected{% endif %}>{{ run.name }} ({{ run.current_phase }})</option>
+                                {% empty %}
+                                <option>No runs available</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </form>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        <a href="{% url 'dashboard_index' %}{% if attack_state %}?attack_id={{ attack_state.id }}{% endif %}" class="ui-btn ui-btn-secondary">Back to Console</a>
+                        {% if attack_state %}
+                        <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="ui-btn ui-btn-primary">Open Run</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="shell-panel overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">default-phase-order</div>
+            <div>{{ phase_map|length }} phases</div>
+        </div>
+        <div class="border-b border-white/10 px-6 py-5">
+            <div class="section-title">Default Planner Order</div>
+            <h2 class="mt-2 font-mono text-2xl font-semibold text-white">How the agent moves through the test</h2>
+        </div>
+        <div class="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
+            {% for phase in phase_map %}
+            <div class="agent-node p-5">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="font-mono text-sm font-semibold text-white">{{ phase.display_name }}</div>
+                    <span class="ui-badge ui-badge-muted">{{ forloop.counter }}</span>
+                </div>
+                <p class="mt-3 text-sm leading-7 text-slate-400">{{ phase.description }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="shell-panel overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">selected-run-phase-state</div>
+            <div class="hidden sm:block">{% if attack_state %}{{ attack_state.name }}{% else %}no run{% endif %}</div>
+        </div>
+        <div class="border-b border-white/10 px-6 py-5">
+            <div class="section-title">Selected Run Status</div>
+            <h2 class="mt-2 font-mono text-2xl font-semibold text-white">{% if attack_state %}{{ attack_state.name }}{% else %}No selected run{% endif %}</h2>
+        </div>
+        <div class="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
+            {% for card in phase_dashboard.cards %}
+            <a href="{{ card.detail_url|default:'#' }}" class="agent-node block p-5 transition hover:border-emerald-300/40">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <div class="font-mono text-sm font-semibold text-white">{{ card.display_name }}</div>
+                        <p class="mt-2 text-sm leading-6 text-slate-400">{{ card.description }}</p>
+                    </div>
+                    <span class="ui-badge {% if card.status == 'completed' %}ui-badge-success{% elif card.status == 'running' %}ui-badge-info{% elif card.status == 'failed' %}ui-badge-danger{% else %}ui-badge-muted{% endif %}">{{ card.status }}</span>
+                </div>
+                <div class="mt-4 grid grid-cols-3 gap-3 text-sm">
+                    <div class="border border-white/10 bg-black/30 px-3 py-2">
+                        <div class="text-slate-500">Steps</div>
+                        <div class="mt-1 font-mono text-white">{{ card.summary.total }}</div>
+                    </div>
+                    <div class="border border-white/10 bg-black/30 px-3 py-2">
+                        <div class="text-slate-500">Findings</div>
+                        <div class="mt-1 font-mono text-white">{{ card.findings_count }}</div>
+                    </div>
+                    <div class="border border-white/10 bg-black/30 px-3 py-2">
+                        <div class="text-slate-500">Outputs</div>
+                        <div class="mt-1 font-mono text-white">{{ card.outputs_count }}</div>
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}

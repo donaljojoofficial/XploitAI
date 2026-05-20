@@ -1,0 +1,92 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Live Activity - XploitAI{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <section class="shell-panel agent-grid overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">tail -f activity.log --dedicated</div>
+            <div class="hidden text-emerald-200 sm:block">live activity</div>
+        </div>
+        <div class="p-6 md:p-8">
+            <div class="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+                <div class="max-w-4xl space-y-4">
+                    <div class="section-title">Live Activity</div>
+                    <h1 class="font-mono text-3xl font-bold text-white md:text-5xl">Recent operation feed</h1>
+                    <p class="max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                        A dedicated page for agent actions, tool calls, outputs, and alerts from the selected run.
+                    </p>
+                    <div class="console-command max-w-3xl text-sm">
+                        tail-activity --run {% if attack_state %}{{ attack_state.name }}{% else %}none{% endif %} --limit 100
+                    </div>
+                </div>
+
+                <div class="console-table w-full max-w-md p-5">
+                    <div class="section-title">Selected Run</div>
+                    <form action="{% url 'dashboard_activity' %}" method="get" class="mt-4 space-y-4">
+                        <div>
+                            <label for="activityRunSelect" class="ui-label">Run</label>
+                            <select id="activityRunSelect" name="attack_id" onchange="this.form.submit()">
+                                {% for run in all_attacks %}
+                                <option value="{{ run.id }}" {% if selected_attack_id == run.id %}selected{% endif %}>{{ run.name }} ({{ run.current_phase }})</option>
+                                {% empty %}
+                                <option>No runs available</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </form>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        <a href="{% url 'dashboard_index' %}{% if attack_state %}?attack_id={{ attack_state.id }}{% endif %}" class="ui-btn ui-btn-secondary">Back to Console</a>
+                        {% if attack_state %}
+                        <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="ui-btn ui-btn-primary">Open Live Run</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
+        <section class="shell-panel overflow-hidden">
+            <div class="console-titlebar">
+                <div class="console-dots"><span></span><span></span><span></span></div>
+                <div class="truncate">activity.log</div>
+                <div>{{ actions|length }} actions</div>
+            </div>
+            <div id="activity-list" class="max-h-[760px] overflow-y-auto">
+                {% include "dashboard/partials/activity_items.html" %}
+                {% if not actions %}
+                <div class="px-6 py-10 text-center text-slate-500">
+                    <div class="font-mono text-lg font-semibold text-slate-300">No operations recorded yet</div>
+                    <p class="mt-2 text-sm">Start a run to generate activity.</p>
+                </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <aside class="space-y-6">
+            {% include "dashboard/partials/execution_tasks.html" with tasks=tasks %}
+
+            <section class="shell-panel p-5">
+                <div class="section-title">Activity Summary</div>
+                <div class="mt-4 space-y-3">
+                    <div class="flex items-center justify-between border border-white/10 bg-black/30 px-4 py-3">
+                        <span class="text-slate-500">Actions</span>
+                        <span class="font-mono text-white">{{ actions|length }}</span>
+                    </div>
+                    <div class="flex items-center justify-between border border-white/10 bg-black/30 px-4 py-3">
+                        <span class="text-slate-500">Tool calls</span>
+                        <span class="font-mono text-white">{{ tasks|length }}</span>
+                    </div>
+                    <div class="flex items-center justify-between border border-white/10 bg-black/30 px-4 py-3">
+                        <span class="text-slate-500">Alerts</span>
+                        <span class="font-mono text-white">{{ alerts|length }}</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+    </div>
+</div>
+{% endblock %}

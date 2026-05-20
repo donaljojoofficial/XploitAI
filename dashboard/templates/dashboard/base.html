@@ -9,7 +9,7 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -39,7 +39,7 @@
                         }
                     },
                     fontFamily: {
-                        sans: ['Manrope', 'system-ui', 'sans-serif'],
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
                         mono: ['"IBM Plex Mono"', 'monospace']
                     },
                     boxShadow: {
@@ -55,19 +55,21 @@
 
     <style>
         :root {
-            --bg: #07111f;
-            --panel: rgba(17, 29, 46, 0.86);
-            --panel-strong: rgba(13, 24, 38, 0.96);
-            --panel-muted: rgba(21, 34, 52, 0.72);
-            --border: rgba(153, 173, 195, 0.14);
-            --border-strong: rgba(153, 173, 195, 0.24);
-            --text: #eef4fb;
-            --muted: #94a8bd;
-            --accent: #4fd1ff;
-            --accent-soft: rgba(79, 209, 255, 0.14);
-            --success: #52c79a;
-            --warning: #f7b955;
-            --danger: #f47b7b;
+            --bg: #05070a;
+            --panel: rgba(8, 12, 17, 0.94);
+            --panel-strong: rgba(3, 6, 10, 0.98);
+            --panel-muted: rgba(13, 19, 27, 0.9);
+            --border: rgba(107, 132, 157, 0.28);
+            --border-strong: rgba(134, 165, 194, 0.42);
+            --text: #edf7f4;
+            --muted: #91a6b6;
+            --accent: #44f0b5;
+            --accent-soft: rgba(68, 240, 181, 0.13);
+            --success: #44f0b5;
+            --warning: #ffd166;
+            --danger: #ff6b6b;
+            --info: #65b7ff;
+            --violet: #b89cff;
         }
 
         * {
@@ -80,12 +82,12 @@
 
         body {
             margin: 0;
-            font-family: 'Manrope', system-ui, sans-serif;
+            font-family: 'Inter', system-ui, sans-serif;
             color: var(--text);
             background:
-                radial-gradient(circle at top left, rgba(79, 209, 255, 0.12), transparent 28%),
-                radial-gradient(circle at top right, rgba(82, 199, 154, 0.09), transparent 22%),
-                linear-gradient(180deg, #0a1627 0%, #07111f 100%);
+                linear-gradient(180deg, rgba(68, 240, 181, 0.08), transparent 34%),
+                linear-gradient(90deg, rgba(101, 183, 255, 0.07), transparent 42%),
+                #05070a;
             min-height: 100vh;
         }
 
@@ -95,11 +97,11 @@
             inset: 0;
             pointer-events: none;
             background-image:
-                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-            background-size: 44px 44px;
-            mask-image: linear-gradient(180deg, rgba(255,255,255,0.18), transparent 70%);
-            opacity: 0.35;
+                linear-gradient(rgba(68, 240, 181, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(101, 183, 255, 0.035) 1px, transparent 1px);
+            background-size: 24px 24px;
+            mask-image: linear-gradient(180deg, rgba(255,255,255,0.36), transparent 78%);
+            opacity: 0.6;
         }
 
         [x-cloak] { display: none !important; }
@@ -113,33 +115,122 @@
         .glass-panel {
             background: var(--panel);
             border: 1px solid var(--border);
-            backdrop-filter: blur(18px);
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.24);
+            border-radius: 4px !important;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.03);
         }
 
         .panel-soft {
             background: var(--panel-muted);
             border: 1px solid var(--border);
+            border-radius: 4px !important;
         }
 
         .panel-strong {
             background: var(--panel-strong);
             border: 1px solid var(--border-strong);
+            border-radius: 4px !important;
         }
 
         .section-title {
             font-size: 0.74rem;
             font-weight: 700;
-            letter-spacing: 0.22em;
+            letter-spacing: 0.16em;
             text-transform: uppercase;
-            color: #8ea3b8;
+            color: #44f0b5;
+            font-family: 'IBM Plex Mono', monospace;
         }
 
         .headline-gradient {
-            background: linear-gradient(135deg, #ffffff 0%, #bfeeff 55%, #84d6ff 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
+            color: #edf7f4;
+            background: none;
+            -webkit-background-clip: initial;
+            background-clip: initial;
+        }
+
+        .agent-grid {
+            background-image:
+                linear-gradient(rgba(68, 240, 181, 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(101, 183, 255, 0.04) 1px, transparent 1px);
+            background-size: 22px 22px;
+        }
+
+        .agent-link {
+            position: relative;
+        }
+
+        .agent-link::after {
+            content: "";
+            position: absolute;
+            left: 1rem;
+            right: 1rem;
+            bottom: -0.75rem;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(53, 208, 186, 0.58), rgba(168, 140, 255, 0.5), transparent);
+        }
+
+        .agent-node {
+            border-radius: 4px !important;
+            border: 1px solid rgba(107, 132, 157, 0.3);
+            background: rgba(4, 8, 12, 0.72);
+        }
+
+        .console-titlebar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            border-bottom: 1px solid rgba(107, 132, 157, 0.24);
+            background: rgba(3, 6, 10, 0.78);
+            padding: 0.75rem 1rem;
+            font-family: 'IBM Plex Mono', monospace;
+            color: #91a6b6;
+        }
+
+        .console-dots {
+            display: inline-flex;
+            gap: 0.38rem;
+        }
+
+        .console-dots span {
+            display: block;
+            width: 0.62rem;
+            height: 0.62rem;
+            border-radius: 999px;
+            background: #64748b;
+        }
+
+        .console-dots span:nth-child(1) { background: var(--danger); }
+        .console-dots span:nth-child(2) { background: var(--warning); }
+        .console-dots span:nth-child(3) { background: var(--success); }
+
+        .console-command {
+            border-left: 2px solid var(--accent);
+            background: rgba(68, 240, 181, 0.07);
+            padding: 0.9rem 1rem;
+            font-family: 'IBM Plex Mono', monospace;
+            color: #cdfce9;
+        }
+
+        .console-command::before {
+            content: "$ ";
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .console-hint {
+            font-family: 'IBM Plex Mono', monospace;
+            color: #91a6b6;
+        }
+
+        .console-hint::before {
+            content: "# ";
+            color: var(--info);
+        }
+
+        .console-table {
+            border: 1px solid rgba(107, 132, 157, 0.28);
+            background: rgba(3, 6, 10, 0.5);
         }
 
         .ui-btn {
@@ -147,13 +238,14 @@
             align-items: center;
             justify-content: center;
             gap: 0.6rem;
-            border-radius: 0.95rem;
+            border-radius: 3px !important;
             padding: 0.8rem 1.1rem;
             font-size: 0.92rem;
             font-weight: 700;
             transition: all 0.2s ease;
             border: 1px solid transparent;
             text-decoration: none;
+            font-family: 'IBM Plex Mono', monospace;
         }
 
         .ui-btn:hover {
@@ -161,13 +253,13 @@
         }
 
         .ui-btn-primary {
-            background: linear-gradient(135deg, #64d8ff, #2b9bff);
-            color: #031321;
-            box-shadow: 0 14px 30px rgba(40, 153, 255, 0.22);
+            background: var(--accent);
+            color: #03110c;
+            box-shadow: 0 0 0 1px rgba(68, 240, 181, 0.25), 0 14px 30px rgba(68, 240, 181, 0.14);
         }
 
         .ui-btn-secondary {
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(5, 7, 10, 0.72);
             border-color: var(--border-strong);
             color: #eaf2fb;
         }
@@ -193,13 +285,14 @@
             display: inline-flex;
             align-items: center;
             gap: 0.45rem;
-            border-radius: 999px;
+            border-radius: 3px;
             border: 1px solid var(--border);
             padding: 0.35rem 0.75rem;
             font-size: 0.72rem;
             font-weight: 700;
             letter-spacing: 0.08em;
             text-transform: uppercase;
+            font-family: 'IBM Plex Mono', monospace;
         }
 
         .ui-badge-muted {
@@ -208,15 +301,15 @@
         }
 
         .ui-badge-info {
-            background: rgba(79, 209, 255, 0.12);
-            border-color: rgba(79, 209, 255, 0.24);
-            color: #a6e9ff;
+            background: rgba(101, 183, 255, 0.12);
+            border-color: rgba(101, 183, 255, 0.32);
+            color: #b8dcff;
         }
 
         .ui-badge-success {
-            background: rgba(82, 199, 154, 0.12);
-            border-color: rgba(82, 199, 154, 0.24);
-            color: #b9f1d9;
+            background: rgba(68, 240, 181, 0.12);
+            border-color: rgba(68, 240, 181, 0.3);
+            color: #bcffe9;
         }
 
         .ui-badge-warning {
@@ -232,9 +325,9 @@
         }
 
         .ui-kpi {
-            border-radius: 1.25rem;
+            border-radius: 4px !important;
             border: 1px solid var(--border);
-            background: rgba(11, 21, 37, 0.72);
+            background: rgba(3, 6, 10, 0.72);
             padding: 1rem 1.1rem;
         }
 
@@ -245,7 +338,8 @@
             font-weight: 700;
             letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: #8ea3b8;
+            color: #91a6b6;
+            font-family: 'IBM Plex Mono', monospace;
         }
 
         input[type="text"],
@@ -256,9 +350,9 @@
         select,
         .ui-input {
             width: 100%;
-            border-radius: 0.95rem;
-            border: 1px solid rgba(153, 173, 195, 0.18);
-            background: rgba(9, 19, 32, 0.92);
+            border-radius: 3px !important;
+            border: 1px solid rgba(107, 132, 157, 0.34);
+            background: rgba(3, 6, 10, 0.92);
             color: #eef4fb;
             padding: 0.85rem 1rem;
             outline: none;
@@ -284,7 +378,7 @@
         }
 
         .alert {
-            border-radius: 1rem;
+            border-radius: 4px !important;
             border: 1px solid var(--border);
             padding: 1rem 1.1rem;
         }
@@ -308,7 +402,7 @@
         }
 
         .table-like-row {
-            border-radius: 1rem;
+            border-radius: 4px !important;
             border: 1px solid var(--border);
             background: rgba(11, 21, 37, 0.74);
         }
@@ -322,7 +416,7 @@
         .auth-card {
             width: 100%;
             max-width: 34rem;
-            border-radius: 1.6rem;
+            border-radius: 4px !important;
             padding: 2rem;
         }
 
@@ -354,21 +448,21 @@
     <div class="app-shell min-h-screen flex flex-col">
         {% block navbar %}
         {% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'register' %}
-        <nav class="sticky top-0 z-40 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
+        <nav class="sticky top-0 z-40 border-b border-emerald-300/15 bg-black/85 backdrop-blur-xl">
             <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 xl:flex-row xl:items-center xl:justify-between">
                 <div class="flex min-w-0 flex-1 flex-col gap-4 xl:flex-row xl:items-center">
                     <a href="{% url 'dashboard_index' %}" class="flex shrink-0 items-center gap-3">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-sm font-bold text-cyan-200">XA</div>
+                        <div class="flex h-11 w-11 items-center justify-center rounded border border-emerald-300/35 bg-emerald-300/10 font-mono text-sm font-bold text-emerald-200">&gt;_</div>
                         <div class="min-w-0">
-                            <div class="text-lg font-extrabold tracking-tight text-white">XploitAI</div>
-                            <div class="text-[11px] uppercase tracking-[0.22em] text-slate-500">Operations Console</div>
+                            <div class="font-mono text-lg font-extrabold tracking-tight text-white">XploitAI</div>
+                            <div class="font-mono text-[11px] uppercase tracking-[0.16em] text-slate-500">Readable Operator Console</div>
                         </div>
                     </a>
 
                     <div class="hidden min-w-0 flex-1 xl:flex">
-                        <div class="flex min-w-0 flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
-                            <a href="{% url 'dashboard_index' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Dashboard</a>
-                            <a href="{% url 'dashboard_assistant' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">AI Assistant</a>
+                        <div class="flex min-w-0 flex-wrap items-center gap-2 rounded border border-white/10 bg-black/40 p-2">
+                            <a href="{% url 'dashboard_index' %}" class="ui-btn ui-btn-secondary !px-3.5 !py-2.5">Console</a>
+                            <a href="{% url 'dashboard_assistant' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Copilot</a>
                             <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Targets</a>
                             <a href="{% url 'executor_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Executors</a>
                             <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">History</a>
@@ -388,8 +482,8 @@
                     </div>
 
                     <div class="relative" x-data="{ open: false }">
-                        <button @click="open = !open" @click.away="open = false" class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 transition hover:border-cyan-400/25 hover:bg-white/10">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-400/15 font-semibold text-cyan-200">{{ user.username|slice:":1"|upper }}</div>
+                        <button @click="open = !open" @click.away="open = false" class="flex items-center gap-3 rounded border border-white/10 bg-white/5 px-3 py-2.5 transition hover:border-emerald-300/30 hover:bg-white/10">
+                            <div class="flex h-10 w-10 items-center justify-center rounded border border-emerald-300/25 bg-emerald-300/10 font-mono font-semibold text-emerald-200">{{ user.username|slice:":1"|upper }}</div>
                             <div class="hidden text-left sm:block">
                                 <div class="text-sm font-semibold text-white">{{ user.username }}</div>
                                 <div class="text-xs text-slate-500">Authenticated session</div>
@@ -413,8 +507,8 @@
                 </div>
 
                 <div class="flex flex-wrap gap-2 xl:hidden">
-                    <a href="{% url 'dashboard_index' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Dashboard</a>
-                    <a href="{% url 'dashboard_assistant' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">AI Assistant</a>
+                    <a href="{% url 'dashboard_index' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Console</a>
+                    <a href="{% url 'dashboard_assistant' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Copilot</a>
                     <a href="{% url 'target_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Targets</a>
                     <a href="{% url 'executor_management' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">Executors</a>
                     <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary !rounded-xl !px-3.5 !py-2.5">History</a>

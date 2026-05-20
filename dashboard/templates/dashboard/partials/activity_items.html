@@ -1,7 +1,9 @@
 {% for action in actions %}
 <div class="border-b border-white/5 px-6 py-5 last:border-b-0">
     <div class="flex items-start gap-4">
-        <div class="mt-1 h-3 w-3 rounded-full {% if action.status == 'COMPLETED' %}bg-emerald-400{% elif action.status == 'FAILED' %}bg-rose-400{% elif action.status == 'RUNNING' %}bg-cyan-400{% else %}bg-slate-500{% endif %}"></div>
+        <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded border border-white/10 bg-black/40 font-mono text-sm {% if action.status == 'COMPLETED' %}text-emerald-300{% elif action.status == 'FAILED' %}text-rose-300{% elif action.status == 'RUNNING' %}text-sky-300{% else %}text-slate-400{% endif %}">
+            {% if action.status == 'COMPLETED' %}OK{% elif action.status == 'FAILED' %}!{% elif action.status == 'RUNNING' %}..{% else %}&gt;{% endif %}
+        </div>
         <div class="min-w-0 flex-1">
             <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
@@ -9,17 +11,17 @@
                         <span class="ui-badge {% if action.status == 'COMPLETED' %}ui-badge-success{% elif action.status == 'FAILED' %}ui-badge-danger{% elif action.status == 'RUNNING' %}ui-badge-info{% else %}ui-badge-muted{% endif %}">
                             {{ action.status }}
                         </span>
-                        <h3 class="text-base font-semibold text-white">{{ action.name|default:"Operation" }}</h3>
+                        <h3 class="font-mono text-base font-semibold text-white">{{ action.name|default:"Operation" }}</h3>
                     </div>
-                    <p class="mt-3 text-sm leading-7 text-slate-400">{{ action.description }}</p>
+                    <p class="mt-3 text-sm leading-7 text-slate-400">{{ action.description|default:"The agent queued or evaluated this operation." }}</p>
                 </div>
                 <div class="font-mono text-xs text-slate-500" title="{{ action.created_at }}">{{ action.created_at|date:"H:i:s" }}</div>
             </div>
 
             {% if action.parameters.command %}
-            <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/55 p-4">
-                <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Command</div>
-                <code class="mt-2 block font-mono text-xs leading-6 text-cyan-200">{{ action.parameters.command }}</code>
+            <div class="mt-4 border border-white/10 bg-black/40 p-4">
+                <div class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Tool Call</div>
+                <code class="mt-2 block font-mono text-xs leading-6 text-emerald-300">$ {{ action.parameters.command }}</code>
             </div>
             {% endif %}
         </div>

@@ -1,0 +1,179 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Agent Run Live - XploitAI{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <section class="shell-panel agent-grid overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">agent-run --live --terminal</div>
+            <div class="hidden text-emerald-200 sm:block">scrollable</div>
+        </div>
+        <div class="p-6 md:p-8">
+            <div class="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+                <div class="max-w-4xl space-y-4">
+                    <div class="section-title">Agent Run Live</div>
+                    <h1 class="font-mono text-3xl font-bold text-white md:text-5xl">{% if attack_state %}{{ attack_state.name }}{% else %}No selected run{% endif %}</h1>
+                    <p class="max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                        A dedicated live terminal for plan generation, current steps, tool calls, observations, and agent outputs.
+                    </p>
+                    <div class="console-command max-w-4xl text-sm">
+                        observe-run --phase {{ attack_state.current_phase|default:"N/A" }} --step {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}none{% endif %}
+                    </div>
+                </div>
+
+                <div class="console-table w-full max-w-md p-5">
+                    <div class="section-title">Selected Run</div>
+                    <form action="{% url 'dashboard_agent_run' %}" method="get" class="mt-4 space-y-4">
+                        <div>
+                            <label for="agentRunSelect" class="ui-label">Run</label>
+                            <select id="agentRunSelect" name="attack_id" onchange="this.form.submit()">
+                                {% for run in all_attacks %}
+                                <option value="{{ run.id }}" {% if selected_attack_id == run.id %}selected{% endif %}>{{ run.name }} ({{ run.current_phase }})</option>
+                                {% empty %}
+                                <option>No runs available</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </form>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        <a href="{% url 'dashboard_index' %}{% if attack_state %}?attack_id={{ attack_state.id }}{% endif %}" class="ui-btn ui-btn-secondary">Back to Console</a>
+                        {% if attack_state %}
+                        <a href="{% url 'dashboard_attack_detail' attack_state.id %}" class="ui-btn ui-btn-primary">Full Run</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="grid gap-4 md:grid-cols-4">
+        <div class="ui-kpi">
+            <div class="section-title">Done</div>
+            <div class="mt-2 font-mono text-3xl font-bold text-emerald-300">{% if phase_dashboard %}{{ phase_dashboard.aggregate.completed }}{% else %}0{% endif %}</div>
+        </div>
+        <div class="ui-kpi">
+            <div class="section-title">Running</div>
+            <div class="mt-2 font-mono text-3xl font-bold text-sky-300">{% if phase_dashboard %}{{ phase_dashboard.aggregate.running }}{% else %}0{% endif %}</div>
+        </div>
+        <div class="ui-kpi">
+            <div class="section-title">Blocked</div>
+            <div class="mt-2 font-mono text-3xl font-bold text-rose-300">{% if phase_dashboard %}{{ phase_dashboard.aggregate.failed }}{% else %}0{% endif %}</div>
+        </div>
+        <div class="ui-kpi">
+            <div class="section-title">Queued</div>
+            <div class="mt-2 font-mono text-3xl font-bold text-slate-300">{% if phase_dashboard %}{{ phase_dashboard.aggregate.pending }}{% else %}0{% endif %}</div>
+        </div>
+    </section>
+
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.85fr)]">
+        <section class="shell-panel overflow-hidden">
+            <div class="console-titlebar">
+                <div class="console-dots"><span></span><span></span><span></span></div>
+                <div class="truncate">live-agent-terminal</div>
+                <div class="hidden sm:block">scroll inside</div>
+            </div>
+            <div class="h-[72vh] overflow-y-auto bg-black/40 p-5 font-mono text-xs leading-6">
+                <div class="text-slate-500"># live plan generation</div>
+                {% if waiting_for_approval %}
+                <div><span class="text-amber-300">plan:</span> generated and waiting for approval</div>
+                {% elif attack_state.autonomy_status == 'PLANNING' %}
+                <div><span class="text-sky-300">plan:</span> generating phase plan...</div>
+                {% elif plan_view and plan_view.steps %}
+                <div><span class="text-emerald-300">plan:</span> loaded {{ plan_view.summary.total }} steps, {{ plan_view.summary.completed }} complete, {{ plan_view.summary.pending }} queued</div>
+                {% else %}
+                <div><span class="text-slate-400">plan:</span> no active generated plan yet</div>
+                {% endif %}
+
+                {% if plan_view and plan_view.rationale %}
+                <div class="mt-3 text-slate-500"># planner rationale</div>
+                <div class="whitespace-pre-wrap text-slate-300">{{ plan_view.rationale }}</div>
+                {% endif %}
+
+                <div class="mt-3 text-slate-500"># current step</div>
+                {% if plan_view and plan_view.current_step %}
+                <div><span class="text-sky-300">step:</span> {% if plan_view.current_step.action_type %}{{ plan_view.current_step.action_type }}{% elif plan_view.current_step.action %}{{ plan_view.current_step.action }}{% else %}unnamed step{% endif %}</div>
+                {% if plan_view.current_step.rationale %}
+                <div class="whitespace-pre-wrap text-slate-300">reasoning: {{ plan_view.current_step.rationale }}</div>
+                {% endif %}
+                {% if plan_view.current_step.command_preview %}
+                <div class="mt-1 whitespace-pre-wrap break-all text-emerald-300">$ {{ plan_view.current_step.command_preview }}</div>
+                {% elif plan_view.current_step.resolved_command %}
+                <div class="mt-1 whitespace-pre-wrap break-all text-emerald-300">$ {{ plan_view.current_step.resolved_command }}</div>
+                {% endif %}
+                {% else %}
+                <div><span class="text-slate-400">step:</span> waiting for agent selection</div>
+                {% endif %}
+
+                <div class="mt-3 text-slate-500"># tool calls</div>
+                {% for task in tasks %}
+                <div class="mt-2 border-l border-white/10 pl-3">
+                    <span class="{% if task.status == 'COMPLETED' %}text-emerald-300{% elif task.status == 'FAILED' %}text-rose-300{% elif task.status == 'RUNNING' %}text-sky-300{% else %}text-slate-400{% endif %}">{{ task.status }}</span>
+                    <span class="text-white">{{ task.action_name }}</span>
+                    <span class="text-slate-500">{{ task.created_at|date:"H:i:s" }}</span>
+                    {% if task.parameters.command %}
+                    <div class="whitespace-pre-wrap break-all text-emerald-300">$ {{ task.parameters.command }}</div>
+                    {% endif %}
+                    {% if task.output %}
+                    <div class="whitespace-pre-wrap text-slate-300">observation: {{ task.output|pprint }}</div>
+                    {% elif task.error_message %}
+                    <div class="whitespace-pre-wrap text-rose-300">error: {{ task.error_message }}</div>
+                    {% endif %}
+                </div>
+                {% empty %}
+                <div><span class="text-slate-400">tools:</span> no tool calls queued yet</div>
+                {% endfor %}
+
+                <div class="mt-3 text-slate-500"># agent outputs</div>
+                {% for action in actions %}
+                <div class="mt-2 border-l border-white/10 pl-3">
+                    <span class="{% if action.status == 'COMPLETED' %}text-emerald-300{% elif action.status == 'FAILED' %}text-rose-300{% elif action.status == 'RUNNING' %}text-sky-300{% else %}text-slate-400{% endif %}">{{ action.status }}</span>
+                    <span class="text-white">{{ action.name|default:"operation" }}</span>
+                    <span class="text-slate-500">{{ action.created_at|date:"H:i:s" }}</span>
+                    {% if action.reasoning %}
+                    <div class="whitespace-pre-wrap text-slate-300">reasoning: {{ action.reasoning }}</div>
+                    {% elif action.description %}
+                    <div class="whitespace-pre-wrap text-slate-300">output: {{ action.description }}</div>
+                    {% endif %}
+                </div>
+                {% empty %}
+                <div><span class="text-slate-400">outputs:</span> no agent outputs recorded yet</div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="shell-panel overflow-hidden">
+            <div class="console-titlebar">
+                <div class="console-dots"><span></span><span></span><span></span></div>
+                <div class="truncate">phase-stream</div>
+            </div>
+            <div class="max-h-[72vh] overflow-y-auto">
+                {% for card in phase_dashboard.cards %}
+                <a href="{{ card.detail_url|default:'#' }}" class="block border-b border-white/5 px-5 py-4 last:border-b-0 transition hover:bg-white/[0.04]">
+                    <div class="flex items-start gap-3">
+                        <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border border-white/10 bg-black/40 font-mono text-xs {% if card.status == 'completed' %}text-emerald-300{% elif card.status == 'running' %}text-sky-300{% elif card.status == 'failed' %}text-rose-300{% else %}text-slate-500{% endif %}">
+                            {% if card.status == 'completed' %}OK{% elif card.status == 'running' %}..{% elif card.status == 'failed' %}!{% else %}{{ forloop.counter }}{% endif %}
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <div class="font-mono text-sm font-semibold text-white">{{ card.display_name }}</div>
+                                    <div class="mt-1 text-xs leading-5 text-slate-500">{{ card.summary.completed }}/{{ card.summary.total }} steps</div>
+                                </div>
+                                <span class="ui-badge {% if card.status == 'completed' %}ui-badge-success{% elif card.status == 'running' %}ui-badge-info{% elif card.status == 'failed' %}ui-badge-danger{% else %}ui-badge-muted{% endif %}">{{ card.status }}</span>
+                            </div>
+                            {% if card.is_current %}
+                            <div class="mt-3 border-l-2 border-emerald-300/70 bg-emerald-300/5 px-3 py-2 text-xs leading-5 text-emerald-100">Current focus.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </a>
+                {% empty %}
+                <div class="px-5 py-8 text-center text-slate-500">No phase status available yet.</div>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

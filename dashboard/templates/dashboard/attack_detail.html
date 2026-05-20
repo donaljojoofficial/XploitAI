@@ -1,203 +1,228 @@
 {% extends 'dashboard/base.html' %}
 
-{% block content %}
-<div class="space-y-8">
-    <section class="shell-panel rounded-[1.6rem] p-8">
-        <div class="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div class="max-w-4xl">
-                <div class="section-title">Operation Detail</div>
-                <h1 class="mt-2 text-4xl font-extrabold tracking-tight text-white">{{ attack_state.name }}</h1>
-                <div class="mt-4 flex flex-wrap gap-3">
-                    <span class="ui-badge ui-badge-muted">{{ attack_state.current_phase }}</span>
-                    {% if plan_view.level.kill_chain_label %}
-                    <span class="ui-badge ui-badge-info">Kill Chain {{ plan_view.level.kill_chain_label }}</span>
-                    {% endif %}
-                    {% if plan_view.stage_label %}
-                    <span class="ui-badge ui-badge-muted">Stage {{ plan_view.stage_label }}</span>
-                    {% endif %}
-                    {% if attack_state.autonomy_status == 'RUNNING' %}
-                    <span class="ui-badge ui-badge-success">{{ attack_state.autonomy_status }}</span>
-                    {% elif attack_state.autonomy_status == 'STOPPED' %}
-                    <span class="ui-badge ui-badge-danger">{{ attack_state.autonomy_status }}</span>
-                    {% else %}
-                    <span class="ui-badge ui-badge-warning">{{ attack_state.autonomy_status }}</span>
-                    {% endif %}
-                    <span class="ui-badge ui-badge-info">
-                        {% with provider=attack_state.state_data.llm_provider|default:"auto" %}
-                        {% if provider == "auto" %}Router{% elif provider == "lmstudio" %}LM Studio Only{% else %}{{ provider|upper }}{% endif %}
-                        {% endwith %}
-                    </span>
-                </div>
-            </div>
+{% block title %}Agent Run - {{ attack_state.name }}{% endblock %}
 
-            <div class="flex flex-wrap gap-3">
-                <a href="{% url 'dashboard_attack_replay' attack_state.id %}" class="ui-btn ui-btn-secondary">Replay</a>
-                <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="ui-btn ui-btn-secondary">Plan</a>
-                <a href="{% url 'dashboard_test_history' %}" class="ui-btn ui-btn-secondary">Test History</a>
-                <a href="{% url 'dashboard_attack_phase_reviews' attack_state.id %}" class="ui-btn ui-btn-secondary">Level Reviews</a>
-                <a href="{% url 'dashboard_attack_command_logs' attack_state.id %}" class="ui-btn ui-btn-secondary">Command Logs</a>
-                <form action="{% url 'dashboard_attack_report_generate' attack_state.id %}" method="POST" class="inline-block">
-                    {% csrf_token %}
-                    <button type="submit" class="ui-btn ui-btn-secondary">Generate Report</button>
-                </form>
-                {% if latest_report %}
-                <a href="{% url 'dashboard_attack_report_latest' attack_state.id %}" target="_blank" class="ui-btn ui-btn-secondary">View Last Report</a>
-                {% endif %}
-                {% if attack_state.autonomy_status == 'STOPPED' %}
-                <form action="{% url 'resume_attack' attack_state.id %}" method="POST" class="inline-block">
-                    {% csrf_token %}
-                    <button type="submit" class="ui-btn ui-btn-success">Resume</button>
-                </form>
-                {% if plan_view.summary.failed or plan_view.summary.pending %}
-                <form action="{% url 'retry_failed_phase' attack_state.id %}" method="POST" class="inline-block">
-                    {% csrf_token %}
-                    <button type="submit" class="ui-btn ui-btn-secondary">Retry Failed Phase</button>
-                </form>
-                {% endif %}
-                {% endif %}
+{% block content %}
+<div class="space-y-6">
+    <section class="shell-panel agent-grid overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">claude-style-runner / {{ attack_state.name }}</div>
+            <div class="hidden text-emerald-200 sm:block">{{ attack_state.autonomy_status }}</div>
+        </div>
+        <div class="p-6 md:p-8">
+            <div class="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+                <div class="max-w-4xl space-y-4">
+                    <div class="section-title">Pentest Agent Session</div>
+                    <h1 class="font-mono text-3xl font-bold tracking-tight text-white md:text-5xl">{{ attack_state.name }}</h1>
+                    <p class="max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                        The run is presented as an agent workspace: objective, plan, tool calls, observations, approvals, and final evidence are separated so you can follow the pentest like an AI coding session.
+                    </p>
+                    <div class="console-command max-w-4xl text-sm">
+                        run-pentest --phase {{ attack_state.current_phase }} --provider {% with provider=attack_state.state_data.llm_provider|default:"auto" %}{% if provider == "auto" %}router{% else %}{{ provider }}{% endif %}{% endwith %} --mode {{ attack_state.state_data.execution_mode|default:"local" }}
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <span class="ui-badge ui-badge-muted">Phase {{ attack_state.current_phase }}</span>
+                        {% if plan_view.level.kill_chain_label %}<span class="ui-badge ui-badge-info">{{ plan_view.level.kill_chain_label }}</span>{% endif %}
+                        {% if plan_view.stage_label %}<span class="ui-badge ui-badge-muted">{{ plan_view.stage_label }}</span>{% endif %}
+                        {% if attack_state.autonomy_status == 'RUNNING' %}
+                        <span class="ui-badge ui-badge-success">Agent running</span>
+                        {% elif attack_state.autonomy_status == 'STOPPED' %}
+                        <span class="ui-badge ui-badge-danger">Agent stopped</span>
+                        {% else %}
+                        <span class="ui-badge ui-badge-warning">{{ attack_state.autonomy_status }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="console-table w-full max-w-md p-5">
+                    <div class="section-title">Run Controls</div>
+                    <div class="mt-4 grid gap-3">
+                        <a href="{% url 'dashboard_attack_plan' attack_state.id %}" class="ui-btn ui-btn-secondary justify-between">Open Plan <span class="text-slate-500">{{ plan_view.summary.total|default:0 }}</span></a>
+                        <a href="{% url 'dashboard_attack_command_logs' attack_state.id %}" class="ui-btn ui-btn-secondary justify-between">Command Logs <span class="text-slate-500">raw</span></a>
+                        <a href="{% url 'dashboard_attack_replay' attack_state.id %}" class="ui-btn ui-btn-secondary justify-between">Replay <span class="text-slate-500">timeline</span></a>
+                        <a href="{% url 'dashboard_assistant' %}?attack_id={{ attack_state.id }}" class="ui-btn ui-btn-primary justify-between">Ask Copilot <span>explain</span></a>
+                        {% if attack_state.autonomy_status != 'STOPPED' %}
+                        <form action="{% url 'stop_attack' attack_state.id %}" method="post">
+                            {% csrf_token %}
+                            <button type="submit" class="ui-btn ui-btn-danger w-full">Stop Agent</button>
+                        </form>
+                        {% else %}
+                        <form action="{% url 'resume_attack' attack_state.id %}" method="post">
+                            {% csrf_token %}
+                            <button type="submit" class="ui-btn ui-btn-success w-full">Resume Agent</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
         </div>
     </section>
-
-    {% if attack_state.autonomy_status != 'STOPPED' %}
-    <form action="{% url 'stop_attack' attack_state.id %}" method="post" class="inline-block">
-        {% csrf_token %}
-        <button type="submit" class="ui-btn ui-btn-danger">Stop Autonomy</button>
-    </form>
-    {% endif %}
 
     {% if waiting_for_approval %}
     <section class="alert alert-warning">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-                <div class="font-semibold">Plan ready for approval</div>
+                <div class="font-mono font-semibold">Approval needed before the agent continues</div>
                 <div class="mt-1 text-sm">{{ attack_state.stop_reason|default:"A phase plan has been generated and is waiting for approval." }}</div>
             </div>
             <form action="{% url 'approve_plan' attack_state.id %}" method="POST" class="inline-block">
                 {% csrf_token %}
-                <button type="submit" class="ui-btn ui-btn-primary">{% if plan_view.level_transition_pending %}Approve and Continue to Next Level{% else %}Approve and Continue{% endif %}</button>
+                <button type="submit" class="ui-btn ui-btn-primary">{% if plan_view.level_transition_pending %}Approve Next Level{% else %}Approve and Continue{% endif %}</button>
             </form>
         </div>
     </section>
     {% elif attack_state.autonomy_status == 'STOPPED' %}
-    <section class="alert {% if waiting_for_approval %}alert-warning{% elif plan_completed %}alert-success{% else %}alert-error{% endif %}">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-                <div class="font-semibold">Stopped</div>
-                <div class="mt-1 text-sm">{{ attack_state.stop_reason }}</div>
-            </div>
-        </div>
+    <section class="alert {% if plan_completed %}alert-success{% else %}alert-warning{% endif %}">
+        <div class="font-mono font-semibold">Agent paused</div>
+        <div class="mt-1 text-sm">{{ attack_state.stop_reason|default:"The run is stopped. Review the transcript before resuming." }}</div>
     </section>
     {% endif %}
 
-    {% if plan_view and plan_view.steps %}
     <section class="grid gap-4 md:grid-cols-4">
         <div class="ui-kpi">
-            <div class="section-title">Completed</div>
-            <div class="mt-2 text-3xl font-bold text-white">{{ plan_view.summary.completed }}</div>
+            <div class="section-title">Done</div>
+            <div class="mt-2 font-mono text-3xl font-bold text-white">{{ plan_view.summary.completed|default:0 }}</div>
+            <div class="mt-1 text-sm text-slate-400">Finished plan steps</div>
         </div>
         <div class="ui-kpi">
             <div class="section-title">Running</div>
-            <div class="mt-2 text-3xl font-bold text-white">{{ plan_view.summary.running }}</div>
+            <div class="mt-2 font-mono text-3xl font-bold text-white">{{ plan_view.summary.running|default:0 }}</div>
+            <div class="mt-1 text-sm text-slate-400">Currently active</div>
         </div>
         <div class="ui-kpi">
-            <div class="section-title">Failed</div>
-            <div class="mt-2 text-3xl font-bold text-white">{{ plan_view.summary.failed }}</div>
+            <div class="section-title">Blocked</div>
+            <div class="mt-2 font-mono text-3xl font-bold text-white">{{ plan_view.summary.failed|default:0 }}</div>
+            <div class="mt-1 text-sm text-slate-400">Failed or needs review</div>
         </div>
         <div class="ui-kpi">
-            <div class="section-title">Pending</div>
-            <div class="mt-2 text-3xl font-bold text-white">{{ plan_view.summary.pending }}</div>
+            <div class="section-title">Queued</div>
+            <div class="mt-2 font-mono text-3xl font-bold text-white">{{ plan_view.summary.pending|default:0 }}</div>
+            <div class="mt-1 text-sm text-slate-400">Waiting to run</div>
         </div>
     </section>
-    {% endif %}
 
-    {% if plan_view and plan_view.level_history %}
-    <section class="shell-panel rounded-[1.5rem] p-6">
-        <div class="section-title">Level Reviews</div>
-        <div class="mt-5 space-y-4">
-            {% for review in plan_view.level_history %}
-            <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div class="font-mono text-sm text-white">
-                    {% if review.level.index %}Level {{ review.level.index }} · {% endif %}{{ review.phase }}
-                    {% if review.level.kill_chain_label %}<span class="text-cyan-300">({{ review.level.kill_chain_label }})</span>{% endif %}
-                    {% if review.next_phase %} &rarr; {{ review.next_phase }}{% endif %}
+    <div class="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)_340px]">
+        <aside class="space-y-6">
+            {% include "dashboard/partials/plan_steps.html" %}
+            {% if latest_report %}
+            <section class="shell-panel overflow-hidden">
+                <div class="console-titlebar">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">latest-report.json</div>
                 </div>
-                <p class="mt-3 text-sm leading-7 text-slate-300">{{ review.review }}</p>
-            </div>
-            {% endfor %}
-        </div>
-    </section>
-    {% endif %}
+                <div class="p-5">
+                    <div class="section-title">Latest Report</div>
+                    <div class="mt-3 font-mono text-sm text-white">{{ latest_report.id }}</div>
+                    <div class="mt-2 text-sm text-slate-400">Generated {{ latest_report.generated_at }}</div>
+                    <a href="{% url 'dashboard_attack_report_latest' attack_state.id %}" target="_blank" class="ui-btn ui-btn-secondary mt-4 w-full">Open Report</a>
+                </div>
+            </section>
+            {% endif %}
+        </aside>
 
-    {% if latest_report %}
-    <section class="shell-panel rounded-[1.5rem] p-6">
-        <div class="section-title">Latest Report</div>
-        <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div class="font-mono text-sm text-white">Report ID: {{ latest_report.id }}</div>
-            <div class="mt-2 text-sm text-slate-300">Generated at: {{ latest_report.generated_at }}</div>
-            <div class="mt-3">
-                <a href="{% url 'dashboard_attack_report_latest' attack_state.id %}" target="_blank" class="ui-btn ui-btn-secondary">Open JSON Report</a>
+        <main class="shell-panel overflow-hidden">
+            <div class="console-titlebar">
+                <div class="console-dots"><span></span><span></span><span></span></div>
+                <div class="truncate">agent-transcript.log</div>
+                <div class="hidden sm:block">newest first</div>
             </div>
-        </div>
-    </section>
-    {% endif %}
-
-    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.9fr)]">
-        <section class="shell-panel overflow-hidden rounded-[1.5rem]">
             <div class="border-b border-white/10 px-6 py-5">
-                <div class="section-title">Live Event Log</div>
-                <h2 class="mt-2 text-2xl font-semibold text-white">Operation timeline</h2>
+                <div class="section-title">Live Agent Transcript</div>
+                <h2 class="mt-2 font-mono text-2xl font-semibold text-white">Thoughts, tool calls, and observations</h2>
+                <p class="mt-2 text-sm leading-6 text-slate-400">Each entry is labeled by source so an operator can distinguish AI decisions, executor results, defender signals, and state changes.</p>
             </div>
-            <div class="max-h-[640px] divide-y divide-white/5 overflow-y-auto">
+            <div class="max-h-[780px] overflow-y-auto">
                 {% for event in unified_events reversed %}
-                <div class="px-6 py-5">
-                    <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                        <div>
-                            <div class="flex flex-wrap items-center gap-2">
-                                <span class="ui-badge {% if event.source == 'AI' %}ui-badge-info{% elif event.source == 'DEFENDER' %}ui-badge-danger{% elif event.source == 'EXECUTOR' %}ui-badge-muted{% else %}ui-badge-warning{% endif %}">{{ event.source }}</span>
-                                <h3 class="text-base font-semibold text-white">{{ event.type }}</h3>
+                <article class="border-b border-white/5 px-6 py-5 last:border-b-0">
+                    <div class="flex gap-4">
+                        <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded border border-white/10 bg-black/40 font-mono text-sm {% if event.source == 'AI' %}text-sky-300{% elif event.source == 'DEFENDER' %}text-rose-300{% elif event.source == 'EXECUTOR' %}text-emerald-300{% else %}text-amber-300{% endif %}">
+                            {% if event.source == 'AI' %}AI{% elif event.source == 'DEFENDER' %}!{% elif event.source == 'EXECUTOR' %}$ {% else %}S{% endif %}
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="ui-badge {% if event.source == 'AI' %}ui-badge-info{% elif event.source == 'DEFENDER' %}ui-badge-danger{% elif event.source == 'EXECUTOR' %}ui-badge-success{% else %}ui-badge-warning{% endif %}">{{ event.source }}</span>
+                                    <h3 class="font-mono text-base font-semibold text-white">{{ event.type }}</h3>
+                                </div>
+                                <div class="font-mono text-xs text-slate-500">{{ event.dt|date:"H:i:s" }}</div>
                             </div>
-                            <p class="mt-3 text-sm leading-7 text-slate-400">{{ event.desc }}</p>
+                            <p class="mt-3 text-sm leading-7 text-slate-300">{{ event.desc }}</p>
                             {% if event.data %}
-                            <pre class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-xs text-emerald-300">{{ event.data|pprint }}</pre>
+                            <details class="mt-4">
+                                <summary class="cursor-pointer font-mono text-xs uppercase tracking-[0.16em] text-sky-300">Show structured data</summary>
+                                <pre class="mt-3 max-h-72 overflow-auto whitespace-pre-wrap border border-white/10 bg-black/50 p-4 font-mono text-xs leading-6 text-emerald-300">{{ event.data|pprint }}</pre>
+                            </details>
                             {% endif %}
                         </div>
-                        <div class="font-mono text-xs text-slate-500">{{ event.dt|date:"H:i:s" }}</div>
                     </div>
-                </div>
+                </article>
                 {% empty %}
-                <div class="px-6 py-12 text-center text-slate-500">No events recorded yet.</div>
+                <div class="px-6 py-12 text-center text-slate-500">No transcript entries yet. Start or resume the agent to populate this stream.</div>
                 {% endfor %}
             </div>
-        </section>
+        </main>
 
-        <div class="space-y-6">
-            <section class="shell-panel overflow-hidden rounded-[1.5rem]">
-                <div class="border-b border-white/10 px-6 py-5">
-                    <div class="section-title">Defender Alerts</div>
+        <aside class="space-y-6">
+            {% include "dashboard/partials/execution_tasks.html" with tasks=tasks %}
+
+            <section class="shell-panel overflow-hidden">
+                <div class="console-titlebar">
+                    <div class="console-dots"><span></span><span></span><span></span></div>
+                    <div class="truncate">defender.alerts</div>
+                </div>
+                <div class="border-b border-white/10 px-5 py-4">
+                    <div class="section-title">Defender Signals</div>
                 </div>
                 {% include "dashboard/partials/defender_alerts.html" with alerts=alerts %}
             </section>
 
-            <section class="shell-panel rounded-[1.5rem] p-6">
-                <div class="section-title">Statistics</div>
-                <div class="mt-5 space-y-3">
-                    <div class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+            <section class="shell-panel p-5">
+                <div class="section-title">Run Stats</div>
+                <div class="mt-4 space-y-3">
+                    <div class="flex items-center justify-between border border-white/10 bg-black/30 px-4 py-3">
                         <span class="text-slate-500">Actions</span>
                         <span class="font-mono text-white">{{ actions.count }}</span>
                     </div>
-                    <div class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                    <div class="flex items-center justify-between border border-white/10 bg-black/30 px-4 py-3">
                         <span class="text-slate-500">Tasks</span>
                         <span class="font-mono text-white">{{ tasks.count }}</span>
                     </div>
-                    <div class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                        <span class="text-slate-500">Consecutive Failures</span>
+                    <div class="flex items-center justify-between border border-white/10 bg-black/30 px-4 py-3">
+                        <span class="text-slate-500">Consecutive failures</span>
                         <span class="font-mono {% if consecutive_failures > 0 %}text-rose-300{% else %}text-emerald-300{% endif %}">{{ consecutive_failures }}</span>
                     </div>
                 </div>
+                <form action="{% url 'dashboard_attack_report_generate' attack_state.id %}" method="POST" class="mt-4">
+                    {% csrf_token %}
+                    <button type="submit" class="ui-btn ui-btn-secondary w-full">Generate Report</button>
+                </form>
             </section>
-        </div>
+        </aside>
     </div>
+
+    {% if plan_view and plan_view.level_history %}
+    <section class="shell-panel overflow-hidden">
+        <div class="console-titlebar">
+            <div class="console-dots"><span></span><span></span><span></span></div>
+            <div class="truncate">phase-reviews.md</div>
+        </div>
+        <div class="p-6">
+            <div class="section-title">Agent Reviews</div>
+            <div class="mt-5 grid gap-4 lg:grid-cols-2">
+                {% for review in plan_view.level_history %}
+                <div class="agent-node p-4">
+                    <div class="font-mono text-sm text-white">
+                        {% if review.level.index %}Level {{ review.level.index }} - {% endif %}{{ review.phase }}
+                        {% if review.next_phase %}<span class="text-slate-500"> -> {{ review.next_phase }}</span>{% endif %}
+                    </div>
+                    <p class="mt-3 text-sm leading-7 text-slate-300">{{ review.review }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+    {% endif %}
 </div>
 {% endblock %}
 
