@@ -61,6 +61,24 @@
                 {% elif attack_state.state_data.plan_rejected %}
                 <div><span class="text-rose-300">plan:</span> rejected by operator</div>
                 <div class="mt-2 text-slate-400">execution: stopped</div>
+                {% elif attack_state.autonomy_status == 'STOPPED' and not plan_view.steps %}
+                <div><span class="text-rose-300">agent:</span> paused</div>
+                {% if attack_state.stop_reason %}
+                <div class="mt-2 whitespace-pre-wrap text-rose-200">{{ attack_state.stop_reason }}</div>
+                {% else %}
+                <div class="mt-2 text-slate-400">No generated plan is available for this run.</div>
+                {% endif %}
+                <div class="mt-4 flex flex-wrap gap-3 font-sans">
+                    <form action="{% url 'stop_attack' attack_state.pk %}" method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="reject_plan" value="1">
+                        <button type="submit" class="ui-btn ui-btn-primary">Restart Planning</button>
+                    </form>
+                    <form action="{% url 'resume_attack' attack_state.pk %}" method="post">
+                        {% csrf_token %}
+                        <button type="submit" class="ui-btn ui-btn-secondary">Resume</button>
+                    </form>
+                </div>
                 {% elif attack_state.autonomy_status == 'PLANNING' and not waiting_for_approval %}
                 <div><span class="text-sky-300">plan:</span> generating phase plan for {{ attack_state.current_phase }}</div>
                 {% if attack_state.stop_reason %}

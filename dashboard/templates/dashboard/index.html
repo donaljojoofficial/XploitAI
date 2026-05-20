@@ -445,13 +445,11 @@
                     <select id="llmProviderSelect" name="llm_provider">
                         <option value="auto" {% if default_llm_provider == 'auto' %}selected{% endif %}>Multi-Adapter Router (Recommended)</option>
                         <option value="gemini" {% if default_llm_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
-                        <option value="openai" {% if default_llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
                         <option value="groq" {% if default_llm_provider == 'groq' %}selected{% endif %}>Groq</option>
                         <option value="nvidia" {% if default_llm_provider == 'nvidia' %}selected{% endif %}>NVIDIA</option>
-                        <option value="hybrid" {% if default_llm_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq</option>
-                        <option value="lmstudio" {% if default_llm_provider == 'lmstudio' %}selected{% endif %}>LM Studio Only (Slow Local)</option>
+                        <option value="hybrid" {% if default_llm_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq + Gemini</option>
                     </select>
-                    <p class="mt-2 text-sm text-slate-400">The router will prefer available cloud adapters and fall back safely. Choose LM Studio only for local-only runs.</p>
+                    <p class="mt-2 text-sm text-slate-400">The router will use only enabled NVIDIA, Groq, and Gemini adapters.</p>
                 </div>
 
                 <label class="flex items-start gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-50">

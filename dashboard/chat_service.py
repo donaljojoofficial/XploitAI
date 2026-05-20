@@ -259,20 +259,25 @@ class DashboardChatService:
         if not adapters_by_name:
             return None
         routes = {
-            "chat": ["nvidia", "groq", "openai", "gemini", "lmstudio", "local"],
-            "chat.explain_run": ["nvidia", "groq", "openai", "gemini", "lmstudio", "local"],
-            "generate": ["nvidia", "groq", "openai", "gemini", "lmstudio", "local"],
+            "chat": ["nvidia", "groq", "gemini"],
+            "chat.explain_run": ["nvidia", "groq", "gemini"],
+            "generate": ["nvidia", "groq", "gemini"],
         }
         return TaskRouterAdapter(adapters_by_name, task_routes=routes)
 
     def _discover_adapters(self, provider: str) -> dict[str, BaseLLMAdapter]:
         requested = (provider or "auto").lower()
         requested_names: set[str]
+        if requested not in {"auto", "fallback", "hybrid", "nvidia", "groq", "gemini"}:
+            requested = "auto"
+
         if requested in {"auto", "fallback"}:
-            requested_names = {"nvidia", "groq", "openai", "gemini", "lmstudio"}
+            requested_names = {"nvidia", "groq", "gemini"}
         elif requested == "hybrid":
-            requested_names = {"nvidia", "groq"}
+            requested_names = {"nvidia", "groq", "gemini"}
         elif requested == "local":
+            requested_names = set()
+        elif requested not in {"nvidia", "groq", "gemini"}:
             requested_names = set()
         else:
             requested_names = {requested}
@@ -284,12 +289,6 @@ class DashboardChatService:
                 adapter = GeminiAdapter()
                 if adapter._client:
                     adapters_by_name["gemini"] = adapter
-            except Exception:
-                pass
-        if "openai" in requested_names:
-            try:
-                from ai.llm.openai_adapter import OpenAIAdapter
-                adapters_by_name["openai"] = OpenAIAdapter()
             except Exception:
                 pass
         if "groq" in requested_names:
@@ -308,17 +307,6 @@ class DashboardChatService:
                     adapters_by_name["nvidia"] = adapter
             except Exception:
                 pass
-        if "lmstudio" in requested_names:
-            try:
-                from ai.llm.lmstudio_adapter import LMStudioAdapter
-                adapter = LMStudioAdapter()
-                if adapter._available:
-                    adapters_by_name["lmstudio"] = adapter
-            except Exception:
-                pass
-
-        from ai.llm.local_rule_engine import LocalRuleEngine
-        adapters_by_name["local"] = LocalRuleEngine()
         return adapters_by_name
 
     def _get_persisted_memory(self, attack_state: AttackState) -> dict[str, Any]:

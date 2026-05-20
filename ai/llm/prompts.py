@@ -207,7 +207,7 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
         '    {"step_number": 1, "action_type": "<action>", "parameters": {}, '
         '"rationale": "<one sentence referencing output or findings>", '
         '"stage_label": "<planning_recon|scanning|exploitation|maintaining_access_payload|proof_of_compromise>", '
-        '"execution_type": "<command|script>", "script_language": "<python|bash|null>", '
+        '"execution_type": "<command|script>", "planned_command": "<shell command or null>", "script_language": "<python|bash|null>", '
         '"script_content": "<script or null>", "artifact_refs": [], '
         '"success_criteria": "<evidence-driven completion criteria>"}\n'
         '  ]\n'
@@ -229,6 +229,8 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
         f"- Use real values from findings/output for parameters (IPs, URLs, ports, paths).\n"
         f"- Keep parameters compact and reuse the exact target reference above.\n"
         f"- Skip already done in this attack: {done}\n"
+        f"- Generate concrete planned_command values yourself for command steps; do not rely on templates.\n"
+        f"- Use null planned_command only when execution_type='script' and script_content contains the runnable code.\n"
         f"- If Findings include operator_rejected_plans, avoid repeating the rejected step sequence unless no safe alternative exists.\n"
         f"- Each step rationale must reference actual output or findings.\n"
         f"- Keep rationale fields short (<= 14 words each).\n"

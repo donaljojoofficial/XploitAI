@@ -36,7 +36,6 @@ from django.urls import reverse
 from django.db.models import Q
 
 from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext, Command, ExecutionResult
-from ai.command_generator import CommandGenerator
 from ai.agentic_architecture import (
     AGENTIC_ARCHITECTURE_VERSION,
     build_agentic_architecture_snapshot,
@@ -53,8 +52,6 @@ from services.command_template_utils import (
     infer_required_tools,
     is_probable_shell_command,
     normalize_command_targets,
-    normalize_command_template,
-    render_command_template,
     uses_disallowed_tool,
 )
 from parser.output_parser import merge_findings, parse_output
@@ -78,6 +75,13 @@ from ai.llm.groq_adapter import GroqAdapter
 from state.state_manager import StateManager
 
 logger = logging.getLogger(__name__)
+
+ENABLED_LLM_PROVIDERS = {"auto", "fallback", "hybrid", "gemini", "groq", "nvidia"}
+
+
+def _enabled_llm_provider(provider: str | None) -> str:
+    provider_name = (provider or "auto").strip().lower()
+    return provider_name if provider_name in ENABLED_LLM_PROVIDERS else "auto"
 EXECUTOR_HEARTBEAT_THRESHOLD_SECONDS = 30
 
 
@@ -443,8 +447,6 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         command.name: command
         for command in Command.objects.all()
     }
-    llm_provider = ((state.state_data or {}).get("llm_provider") or "auto").lower()
-    preview_generator = CommandGenerator(use_llm=False, llm_provider=llm_provider)
     target_context = build_target_context(
         (state.state_data or {}).get("target")
         or (state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
@@ -484,22 +486,21 @@ def _build_plan_view_state(state: AttackState) -> dict[str, Any]:
         if command_obj:
             try:
                 step_context = {**target_context, **(item.get("parameters") or {})}
-                actual_command = item.get("resolved_command") or latest_attempt.get("command")
+                actual_command = (
+                    item.get("resolved_command")
+                    or item.get("planned_command")
+                    or latest_attempt.get("command")
+                )
                 if actual_command and is_probable_shell_command(actual_command):
-                    item["command_preview"] = actual_command
+                    item["command_preview"] = normalize_command_targets(actual_command, step_context)
                     item["command_preview_source"] = "executor"
                 else:
-                    generated_preview = preview_generator.generate(
-                        action_name,
-                        step_context,
-                    ).shell_command
-                    item["command_preview"] = generated_preview
-                    item["command_preview"] = normalize_command_targets(item["command_preview"], step_context)
-                    item["command_preview_source"] = "rule_based"
+                    item["command_preview"] = ""
+                    item["command_preview_source"] = "ai_pending"
             except Exception:
-                item["command_preview"] = command_obj.command_template or ""
-                item["command_preview_source"] = "stored"
-            item["required_tools"] = item.get("resolved_tools") or infer_required_tools(item.get("command_preview") or command_obj.command_template or "")
+                item["command_preview"] = ""
+                item["command_preview_source"] = "ai_pending"
+            item["required_tools"] = item.get("resolved_tools") or infer_required_tools(item.get("command_preview") or "")
         else:
             item["command_preview"] = ""
             item["command_preview_source"] = ""
@@ -808,8 +809,11 @@ def _refresh_step_command(step: dict[str, Any], state: AttackState) -> None:
         or (state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
     )
     parameters = {**target_context, **(step.get("parameters") or {})}
-    generated = CommandGenerator(use_llm=False, llm_provider="auto").generate(action_name, parameters)
-    command = normalize_command_targets(generated.shell_command, parameters)
+    command = str(step.get("planned_command") or step.get("resolved_command") or "").strip()
+    if command and is_probable_shell_command(command):
+        command = normalize_command_targets(command, parameters)
+    else:
+        command = ""
     if uses_disallowed_tool(command):
         command = "echo 'BLOCKED_TOOL: arjun is disabled; regenerate this phase plan for an alternative parameter probe'; exit 2"
     step["resolved_command"] = command
@@ -1063,9 +1067,10 @@ def index(request: HttpRequest) -> HttpResponse:
     authenticated dashboard for signed-in users.
     """
     if not request.user.is_authenticated:
+        default_provider = _enabled_llm_provider(get_config('DEFAULT_LLM_PROVIDER', 'auto'))
         landing_context = {
             'latest_attack': None,
-            'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
+            'default_llm_provider': default_provider,
             **_get_global_context(request),
         }
         return render(request, 'dashboard/landing.html', landing_context)
@@ -1123,7 +1128,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'quick_idempotency_key': f"quick-{uuid.uuid4().hex}",
         'show_vulnerability_analysis_fallback': 'vulnerability_analysis' not in quick_action_keys,
         **_get_global_context(request),
-        'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
+        'default_llm_provider': _enabled_llm_provider(get_config('DEFAULT_LLM_PROVIDER', 'auto')),
         'agentic_architecture': build_agentic_architecture_snapshot(attack_state),
     }
     return render(request, 'dashboard/index.html', context)
@@ -1466,7 +1471,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     if idempotent_state:
         messages.info(request, "This test start request was already processed; opening the existing run.")
         return redirect(f"{reverse('dashboard_agent_run')}?attack_id={idempotent_state.id}")
-    llm_provider = request.POST.get('llm_provider', 'auto')
+    llm_provider = _enabled_llm_provider(request.POST.get('llm_provider', 'auto'))
     requested_start_phase = normalize_phase_name(request.POST.get("start_phase") or "reconnaissance")
     start_phase = requested_start_phase if is_valid_dashboard_phase(requested_start_phase, executable_only=True) else "reconnaissance"
     progression_mode = (request.POST.get("progression_mode", "manual") or "manual").strip().lower()
@@ -1948,39 +1953,22 @@ def configuration(request: HttpRequest) -> HttpResponse:
     """
     if request.method == 'POST':
         gemini_key = request.POST.get('gemini_key', '').strip()
-        openai_key = request.POST.get('openai_key', '').strip()
         groq_key = request.POST.get('groq_key', '').strip()
         nvidia_key = request.POST.get('nvidia_key', '').strip()
         default_provider = request.POST.get('default_provider', '').strip()
-        openai_model = request.POST.get('openai_model', '').strip()
-        openai_host = request.POST.get('openai_host', '').strip()
         gemini_model = request.POST.get('gemini_model', '').strip()
         groq_model = request.POST.get('groq_model', '').strip()
         nvidia_model = request.POST.get('nvidia_model', '').strip()
         nvidia_host = request.POST.get('nvidia_host', '').strip()
-        lmstudio_model = request.POST.get('lmstudio_model', '').strip()
-        lmstudio_host = request.POST.get('lmstudio_host', '').strip()
-        lmstudio_timeout = request.POST.get('lmstudio_timeout_seconds', '').strip()
-        lmstudio_plan_timeout = request.POST.get('lmstudio_plan_timeout_seconds', '').strip()
-        lmstudio_retries = request.POST.get('lmstudio_timeout_retries', '').strip()
-        lmstudio_cooldown = request.POST.get('lmstudio_retry_cooldown_seconds', '').strip()
-        lmstudio_tokens_decision = request.POST.get('lmstudio_max_tokens_decision', '').strip()
-        lmstudio_tokens_plan = request.POST.get('lmstudio_max_tokens_plan', '').strip()
         
         if gemini_key:
             set_config('GOOGLE_API_KEY', gemini_key)
-        if openai_key:
-            set_config('OPENAI_API_KEY', openai_key)
         if groq_key:
             set_config('GROQ_API_KEY', groq_key)
         if nvidia_key:
             set_config('NVIDIA_API_KEY', nvidia_key)
         if default_provider:
-            set_config('DEFAULT_LLM_PROVIDER', default_provider)
-        if openai_model:
-            set_config('OPENAI_MODEL', openai_model)
-        if openai_host:
-            set_config('OPENAI_HOST', openai_host)
+            set_config('DEFAULT_LLM_PROVIDER', _enabled_llm_provider(default_provider))
         if gemini_model:
             set_config('GEMINI_MODEL', gemini_model)
         if groq_model:
@@ -1989,45 +1977,18 @@ def configuration(request: HttpRequest) -> HttpResponse:
             set_config('NVIDIA_MODEL', nvidia_model)
         if nvidia_host:
             set_config('NVIDIA_HOST', nvidia_host)
-        if lmstudio_model:
-            set_config('LMSTUDIO_MODEL', lmstudio_model)
-        if lmstudio_host:
-            set_config('LMSTUDIO_HOST', lmstudio_host)
-        if lmstudio_timeout:
-            set_config('LMSTUDIO_TIMEOUT_SECONDS', lmstudio_timeout)
-        if lmstudio_plan_timeout:
-            set_config('LMSTUDIO_PLAN_TIMEOUT_SECONDS', lmstudio_plan_timeout)
-        if lmstudio_retries:
-            set_config('LMSTUDIO_TIMEOUT_RETRIES', lmstudio_retries)
-        if lmstudio_cooldown:
-            set_config('LMSTUDIO_RETRY_COOLDOWN_SECONDS', lmstudio_cooldown)
-        if lmstudio_tokens_decision:
-            set_config('LMSTUDIO_MAX_TOKENS_DECISION', lmstudio_tokens_decision)
-        if lmstudio_tokens_plan:
-            set_config('LMSTUDIO_MAX_TOKENS_PLAN', lmstudio_tokens_plan)
 
         return redirect('configuration')
 
     context = _get_global_context(request)
     context['has_gemini_key'] = bool(get_config('GOOGLE_API_KEY', ''))
-    context['has_openai_key'] = bool(get_config('OPENAI_API_KEY', ''))
     context['has_groq_key'] = bool(get_config('GROQ_API_KEY', ''))
     context['has_nvidia_key'] = bool(get_config('NVIDIA_API_KEY', ''))
-    context['default_provider'] = get_config('DEFAULT_LLM_PROVIDER', 'auto')
-    context['openai_model'] = get_config('OPENAI_MODEL', 'gpt-4o-mini')
-    context['openai_host'] = get_config('OPENAI_HOST', 'https://api.openai.com')
+    context['default_provider'] = _enabled_llm_provider(get_config('DEFAULT_LLM_PROVIDER', 'auto'))
     context['gemini_model'] = get_config('GEMINI_MODEL', 'gemini-2.0-flash')
     context['groq_model'] = get_config('GROQ_MODEL', 'llama3-70b-8192')
     context['nvidia_model'] = get_config('NVIDIA_MODEL', 'mistralai/mistral-small-4-119b-2603')
     context['nvidia_host'] = get_config('NVIDIA_HOST', 'https://integrate.api.nvidia.com')
-    context['lmstudio_model'] = get_config('LMSTUDIO_MODEL', 'phi-4-mini-instruct')
-    context['lmstudio_host'] = get_config('LMSTUDIO_HOST', 'http://localhost:1234')
-    context['lmstudio_timeout_seconds'] = get_config('LMSTUDIO_TIMEOUT_SECONDS', '60')
-    context['lmstudio_plan_timeout_seconds'] = get_config('LMSTUDIO_PLAN_TIMEOUT_SECONDS', '180')
-    context['lmstudio_timeout_retries'] = get_config('LMSTUDIO_TIMEOUT_RETRIES', '1')
-    context['lmstudio_retry_cooldown_seconds'] = get_config('LMSTUDIO_RETRY_COOLDOWN_SECONDS', '30')
-    context['lmstudio_max_tokens_decision'] = get_config('LMSTUDIO_MAX_TOKENS_DECISION', '96')
-    context['lmstudio_max_tokens_plan'] = get_config('LMSTUDIO_MAX_TOKENS_PLAN', '220')
     context['groq_known_models'] = GroqAdapter.KNOWN_MODELS
     
     return render(request, 'dashboard/configuration.html', context)
@@ -2047,6 +2008,8 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
         
         if not provider:
             return JsonResponse({'success': False, 'message': 'Provider is required.'})
+        if provider not in {'gemini', 'groq', 'nvidia'}:
+            return JsonResponse({'success': False, 'message': f'Provider disabled: {provider}'})
 
         adapter = None
         
@@ -2058,13 +2021,6 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
                 return JsonResponse({'success': False, 'message': 'Gemini SDK not installed.'})
             except Exception as e:
                 return JsonResponse({'success': False, 'message': f'Gemini init failed: {str(e)}'})
-
-        elif provider == 'openai':
-            try:
-                from ai.llm.openai_adapter import OpenAIAdapter
-                adapter = OpenAIAdapter(model=model, api_key=api_key, host=host)
-            except Exception as e:
-                return JsonResponse({'success': False, 'message': f'OpenAI init failed: {str(e)}'})
 
         elif provider == 'groq':
             try:
@@ -2081,15 +2037,6 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
                 adapter = NvidiaAdapter(model=model, api_key=api_key, host=host)
             except Exception as e:
                 return JsonResponse({'success': False, 'message': f'NVIDIA init failed: {str(e)}'})
-
-        elif provider == 'lmstudio':
-            try:
-                from ai.llm.lmstudio_adapter import LMStudioAdapter
-                adapter = LMStudioAdapter(model=model, host=host)
-                if not adapter._available:
-                    return JsonResponse({'success': False, 'message': 'LM Studio server unreachable. Is it running on configured host?'})
-            except Exception as e:
-                return JsonResponse({'success': False, 'message': f'LM Studio init failed: {str(e)}'})
 
         else:
             return JsonResponse({'success': False, 'message': f'Unknown provider: {provider}'})
@@ -2108,18 +2055,6 @@ def check_llm_status(request: HttpRequest) -> JsonResponse:
                     status = adapter_error.get('status')
                     error_type = adapter_error.get('type')
                     message = adapter_error.get('message') or 'Provider request failed.'
-
-                    if provider == 'openai' and error_type == 'insufficient_quota':
-                        return JsonResponse({
-                            'success': False,
-                            'message': (
-                                "OpenAI quota exceeded for this API key. "
-                                "Add billing or credits, or switch to another provider."
-                            ),
-                            'details': message,
-                            'status_code': status,
-                            'error_type': error_type,
-                        })
 
                     return JsonResponse({
                         'success': False,

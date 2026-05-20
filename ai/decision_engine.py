@@ -14,12 +14,6 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-OPENAI_AVAILABLE = False
-try:
-    from ai.llm.openai_adapter import OpenAIAdapter
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
 try:
     from ai.llm.groq_adapter import GroqAdapter
     GROQ_AVAILABLE = True
@@ -31,12 +25,6 @@ try:
     NVIDIA_AVAILABLE = True
 except ImportError:
     NVIDIA_AVAILABLE = False
-
-try:
-    from ai.llm.lmstudio_adapter import LMStudioAdapter
-    LMSTUDIO_AVAILABLE = True
-except ImportError:
-    LMSTUDIO_AVAILABLE = False
 
 from ai.llm.task_router import TaskRouterAdapter
 
@@ -61,12 +49,9 @@ class DecisionEngine:
         if requested_provider == "fallback":
             requested_provider = "auto"
 
-        # Local provider has no external dependency
-        if requested_provider == "local":
-            from ai.llm.local_rule_engine import LocalRuleEngine
-            self.llm_adapter = LocalRuleEngine()
-            logger.info("DecisionEngine initialized with LocalRuleEngine.")
-            return
+        if requested_provider not in {"auto", "fallback", "hybrid", "gemini", "groq", "nvidia"}:
+            logger.warning("DecisionEngine provider '%s' is disabled.", requested_provider)
+            requested_provider = "auto"
             
         def _init_gemini():
             if GEMINI_AVAILABLE:
@@ -99,26 +84,6 @@ class DecisionEngine:
                     logger.error(f"Failed to initialize GroqAdapter: {e}")
             return None
 
-        def _init_openai():
-            if OPENAI_AVAILABLE:
-                try:
-                    openai = OpenAIAdapter()
-                    if openai._available:
-                        return openai
-                except Exception as e:
-                    logger.error(f"Failed to initialize OpenAIAdapter: {e}")
-            return None
-
-        def _init_lmstudio():
-            if LMSTUDIO_AVAILABLE:
-                try:
-                    lmstudio = LMStudioAdapter()
-                    if lmstudio._available:
-                        return lmstudio
-                except Exception as e:
-                    logger.error(f"Failed to initialize LMStudioAdapter: {e}")
-            return None
-
         def _init_nvidia():
             if NVIDIA_AVAILABLE:
                 try:
@@ -134,11 +99,6 @@ class DecisionEngine:
             if adapter:
                 adapters.append(adapter)
                 adapters_by_name["gemini"] = adapter
-        elif requested_provider == "openai":
-            adapter = _init_openai()
-            if adapter:
-                adapters.append(adapter)
-                adapters_by_name["openai"] = adapter
         elif requested_provider == "groq":
             adapter = _init_groq()
             if adapter:
@@ -149,11 +109,6 @@ class DecisionEngine:
             if adapter:
                 adapters.append(adapter)
                 adapters_by_name["nvidia"] = adapter
-        elif requested_provider == "lmstudio":
-            adapter = _init_lmstudio()
-            if adapter:
-                adapters.append(adapter)
-                adapters_by_name["lmstudio"] = adapter
         elif requested_provider == "hybrid":
             nv = _init_nvidia()
             if nv:
@@ -163,16 +118,16 @@ class DecisionEngine:
             if gr:
                 adapters.append(gr)
                 adapters_by_name["groq"] = gr
+            g = _init_gemini()
+            if g:
+                adapters.append(g)
+                adapters_by_name["gemini"] = g
         else:
             # Auto mode
             g = _init_gemini()
             if g:
                 adapters.append(g)
                 adapters_by_name["gemini"] = g
-            a = _init_openai()
-            if a:
-                adapters.append(a)
-                adapters_by_name["openai"] = a
             gr = _init_groq()
             if gr:
                 adapters.append(gr)
@@ -181,15 +136,6 @@ class DecisionEngine:
             if nv:
                 adapters.append(nv)
                 adapters_by_name["nvidia"] = nv
-            lm = _init_lmstudio()
-            if lm:
-                adapters.append(lm)
-                adapters_by_name["lmstudio"] = lm
-
-        from ai.llm.local_rule_engine import LocalRuleEngine
-        local_adapter = LocalRuleEngine()
-        adapters.append(local_adapter)
-        adapters_by_name["local"] = local_adapter
 
         if len(adapters) > 1:
             self.llm_adapter = TaskRouterAdapter(adapters_by_name)

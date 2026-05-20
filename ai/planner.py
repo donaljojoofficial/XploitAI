@@ -11,12 +11,8 @@ from services.command_template_utils import (
     build_target_context,
     infer_required_tools,
     normalize_command_targets,
-    normalize_command_template,
-    render_command_template,
 )
-from ai.command_generator import CommandGenerator
 from ai.llm.base import BaseLLMAdapter
-from ai.llm.lmstudio_adapter import LMStudioAdapter
 from ai.llm.nvidia_output_analysis_adapter import NvidiaOutputAnalysisAdapter
 from ai.schemas import (
     ActionResultSummary,
@@ -140,11 +136,12 @@ class AIPlanner:
     """
 
     def __init__(self, provider: str = "auto"):
-        self.provider = (provider or "auto").lower()
+        requested_provider = (provider or "auto").lower()
+        self.provider = requested_provider if requested_provider in {"auto", "fallback", "hybrid", "gemini", "groq", "nvidia"} else "auto"
         self._adapters_by_name = self._discover_adapters()
-        self.adapter = self._get_adapter(provider)
-        self.plan_adapter = self._get_plan_adapter(provider)
-        self.review_adapter = self._get_review_adapter(provider)
+        self.adapter = self._get_adapter(self.provider)
+        self.plan_adapter = self._get_plan_adapter(self.provider)
+        self.review_adapter = self._get_review_adapter(self.provider)
         self.phase_review_adapter = NvidiaOutputAnalysisAdapter()
         self.last_plan_error: Optional[str] = None
         self._decision_cache: dict[str, dict] = {}
@@ -159,11 +156,12 @@ class AIPlanner:
                 return adapters_by_name["groq"]
             if "nvidia" in adapters_by_name:
                 return adapters_by_name["nvidia"]
-            return adapters_by_name["local"]
+            if "gemini" in adapters_by_name:
+                return adapters_by_name["gemini"]
+            return None
 
         if requested_provider == "local":
-            from ai.llm.local_rule_engine import LocalRuleEngine
-            return LocalRuleEngine()
+            return None
 
         if requested_provider not in {"auto", "fallback"} and requested_provider in adapters_by_name:
             from ai.llm.task_router import TaskRouterAdapter
@@ -212,7 +210,7 @@ class AIPlanner:
         adapters_by_name = self._available_adapters()
 
         if requested_provider == "hybrid":
-            return adapters_by_name.get("nvidia") or adapters_by_name["local"]
+            return adapters_by_name.get("nvidia") or adapters_by_name.get("groq") or adapters_by_name.get("gemini")
 
         return self.adapter
 
@@ -222,10 +220,12 @@ class AIPlanner:
     def _requested_adapter_names(self, provider: Optional[str] = None) -> set[str]:
         requested_provider = (provider or self.provider or "auto").lower()
         if requested_provider in {"auto", "fallback"}:
-            return {"gemini", "groq", "nvidia", "lmstudio"}
+            return {"gemini", "groq", "nvidia"}
         if requested_provider == "hybrid":
-            return {"nvidia", "groq"}
+            return {"nvidia", "groq", "gemini"}
         if requested_provider == "local":
+            return set()
+        if requested_provider not in {"gemini", "groq", "nvidia"}:
             return set()
         return {requested_provider}
 
@@ -263,22 +263,12 @@ class AIPlanner:
             except Exception:
                 pass
 
-        if "lmstudio" in requested_names:
-            try:
-                lmstudio = LMStudioAdapter()
-                if lmstudio._available:
-                    adapters_by_name["lmstudio"] = lmstudio
-            except Exception:
-                pass
-
-        from ai.llm.local_rule_engine import LocalRuleEngine
-
-        adapters_by_name["local"] = LocalRuleEngine()
         return adapters_by_name
 
     def _preferred_routes(self, preferred_provider: str) -> Dict[str, List[str]]:
         from ai.llm.task_router import TaskRouterAdapter
 
+        preferred_provider = preferred_provider if preferred_provider in TaskRouterAdapter.ENABLED_PROVIDERS else "nvidia"
         routes: Dict[str, List[str]] = {}
         for task_name, route in TaskRouterAdapter.DEFAULT_ROUTES.items():
             ordered = [name for name in route if name != preferred_provider]
@@ -625,17 +615,11 @@ class AIPlanner:
             or (attack_state.state_data or {}).get("planner_context", {}).get("targets", [{}])[0].get("primary_ref", "")
         )
         render_context = {**target_context, **parameters}
-        generator = CommandGenerator(use_llm=False, llm_provider="auto")
-        try:
-            command = generator.generate(command_obj.name, render_context).shell_command
-            if not str(command or "").strip():
-                command = render_command_template(
-                    normalize_command_template(command_obj),
-                    render_context,
-                )
+        command = str(parameters.get("planned_command") or "").strip()
+        if command and is_probable_shell_command(command):
             command = normalize_command_targets(command, render_context)
-        except KeyError:
-            command = command_obj.command_template or ""
+        else:
+            command = ""
         return command, infer_required_tools(command), command_obj.id
 
     def _merged_attack_findings(self, attack_state) -> dict:
@@ -793,6 +777,14 @@ class AIPlanner:
         )
         enriched_parameters = self._enrich_step_parameters(attack_state, step.action_type, step.parameters)
         enriched_parameters.setdefault("step_rationale", step.rationale)
+        planned_command = str(
+            getattr(step, "planned_command", None)
+            or getattr(step, "shell_command", None)
+            or getattr(step, "command", None)
+            or ""
+        ).strip()
+        if planned_command:
+            enriched_parameters.setdefault("planned_command", planned_command)
         resolved_command, resolved_tools, command_id = self._render_step_command(
             attack_state,
             step.action_type,
@@ -806,8 +798,6 @@ class AIPlanner:
         execution_type = self._step_execution_type(step)
         script_language = getattr(step, "script_language", None) or ("python" if execution_type == "script" else None)
         script_content = getattr(step, "script_content", None) or None
-        if execution_type == "script" and not script_content:
-            script_content = self._default_script_content(step.action_type, step.parameters)
 
         artifact_refs = list(getattr(step, "artifact_refs", None) or [])
         return {
@@ -817,6 +807,7 @@ class AIPlanner:
             "rationale": step.rationale,
             "stage_label": stage_label,
             "execution_type": execution_type,
+            "planned_command": planned_command,
             "script_language": script_language,
             "script_content": script_content,
             "artifact_refs": artifact_refs,
@@ -1035,113 +1026,6 @@ class AIPlanner:
             return 1
         return min(available_count, 4)
 
-    def _action_priority(self, action_name: str, phase: str) -> int:
-        token = (action_name or "").strip().lower()
-        phase_key = self._normalize_phase_name(phase)
-        score = 0
-        if any(k in token for k in ("exploit", "payload", "script", "shell", "poc")):
-            score += 6
-        if phase_key in {"exploitation", "post_exploitation", "proof_of_compromise"}:
-            if any(k in token for k in ("payload", "script")):
-                score += 6
-            if "exploit" in token:
-                score += 4
-        if phase_key in {"reconnaissance", "discovery"} and any(k in token for k in ("header", "endpoint", "probe", "fingerprint")):
-            score += 2
-        return score
-
-    def _prioritized_available_actions(
-        self,
-        available_command_metadata: List[Dict[str, str]],
-        phase: str,
-    ) -> List[Dict[str, str]]:
-        ordered = list(available_command_metadata or [])
-        ordered.sort(
-            key=lambda item: (
-                -self._action_priority(str(item.get("name") or ""), phase),
-                str(item.get("name") or ""),
-            )
-        )
-        return ordered
-
-    def _supplement_plan_with_available_commands(
-        self,
-        plan: Optional[Plan],
-        decision_input: DecisionInput,
-        available_command_metadata: List[Dict[str, str]],
-    ) -> Optional[Plan]:
-        if not available_command_metadata:
-            return plan
-
-        minimum_steps = self._minimum_plan_steps(available_command_metadata)
-        existing_steps = list((plan.steps if plan else []) or [])
-        normalized_existing = {
-            self._normalize_command_name(step.action_type)
-            for step in existing_steps
-            if getattr(step, "action_type", None)
-        }
-
-        supplemented_steps = list(existing_steps)
-        prioritized_metadata = self._prioritized_available_actions(
-            available_command_metadata,
-            decision_input.phase,
-        )
-        for command_meta in prioritized_metadata:
-            action_name = str(command_meta.get("name") or "").strip()
-            if not action_name:
-                continue
-            normalized_name = self._normalize_command_name(action_name)
-            if normalized_name in normalized_existing:
-                continue
-
-            supplemented_steps.append(
-                PlanStep(
-                    step_number=len(supplemented_steps) + 1,
-                    action_type=action_name,
-                    parameters={},
-                    rationale=(
-                        f"Supplemented to ensure {decision_input.phase} phase coverage for {action_name}."
-                    ),
-                )
-            )
-            normalized_existing.add(normalized_name)
-            if len(supplemented_steps) >= minimum_steps:
-                break
-
-        phase_key = self._normalize_phase_name(decision_input.phase)
-        if phase_key in {"exploitation", "post_exploitation", "proof_of_compromise"}:
-            priority_markers = ("exploit", "payload", "script", "proof")
-            available_by_name = {
-                str(item.get("name") or "").strip(): item
-                for item in prioritized_metadata
-                if str(item.get("name") or "").strip()
-            }
-            wanted = [
-                name for name in available_by_name.keys()
-                if any(marker in name.lower() for marker in priority_markers)
-            ]
-            for name in wanted:
-                normalized_name = self._normalize_command_name(name)
-                if normalized_name in normalized_existing:
-                    continue
-                supplemented_steps.append(
-                    PlanStep(
-                        step_number=len(supplemented_steps) + 1,
-                        action_type=name,
-                        parameters={},
-                        rationale=f"Deterministic exploit/payload supplementation for {phase_key}.",
-                    )
-                )
-                normalized_existing.add(normalized_name)
-
-        if not supplemented_steps:
-            return None
-
-        rationale = (plan.rationale if plan else None) or (
-            f"Recovered phase plan for {decision_input.phase} from available commands."
-        )
-        return Plan(steps=supplemented_steps, rationale=rationale)
-
     def _dedupe_plan_steps(self, plan: Optional[Plan]) -> Optional[Plan]:
         if not plan or not plan.steps:
             return plan
@@ -1186,51 +1070,13 @@ class AIPlanner:
                 filtered_steps.append(replace(step, action_type=resolved_name, step_number=len(filtered_steps) + 1))
                 continue
             logger.warning(
-                "Dropping non-executable plan step '%s'; planner will supplement with real commands.",
+                "Dropping non-executable AI plan step '%s'.",
                 action_name,
             )
 
         if not filtered_steps:
             return None
         return Plan(steps=filtered_steps, rationale=plan.rationale)
-
-    def _recover_phase_plan(
-        self,
-        decision_input: DecisionInput,
-        available_command_metadata: List[Dict[str, str]],
-        plan: Optional[Plan],
-    ) -> Optional[Plan]:
-        recovered_plan = self._supplement_plan_with_available_commands(
-            plan,
-            decision_input,
-            available_command_metadata,
-        )
-        minimum_steps = self._minimum_plan_steps(available_command_metadata)
-        if recovered_plan and len(recovered_plan.steps) >= minimum_steps:
-            return recovered_plan
-
-        from ai.llm.local_rule_engine import LocalRuleEngine
-
-        try:
-            local_plan = LocalRuleEngine().get_plan(decision_input)
-        except Exception as exc:
-            logger.warning("Local phase plan recovery failed: %s", exc)
-            local_plan = None
-
-        recovered_plan = self._supplement_plan_with_available_commands(
-            local_plan or recovered_plan,
-            decision_input,
-            available_command_metadata,
-        )
-        if recovered_plan and recovered_plan.steps:
-            if local_plan and local_plan.steps:
-                logger.info(
-                    "AIPlanner recovered phase plan for '%s' using local fallback/supplementation.",
-                    decision_input.phase,
-                )
-            return recovered_plan
-
-        return None
 
     def _ensure_plan(
         self,
@@ -1293,73 +1139,27 @@ class AIPlanner:
             self.last_plan_error = f"AI plan generation raised an exception: {e}"
             logger.warning(f"Plan generation failed in AIPlanner: {e}")
             return False
-        if self.last_plan_error and not plan:
-            return False
 
         minimum_steps = self._minimum_plan_steps(available_command_metadata)
         if not plan or not plan.steps:
-            logger.warning(
-                "AIPlanner received no usable phase plan for '%s'; attempting recovery.",
-                phase or attack_state.current_phase,
-            )
-            plan = self._recover_phase_plan(
-                decision_input,
-                available_command_metadata,
-                plan,
-            )
-            if not plan or not plan.steps:
-                self.last_plan_error = "AI provider did not return a valid plan with steps."
-                return False
+            self.last_plan_error = self.last_plan_error or "AI provider did not return a valid plan with steps."
+            logger.warning("Plan generation failed in AIPlanner: %s", self.last_plan_error)
+            return False
 
         plan = self._filter_plan_to_available_actions(plan, available_command_metadata)
         plan = self._dedupe_plan_steps(plan)
         if not plan or not plan.steps:
-            logger.warning(
-                "AIPlanner received only non-executable plan steps for '%s'; attempting recovery.",
-                phase or attack_state.current_phase,
-            )
-            plan = self._recover_phase_plan(
-                decision_input,
-                available_command_metadata,
-                None,
-            )
-            plan = self._filter_plan_to_available_actions(plan, available_command_metadata)
-            plan = self._dedupe_plan_steps(plan)
-            if not plan or not plan.steps:
-                self.last_plan_error = "AI provider returned only duplicate or invalid plan steps."
-                return False
+            self.last_plan_error = "AI provider returned only duplicate or invalid plan steps."
+            logger.warning("Plan generation failed in AIPlanner: %s", self.last_plan_error)
+            return False
 
         if len(plan.steps) < minimum_steps:
-            logger.warning(
-                "AIPlanner received only %d step(s) for phase '%s'; supplementing to reach %d.",
-                len(plan.steps),
-                phase or attack_state.current_phase,
-                minimum_steps,
+            self.last_plan_error = (
+                f"AI provider returned an incomplete plan with only {len(plan.steps)} step(s); "
+                f"expected at least {minimum_steps}."
             )
-            plan = self._recover_phase_plan(
-                decision_input,
-                available_command_metadata,
-                plan,
-            )
-            plan = self._filter_plan_to_available_actions(plan, available_command_metadata)
-            if not plan or len(plan.steps) < minimum_steps:
-                self.last_plan_error = (
-                    f"AI provider returned an incomplete plan with only {len((plan.steps if plan else []) or [])} steps; "
-                    f"expected at least {minimum_steps} for this attack."
-                )
-                logger.warning(self.last_plan_error)
-                return False
-            plan = self._dedupe_plan_steps(plan)
-            if not plan or not plan.steps:
-                self.last_plan_error = "Recovered plan contained only duplicate or invalid steps."
-                return False
-            if len(plan.steps) < minimum_steps:
-                self.last_plan_error = (
-                    f"Recovered plan still has only {len(plan.steps)} unique step(s); "
-                    f"expected at least {minimum_steps}."
-                )
-                logger.warning(self.last_plan_error)
-                return False
+            logger.warning("Plan generation failed in AIPlanner: %s", self.last_plan_error)
+            return False
 
         runtime_profile = (attack_state.state_data or {}).get("runtime_profile", {}) or {}
         runtime_limits = runtime_profile.get("limits") if isinstance(runtime_profile.get("limits"), dict) else {}

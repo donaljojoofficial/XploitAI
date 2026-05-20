@@ -34,12 +34,6 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-OPENAI_AVAILABLE = False
-try:
-    from ai.llm.openai_adapter import OpenAIAdapter
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
 try:
     from ai.llm.groq_adapter import GroqAdapter
     GROQ_AVAILABLE = True
@@ -52,13 +46,7 @@ try:
 except ImportError:
     NVIDIA_AVAILABLE = False
 
-try:
-    from ai.llm.lmstudio_adapter import LMStudioAdapter
-    LMSTUDIO_AVAILABLE = True
-except ImportError:
-    LMSTUDIO_AVAILABLE = False
-
-LLM_AVAILABLE = GEMINI_AVAILABLE or OPENAI_AVAILABLE or GROQ_AVAILABLE or NVIDIA_AVAILABLE or LMSTUDIO_AVAILABLE
+LLM_AVAILABLE = GEMINI_AVAILABLE or GROQ_AVAILABLE or NVIDIA_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -81,22 +69,31 @@ class CommandGenerator:
 
         Args:
             use_llm: Whether to attempt using the LLM for generation.
-            llm_provider: 'auto', 'gemini', 'openai', 'groq', 'nvidia', 'lmstudio', or 'local'.
+            llm_provider: 'auto', 'gemini', 'groq', or 'nvidia'.
         """
         self.use_llm = use_llm
         self.llm_client = None
 
         from core.config import get_config
-        from ai.llm.local_rule_engine import LocalRuleEngine
         from ai.llm.task_router import TaskRouterAdapter
 
         if not self.use_llm:
+            from ai.llm.local_rule_engine import LocalRuleEngine
+
             self.llm_client = LocalRuleEngine()
             logger.info("CommandGenerator initialized in rule-only mode.")
             return
 
+        llm_provider = (llm_provider or "auto").lower()
+        if llm_provider not in {"auto", "fallback", "hybrid", "gemini", "groq", "nvidia"}:
+            logger.warning("CommandGenerator provider '%s' is disabled.", llm_provider)
+            llm_provider = "auto"
+
         if llm_provider == "auto":
             llm_provider = get_config("DEFAULT_LLM_PROVIDER", "gemini")
+            llm_provider = (llm_provider or "auto").lower()
+            if llm_provider not in {"auto", "fallback", "hybrid", "gemini", "groq", "nvidia"}:
+                llm_provider = "gemini"
 
         # Ensure GEMINI_API_KEY is aliased to GOOGLE_API_KEY if needed
         google_key = os.getenv("GOOGLE_API_KEY")
@@ -119,10 +116,6 @@ class CommandGenerator:
                     a = GeminiAdapter()
                     if getattr(a, "_client", None):
                         _register("gemini", a)
-                if OPENAI_AVAILABLE:
-                    a = OpenAIAdapter()
-                    if getattr(a, "_available", False):
-                        _register("openai", a)
                 if GROQ_AVAILABLE:
                     a = GroqAdapter()
                     if getattr(a, "_client", None):
@@ -131,18 +124,23 @@ class CommandGenerator:
                     a = NvidiaAdapter()
                     if getattr(a, "_available", False):
                         _register("nvidia", a)
-                if LMSTUDIO_AVAILABLE:
-                    a = LMStudioAdapter()
+            elif llm_provider == "hybrid":
+                if NVIDIA_AVAILABLE:
+                    a = NvidiaAdapter()
                     if getattr(a, "_available", False):
-                        _register("lmstudio", a)
+                        _register("nvidia", a)
+                if GROQ_AVAILABLE:
+                    a = GroqAdapter()
+                    if getattr(a, "_client", None):
+                        _register("groq", a)
+                if GEMINI_AVAILABLE:
+                    a = GeminiAdapter()
+                    if getattr(a, "_client", None):
+                        _register("gemini", a)
             elif llm_provider == "gemini" and GEMINI_AVAILABLE:
                 a = GeminiAdapter()
                 if getattr(a, "_client", None):
                     _register("gemini", a)
-            elif llm_provider == "openai" and OPENAI_AVAILABLE:
-                a = OpenAIAdapter()
-                if getattr(a, "_available", False):
-                    _register("openai", a)
             elif llm_provider == "groq" and GROQ_AVAILABLE:
                 a = GroqAdapter()
                 if getattr(a, "_client", None):
@@ -151,22 +149,14 @@ class CommandGenerator:
                 a = NvidiaAdapter()
                 if getattr(a, "_available", False):
                     _register("nvidia", a)
-            elif llm_provider == "lmstudio" and LMSTUDIO_AVAILABLE:
-                a = LMStudioAdapter()
-                if getattr(a, "_available", False):
-                    _register("lmstudio", a)
         except Exception as e:
             logger.warning("CommandGenerator: failed to init LLM adapter(s): %s", e)
 
-        # LocalRuleEngine is always appended — guarantees llm_client is never None
-        local_adapter = LocalRuleEngine()
-        adapters.append(local_adapter)
-        adapters_by_name["local"] = local_adapter
-
-        self.llm_client = TaskRouterAdapter(adapters_by_name) if len(adapters) > 1 else adapters[0]
+        self.llm_client = TaskRouterAdapter(adapters_by_name) if len(adapters) > 1 else (adapters[0] if adapters else None)
         logger.info(
             "CommandGenerator initialized with %s (%d adapter(s)).",
-            self.llm_client.__class__.__name__, len(adapters)
+            self.llm_client.__class__.__name__ if self.llm_client else "no AI adapter",
+            len(adapters),
         )
 
     def generate(self, action_name: str, parameters: Mapping[str, Any]) -> GeneratedCommand:
@@ -189,9 +179,13 @@ class CommandGenerator:
                 if result:
                     return result
             except Exception as e:
-                logger.error("LLM generation failed for '%s': %s. Falling back to rules.", action_name, e)
+                logger.error("LLM generation failed for '%s': %s.", action_name, e)
+            return GeneratedCommand(
+                shell_command="",
+                explanation="AI did not generate a runnable command.",
+            )
 
-        # 2. Fallback to Rule-Based Generation
+        # 2. Rule-based generation is only used when explicitly requested.
         return self._generate_rule_based(action_name, parameters)
 
     def _generate_rule_based(self, action_name: str, parameters: Mapping[str, Any]) -> GeneratedCommand:
@@ -257,7 +251,7 @@ class CommandGenerator:
 
         if self._has_obvious_shell_issues(generated.shell_command):
             logger.warning(
-                "LLM generated an invalid-looking command for '%s'; falling back to deterministic generation. Command: %s",
+                "LLM generated an invalid-looking command for '%s'. Command: %s",
                 action_name,
                 generated.shell_command,
             )
@@ -311,7 +305,7 @@ class CommandGenerator:
                 explanation=data.get("explanation", "No explanation provided.")
             )
         except json.JSONDecodeError:
-            # If parsing fails, raise error to trigger fallback
+            # If parsing fails, raise error so the caller can stop and replan.
             raise ValueError("Failed to parse JSON from LLM response")
 
     def _has_obvious_shell_issues(self, command: str) -> bool:

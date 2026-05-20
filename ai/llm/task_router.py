@@ -15,26 +15,28 @@ class TaskRouterAdapter(BaseLLMAdapter):
     Route different LLM task types to different provider chains.
     """
 
+    ENABLED_PROVIDERS = {"nvidia", "groq", "gemini"}
+
     DEFAULT_ROUTES = {
-        "recommendation": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
-        "recommendation.reconnaissance": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
-        "recommendation.enumeration": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
-        "recommendation.exploitation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "recommendation.privilege_escalation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "recommendation.proof_of_compromise": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
-        "recommendation.retry_failed_step": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
-        "plan": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "plan.initial": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "plan.reconnaissance": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "plan.enumeration": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "plan.exploitation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "plan.privilege_escalation": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "plan.proof_of_compromise": ["nvidia", "openai", "gemini", "groq", "lmstudio", "local"],
-        "explain": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
-        "chat": ["nvidia", "groq", "openai", "gemini", "lmstudio", "local"],
-        "chat.explain_run": ["nvidia", "groq", "openai", "gemini", "lmstudio", "local"],
-        "generate": ["groq", "nvidia", "openai", "gemini", "lmstudio", "local"],
-        "narrative": ["nvidia", "openai", "groq", "gemini", "lmstudio", "local"],
+        "recommendation": ["groq", "nvidia", "gemini"],
+        "recommendation.reconnaissance": ["groq", "nvidia", "gemini"],
+        "recommendation.enumeration": ["groq", "nvidia", "gemini"],
+        "recommendation.exploitation": ["nvidia", "gemini", "groq"],
+        "recommendation.privilege_escalation": ["nvidia", "gemini", "groq"],
+        "recommendation.proof_of_compromise": ["nvidia", "groq", "gemini"],
+        "recommendation.retry_failed_step": ["nvidia", "groq", "gemini"],
+        "plan": ["nvidia", "gemini", "groq"],
+        "plan.initial": ["nvidia", "gemini", "groq"],
+        "plan.reconnaissance": ["nvidia", "gemini", "groq"],
+        "plan.enumeration": ["nvidia", "gemini", "groq"],
+        "plan.exploitation": ["nvidia", "gemini", "groq"],
+        "plan.privilege_escalation": ["nvidia", "gemini", "groq"],
+        "plan.proof_of_compromise": ["nvidia", "gemini", "groq"],
+        "explain": ["nvidia", "groq", "gemini"],
+        "chat": ["nvidia", "groq", "gemini"],
+        "chat.explain_run": ["nvidia", "groq", "gemini"],
+        "generate": ["groq", "nvidia", "gemini"],
+        "narrative": ["nvidia", "groq", "gemini"],
     }
 
     def __init__(
@@ -45,7 +47,7 @@ class TaskRouterAdapter(BaseLLMAdapter):
         self.adapters_by_name = {
             name: adapter
             for name, adapter in (adapters_by_name or {}).items()
-            if adapter is not None
+            if adapter is not None and name in self.ENABLED_PROVIDERS
         }
         self.task_routes = dict(self.DEFAULT_ROUTES)
         if task_routes:

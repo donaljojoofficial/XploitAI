@@ -29,8 +29,6 @@ from services.command_template_utils import (
     infer_required_tools,
     is_probable_shell_command,
     normalize_command_targets,
-    normalize_command_template,
-    render_command_template,
     uses_disallowed_tool,
     uses_fragile_exploit_chain,
     uses_placeholder_loot_path,
@@ -712,7 +710,6 @@ class RemoteExecutionService:
                 self.stop_assessment(f"Selected command_id {command_id} not found.")
                 return
 
-            command_template = normalize_command_template(command_obj)
             planned_command = (decision.get("planned_command") or "").strip()
             planned_tools = decision.get("required_tools") or []
 
@@ -738,25 +735,27 @@ class RemoteExecutionService:
             )
 
             try:
-                if self.ai_command_generation_enabled:
+                if locked_step_command and uses_placeholder_loot_path(locked_step_command):
+                    logger.warning(
+                        "Ignoring placeholder loot command for '%s': %s",
+                        command_obj.name,
+                        locked_step_command,
+                    )
+                    if not self.ai_command_generation_enabled:
+                        self.stop_assessment(
+                            f"No usable AI-generated command was available for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
                     generated = self.command_generator.generate(
                         command_obj.name,
                         command_parameters,
                     )
                     command = generated.shell_command
                     if not str(command or "").strip():
-                        command = render_command_template(command_template, sub_context)
-                elif locked_step_command and uses_placeholder_loot_path(locked_step_command):
-                    logger.warning(
-                        "Ignoring placeholder loot command for '%s': %s",
-                        command_obj.name,
-                        locked_step_command,
-                    )
-                    generated = self.command_generator.generate(
-                        command_obj.name,
-                        command_parameters,
-                    )
-                    command = generated.shell_command
+                        self.stop_assessment(
+                            f"AI did not generate a runnable command for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
                 elif locked_step_command and is_probable_shell_command(locked_step_command):
                     command = locked_step_command
                 elif locked_step_command:
@@ -765,22 +764,42 @@ class RemoteExecutionService:
                         command_obj.name,
                         locked_step_command,
                     )
+                    if not self.ai_command_generation_enabled:
+                        self.stop_assessment(
+                            f"No usable AI-generated command was available for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
                     generated = self.command_generator.generate(
                         command_obj.name,
                         command_parameters,
                     )
                     command = generated.shell_command
+                    if not str(command or "").strip():
+                        self.stop_assessment(
+                            f"AI did not generate a runnable command for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
                 elif planned_command and uses_placeholder_loot_path(planned_command):
                     logger.warning(
                         "Ignoring placeholder loot planned command for '%s': %s",
                         command_obj.name,
                         planned_command,
                     )
+                    if not self.ai_command_generation_enabled:
+                        self.stop_assessment(
+                            f"No usable AI-generated command was available for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
                     generated = self.command_generator.generate(
                         command_obj.name,
                         command_parameters,
                     )
                     command = generated.shell_command
+                    if not str(command or "").strip():
+                        self.stop_assessment(
+                            f"AI did not generate a runnable command for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
                 elif planned_command and is_probable_shell_command(planned_command):
                     command = planned_command
                 elif planned_command:
@@ -789,19 +808,37 @@ class RemoteExecutionService:
                         command_obj.name,
                         planned_command,
                     )
-                    generated = self.command_generator.generate(
-                        command_obj.name,
-                        command_parameters,
-                    )
-                    command = generated.shell_command
-                else:
+                    if not self.ai_command_generation_enabled:
+                        self.stop_assessment(
+                            f"No usable AI-generated command was available for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
                     generated = self.command_generator.generate(
                         command_obj.name,
                         command_parameters,
                     )
                     command = generated.shell_command
                     if not str(command or "").strip():
-                        command = render_command_template(command_template, sub_context)
+                        self.stop_assessment(
+                            f"AI did not generate a runnable command for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
+                else:
+                    if not self.ai_command_generation_enabled:
+                        self.stop_assessment(
+                            f"No AI-generated command was available for planned step '{command_obj.name}'. Regenerate this phase plan with AI command generation enabled."
+                        )
+                        return
+                    generated = self.command_generator.generate(
+                        command_obj.name,
+                        command_parameters,
+                    )
+                    command = generated.shell_command
+                    if not str(command or "").strip():
+                        self.stop_assessment(
+                            f"AI did not generate a runnable command for planned step '{command_obj.name}'. Regenerate this phase plan."
+                        )
+                        return
             except KeyError as e:
                 logger.warning(
                     f"Command template for '{command_obj.name}' missing placeholder {e}. "

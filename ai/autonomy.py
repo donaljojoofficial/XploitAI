@@ -61,7 +61,7 @@ class AutonomousController:
         # Initialize components
         self.decision_engine = DecisionEngine(provider=llm_provider)
         self.policy_engine = PolicyEngine()
-        self.command_generator = CommandGenerator(use_llm=False, llm_provider=llm_provider)
+        self.command_generator = CommandGenerator(use_llm=True, llm_provider=llm_provider)
         self.safety_filter = CommandSafety()
 
     def start(self) -> None:

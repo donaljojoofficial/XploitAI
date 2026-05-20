@@ -57,6 +57,7 @@ class PlanRecordingAdapter(RecordingAdapter):
                     action_type=name,
                     parameters={},
                     rationale=f"step {index + 1}",
+                    planned_command=f"echo {name}",
                 )
                 for index, name in enumerate(self.step_names)
             ],
@@ -88,16 +89,16 @@ class HangingPlanAdapter(RecordingAdapter):
 class TaskRouterAdapterTests(SimpleTestCase):
     def test_exact_route_overrides_generic_route(self):
         recon_adapter = RecordingAdapter("groq")
-        generic_adapter = RecordingAdapter("openai")
+        generic_adapter = RecordingAdapter("gemini")
 
         router = TaskRouterAdapter(
             adapters_by_name={
                 "groq": recon_adapter,
-                "openai": generic_adapter,
+                "gemini": generic_adapter,
             },
             task_routes={
-                "recommendation": ["openai", "groq"],
-                "recommendation.reconnaissance": ["groq", "openai"],
+                "recommendation": ["gemini", "groq"],
+                "recommendation.reconnaissance": ["groq", "gemini"],
             },
         )
 
@@ -115,11 +116,11 @@ class TaskRouterAdapterTests(SimpleTestCase):
         self.assertEqual(recon_adapter.last_task_key, "recommendation.reconnaissance")
 
     def test_generic_route_is_used_when_exact_route_missing(self):
-        generic_adapter = RecordingAdapter("openai")
+        generic_adapter = RecordingAdapter("gemini")
 
         router = TaskRouterAdapter(
-            adapters_by_name={"openai": generic_adapter},
-            task_routes={"recommendation": ["openai"]},
+            adapters_by_name={"gemini": generic_adapter},
+            task_routes={"recommendation": ["gemini"]},
         )
 
         decision = router.get_recommendation(
@@ -132,7 +133,7 @@ class TaskRouterAdapterTests(SimpleTestCase):
             task_key="recommendation.enumeration",
         )
 
-        self.assertEqual(decision.action_type, "openai")
+        self.assertEqual(decision.action_type, "gemini")
         self.assertEqual(generic_adapter.last_task_key, "recommendation.enumeration")
 
     def test_generate_for_task_uses_chat_specific_route(self):
@@ -191,10 +192,10 @@ class AIPlannerTaskKeyTests(SimpleTestCase):
         )
 
     def test_preferred_routes_put_selected_provider_first(self):
-        routes = self.planner._preferred_routes("lmstudio")
+        routes = self.planner._preferred_routes("nvidia")
 
-        self.assertEqual(routes["plan.initial"][0], "lmstudio")
-        self.assertEqual(routes["recommendation.exploitation"][0], "lmstudio")
+        self.assertEqual(routes["plan.initial"][0], "nvidia")
+        self.assertEqual(routes["recommendation.exploitation"][0], "nvidia")
 
     def test_ai_only_adapters_excludes_local_rule_engine(self):
         adapters = {
@@ -228,6 +229,7 @@ class AIPlannerTaskKeyTests(SimpleTestCase):
         self.planner._discover_adapters = lambda: {
             "nvidia": RecordingAdapter("nvidia"),
             "groq": RecordingAdapter("groq"),
+            "gemini": RecordingAdapter("gemini"),
             "local": RecordingAdapter("local"),
         }
 
@@ -236,10 +238,11 @@ class AIPlannerTaskKeyTests(SimpleTestCase):
         self.assertIsInstance(adapter, TaskRouterAdapter)
         self.assertIn("nvidia", adapter.adapters_by_name)
         self.assertIn("groq", adapter.adapters_by_name)
+        self.assertIn("gemini", adapter.adapters_by_name)
         self.assertNotIn("local", adapter.adapters_by_name)
         self.assertEqual(adapter.task_routes["plan.initial"][0], "nvidia")
         self.assertEqual(adapter.task_routes["plan.initial"][1], "groq")
-        self.assertNotIn("gemini", adapter.task_routes["plan.initial"])
+        self.assertEqual(adapter.task_routes["plan.initial"][2], "gemini")
         self.assertNotIn("lmstudio", adapter.task_routes["plan.initial"])
 
     def test_plan_adapter_for_specific_provider_does_not_include_others(self):
@@ -433,7 +436,7 @@ class AIPlannerPlanProgressionTests(TestCase):
         self.assertEqual(planner.plan_adapter.last_plan_input.available_commands[0]["name"], header.name)
 
     @patch("ai.planner.get_config", return_value="1")
-    def test_ensure_initial_plan_times_out_hung_adapter(self, _get_config):
+    def test_ensure_initial_plan_fails_after_hung_adapter_timeout(self, _get_config):
         reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
         Command.objects.create(
             phase=reconnaissance,
@@ -495,7 +498,7 @@ class AIPlannerPlanProgressionTests(TestCase):
         self.assertFalse(state.state_data["plan_approved"])
         self.assertEqual(state.current_plan["phase"], "reconnaissance")
 
-    def test_ensure_initial_plan_supplements_underfilled_phase_plan(self):
+    def test_ensure_initial_plan_rejects_underfilled_ai_phase_plan(self):
         reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
         header = Command.objects.create(
             phase=reconnaissance,
@@ -533,23 +536,17 @@ class AIPlannerPlanProgressionTests(TestCase):
         planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
         planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
         planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
-        planner._supplement_plan_with_available_commands = AIPlanner._supplement_plan_with_available_commands.__get__(planner, AIPlanner)
-        planner._recover_phase_plan = AIPlanner._recover_phase_plan.__get__(planner, AIPlanner)
         planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
         self._bind_plan_generation_helpers(planner)
 
         ready = planner.ensure_initial_plan(StateManager(state.id))
         state.refresh_from_db()
 
-        self.assertTrue(ready)
-        self.assertEqual(state.current_plan["phase"], "reconnaissance")
-        self.assertEqual(len(state.current_plan["steps"]), 3)
-        self.assertEqual(
-            [step["action_type"] for step in state.current_plan["steps"]],
-            [header.name, tech.name, robots.name],
-        )
+        self.assertFalse(ready)
+        self.assertEqual(state.current_plan, {})
+        self.assertIn("incomplete plan", planner.last_plan_error)
 
-    def test_ensure_initial_plan_recovers_when_ai_plan_is_empty(self):
+    def test_ensure_initial_plan_fails_when_ai_plan_is_empty(self):
         reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
         header = Command.objects.create(
             phase=reconnaissance,
@@ -581,22 +578,17 @@ class AIPlannerPlanProgressionTests(TestCase):
         planner._plan_phase = AIPlanner._plan_phase.__get__(planner, AIPlanner)
         planner._minimum_plan_steps = AIPlanner._minimum_plan_steps.__get__(planner, AIPlanner)
         planner._command_metadata = AIPlanner._command_metadata.__get__(planner, AIPlanner)
-        planner._supplement_plan_with_available_commands = AIPlanner._supplement_plan_with_available_commands.__get__(planner, AIPlanner)
-        planner._recover_phase_plan = AIPlanner._recover_phase_plan.__get__(planner, AIPlanner)
         planner._ensure_plan = AIPlanner._ensure_plan.__get__(planner, AIPlanner)
         self._bind_plan_generation_helpers(planner)
 
         ready = planner.ensure_initial_plan(StateManager(state.id))
         state.refresh_from_db()
 
-        self.assertTrue(ready)
-        self.assertEqual(len(state.current_plan["steps"]), 2)
-        self.assertEqual(
-            [step["action_type"] for step in state.current_plan["steps"]],
-            [header.name, tech.name],
-        )
+        self.assertFalse(ready)
+        self.assertEqual(state.current_plan, {})
+        self.assertIn("valid plan", planner.last_plan_error)
 
-    def test_ensure_initial_plan_persists_rendered_command_on_each_step(self):
+    def test_ensure_initial_plan_persists_ai_planned_command_on_each_step(self):
         reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
         header = Command.objects.create(
             phase=reconnaissance,
@@ -631,11 +623,11 @@ class AIPlannerPlanProgressionTests(TestCase):
         self.assertTrue(ready)
         self.assertEqual(
             state.current_plan["steps"][0]["resolved_command"],
-            "curl -I http://127.0.0.1:4280/",
+            "echo HTTPHeaderFetch",
         )
-        self.assertTrue(state.current_plan["steps"][0]["resolved_tools"])
+        self.assertEqual(state.current_plan["steps"][0]["planned_command"], "echo HTTPHeaderFetch")
 
-    def test_ensure_initial_plan_uses_rule_based_tooling_for_technology_fingerprint(self):
+    def test_ensure_initial_plan_does_not_use_rule_based_tooling_for_technology_fingerprint(self):
         reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
         tech = Command.objects.create(
             phase=reconnaissance,
@@ -668,8 +660,8 @@ class AIPlannerPlanProgressionTests(TestCase):
         state.refresh_from_db()
 
         self.assertTrue(ready)
-        self.assertEqual(state.current_plan["steps"][0]["resolved_command"], "whatweb http://127.0.0.1:4280/")
-        self.assertIn("whatweb", state.current_plan["steps"][0]["resolved_tools"])
+        self.assertEqual(state.current_plan["steps"][0]["resolved_command"], "echo TechnologyFingerprint")
+        self.assertNotIn("whatweb", state.current_plan["steps"][0]["resolved_command"])
 
     def test_serialize_plan_step_maps_previous_findings_into_parameters(self):
         reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")

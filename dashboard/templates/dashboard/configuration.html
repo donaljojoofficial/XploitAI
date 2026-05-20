@@ -8,7 +8,7 @@
         <div class="section-title">Platform Configuration</div>
         <h1 class="mt-2 text-4xl font-extrabold tracking-tight text-white">AI provider settings</h1>
         <p class="mt-4 max-w-4xl text-sm leading-7 text-slate-400 md:text-base">
-            Manage API credentials, routing defaults, host endpoints, and local LM Studio behavior. Credentials are stored in <code class="font-mono text-cyan-200">ai_config.json</code> unless overridden by environment variables.
+            Manage API credentials and routing defaults for the enabled AI providers. Credentials are stored in <code class="font-mono text-cyan-200">ai_config.json</code> unless overridden by environment variables.
         </p>
     </section>
 
@@ -23,11 +23,9 @@
                     <select id="defaultProvider" name="default_provider">
                         <option value="auto" {% if default_provider == 'auto' %}selected{% endif %}>Multi-Adapter Router (Recommended)</option>
                         <option value="gemini" {% if default_provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
-                        <option value="openai" {% if default_provider == 'openai' %}selected{% endif %}>OpenAI</option>
                         <option value="groq" {% if default_provider == 'groq' %}selected{% endif %}>Groq</option>
                         <option value="nvidia" {% if default_provider == 'nvidia' %}selected{% endif %}>NVIDIA</option>
-                        <option value="hybrid" {% if default_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq</option>
-                        <option value="lmstudio" {% if default_provider == 'lmstudio' %}selected{% endif %}>LM Studio Only</option>
+                        <option value="hybrid" {% if default_provider == 'hybrid' %}selected{% endif %}>Hybrid: NVIDIA + Groq + Gemini</option>
                     </select>
                 </div>
             </div>
@@ -53,26 +51,6 @@
                     </div>
                     <button type="button" class="ui-btn ui-btn-secondary" onclick="checkStatus('gemini')">Test Gemini Connection</button>
                     <div id="gemini-status" class="text-sm text-slate-500"></div>
-                </div>
-            </div>
-
-            <div class="shell-panel rounded-[1.5rem] p-6">
-                <div class="section-title">OpenAI</div>
-                <div class="mt-5 space-y-5">
-                    <div>
-                        <label for="openaiKey" class="ui-label">API Key</label>
-                        <input type="password" id="openaiKey" name="openai_key" placeholder="{% if has_openai_key %}Current key set (leave blank to keep){% else %}Enter OpenAI API key{% endif %}" autocomplete="off">
-                    </div>
-                    <div>
-                        <label for="openaiModel" class="ui-label">Model</label>
-                        <input type="text" id="openaiModel" name="openai_model" value="{{ openai_model }}">
-                    </div>
-                    <div>
-                        <label for="openaiHost" class="ui-label">Host</label>
-                        <input type="text" id="openaiHost" name="openai_host" value="{{ openai_host }}">
-                    </div>
-                    <button type="button" class="ui-btn ui-btn-secondary" onclick="checkStatus('openai')">Test OpenAI Connection</button>
-                    <div id="openai-status" class="text-sm text-slate-500"></div>
                 </div>
             </div>
 
@@ -117,48 +95,6 @@
             </div>
         </section>
 
-        <section class="shell-panel rounded-[1.5rem] p-6">
-            <div class="section-title">LM Studio</div>
-            <div class="mt-6 grid gap-5 md:grid-cols-2">
-                <div>
-                    <label for="lmstudioHost" class="ui-label">Host</label>
-                    <input type="text" id="lmstudioHost" name="lmstudio_host" value="{{ lmstudio_host }}">
-                </div>
-                <div>
-                    <label for="lmstudioModel" class="ui-label">Model</label>
-                    <input type="text" id="lmstudioModel" name="lmstudio_model" value="{{ lmstudio_model }}">
-                </div>
-                <div>
-                    <label for="lmstudioTimeoutSeconds" class="ui-label">Request Timeout (seconds)</label>
-                    <input type="number" min="5" step="1" id="lmstudioTimeoutSeconds" name="lmstudio_timeout_seconds" value="{{ lmstudio_timeout_seconds }}">
-                </div>
-                <div>
-                    <label for="lmstudioPlanTimeoutSeconds" class="ui-label">Plan Timeout (seconds)</label>
-                    <input type="number" min="10" step="1" id="lmstudioPlanTimeoutSeconds" name="lmstudio_plan_timeout_seconds" value="{{ lmstudio_plan_timeout_seconds }}">
-                </div>
-                <div>
-                    <label for="lmstudioTimeoutRetries" class="ui-label">Timeout Retries</label>
-                    <input type="number" min="0" step="1" id="lmstudioTimeoutRetries" name="lmstudio_timeout_retries" value="{{ lmstudio_timeout_retries }}">
-                </div>
-                <div>
-                    <label for="lmstudioCooldownSeconds" class="ui-label">Connection Error Cooldown (seconds)</label>
-                    <input type="number" min="1" step="1" id="lmstudioCooldownSeconds" name="lmstudio_retry_cooldown_seconds" value="{{ lmstudio_retry_cooldown_seconds }}">
-                </div>
-                <div>
-                    <label for="lmstudioMaxTokensDecision" class="ui-label">Max Tokens (Decision)</label>
-                    <input type="number" min="32" step="1" id="lmstudioMaxTokensDecision" name="lmstudio_max_tokens_decision" value="{{ lmstudio_max_tokens_decision }}">
-                </div>
-                <div>
-                    <label for="lmstudioMaxTokensPlan" class="ui-label">Max Tokens (Plan)</label>
-                    <input type="number" min="64" step="1" id="lmstudioMaxTokensPlan" name="lmstudio_max_tokens_plan" value="{{ lmstudio_max_tokens_plan }}">
-                </div>
-            </div>
-            <div class="mt-5 flex flex-wrap items-center gap-4">
-                <button type="button" class="ui-btn ui-btn-secondary" onclick="checkStatus('lmstudio')">Test LM Studio Connection</button>
-                <div id="lmstudio-status" class="text-sm text-slate-500"></div>
-            </div>
-        </section>
-
         <div class="flex justify-end">
             <button type="submit" class="ui-btn ui-btn-primary">Save Configuration</button>
         </div>
@@ -178,10 +114,6 @@ function checkStatus(provider) {
     if (provider === 'gemini') {
         apiKey = document.getElementById('geminiKey').value;
         model = document.getElementById('geminiModel').value;
-    } else if (provider === 'openai') {
-        apiKey = document.getElementById('openaiKey').value;
-        model = document.getElementById('openaiModel').value;
-        host = document.getElementById('openaiHost').value;
     } else if (provider === 'groq') {
         apiKey = document.getElementById('groqKey').value;
         model = document.getElementById('groqModel').value;
@@ -189,9 +121,6 @@ function checkStatus(provider) {
         apiKey = document.getElementById('nvidiaKey').value;
         model = document.getElementById('nvidiaModel').value;
         host = document.getElementById('nvidiaHost').value;
-    } else if (provider === 'lmstudio') {
-        model = document.getElementById('lmstudioModel').value;
-        host = document.getElementById('lmstudioHost').value;
     }
 
     fetch("{% url 'check_llm_status' %}", {

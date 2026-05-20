@@ -145,6 +145,9 @@ class PlanStep:
     rationale: str
     stage_label: Optional[str] = None
     execution_type: str = "command"
+    planned_command: Optional[str] = None
+    shell_command: Optional[str] = None
+    command: Optional[str] = None
     script_language: Optional[str] = None
     script_content: Optional[str] = None
     artifact_refs: Optional[List[Dict[str, Any]]] = None
