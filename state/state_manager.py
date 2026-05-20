@@ -71,6 +71,135 @@ def _merge_historical_findings(base: dict, state_data: dict, local_state: dict) 
     return merged
 
 
+def _truncate_text(value: Any, limit: int = 700) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "... (truncated)"
+
+
+def _compact_value(value: Any, *, depth: int = 0, list_limit: int = 8) -> Any:
+    if depth > 3:
+        return _truncate_text(value, 240)
+    if isinstance(value, dict):
+        compact = {}
+        for key, item in list(value.items())[:20]:
+            compact[str(key)] = _compact_value(item, depth=depth + 1, list_limit=list_limit)
+        return compact
+    if isinstance(value, list):
+        return [_compact_value(item, depth=depth + 1, list_limit=list_limit) for item in value[-list_limit:]]
+    if isinstance(value, str):
+        return _truncate_text(value, 500)
+    return value
+
+
+def _build_agent_memory(state_obj: AttackState, local_state: dict, merged_findings: dict, completed_commands: list) -> dict:
+    state_data = state_obj.state_data if isinstance(state_obj.state_data, dict) else {}
+    phase_outputs = local_state.get("phase_outputs") if isinstance(local_state.get("phase_outputs"), dict) else {}
+
+    phase_summaries = []
+    for bucket, payload in phase_outputs.items():
+        if not isinstance(payload, dict):
+            continue
+        outputs = payload.get("outputs") if isinstance(payload.get("outputs"), list) else []
+        reviews = payload.get("reviews") if isinstance(payload.get("reviews"), list) else []
+        if not outputs and not reviews and not payload.get("findings"):
+            continue
+        phase_summaries.append(
+            {
+                "bucket": bucket,
+                "last_action": payload.get("last_action") or "",
+                "last_status": payload.get("last_status") or "",
+                "findings": _compact_value(payload.get("findings") or {}, list_limit=5),
+                "recent_outputs": [
+                    {
+                        "action": item.get("action_name") or item.get("command") or "",
+                        "status": item.get("status") or "",
+                        "command": _truncate_text(item.get("command") or "", 220),
+                        "stdout": _truncate_text(item.get("stdout") or "", 360),
+                        "stderr": _truncate_text(item.get("stderr") or "", 220),
+                        "findings": _compact_value(item.get("findings") or {}, list_limit=4),
+                    }
+                    for item in outputs[-5:]
+                    if isinstance(item, dict)
+                ],
+                "recent_reviews": [
+                    _compact_value(review, list_limit=4)
+                    for review in reviews[-3:]
+                    if isinstance(review, dict)
+                ],
+            }
+        )
+
+    histories = []
+    for key in ("level_history", "phase_reviews"):
+        value = state_data.get(key)
+        if isinstance(value, list):
+            histories.extend(value)
+    historical_reviews = []
+    for item in histories[-6:]:
+        if not isinstance(item, dict):
+            continue
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        historical_reviews.append(
+            {
+                "phase": item.get("phase") or "",
+                "review": _truncate_text(item.get("review") or details.get("summary") or "", 500),
+                "findings": _compact_value(item.get("findings") or details.get("current_findings") or {}, list_limit=5),
+                "results": _compact_value(details.get("results_snapshot") or [], list_limit=5),
+            }
+        )
+
+    recent_results = []
+    try:
+        from core.models import ExecutionResult
+
+        for result in ExecutionResult.objects.filter(attack_state=state_obj).select_related("command").order_by("-created_at")[:8]:
+            recent_results.append(
+                {
+                    "action": getattr(result.command, "name", "") or "",
+                    "status": result.status,
+                    "stdout": _truncate_text(result.stdout, 500),
+                    "stderr": _truncate_text(result.stderr, 260),
+                    "findings": _compact_value(result.findings or {}, list_limit=5),
+                    "created_at": result.created_at.isoformat() if result.created_at else "",
+                }
+            )
+    except Exception as exc:
+        logger.warning("Unable to build recent execution memory for AttackState %s: %s", state_obj.id, exc)
+
+    current_plan = state_obj.current_plan if isinstance(state_obj.current_plan, dict) else {}
+    current_steps = current_plan.get("steps") if isinstance(current_plan.get("steps"), list) else []
+    plan_memory = {
+        "phase": current_plan.get("phase") or state_obj.current_phase,
+        "rationale": _truncate_text(current_plan.get("rationale") or "", 400),
+        "approved": bool(state_data.get("plan_approved")),
+        "steps": [
+            {
+                "action": step.get("action_type") or step.get("action") or step.get("name") or "",
+                "status": step.get("status") or "pending",
+                "rationale": _truncate_text(step.get("rationale") or "", 240),
+                "last_output": _truncate_text(step.get("last_output_excerpt") or step.get("output_excerpt") or "", 260),
+                "last_error": _truncate_text(step.get("last_error_excerpt") or "", 180),
+            }
+            for step in current_steps[:10]
+            if isinstance(step, dict)
+        ],
+    }
+
+    return {
+        "target": state_data.get("target") or local_state.get("target") or "",
+        "current_phase": state_obj.current_phase,
+        "completed_command_ids": completed_commands[-20:],
+        "findings": _compact_value(merged_findings, list_limit=8),
+        "phase_summaries": phase_summaries[-6:],
+        "historical_reviews": historical_reviews,
+        "recent_results": list(reversed(recent_results)),
+        "current_plan": plan_memory,
+        "operator_rejected_plans": _compact_value(state_data.get("planner_rejections") or [], list_limit=3),
+    }
+
+
 class JsonStateStore:
     PHASE_BUCKETS = ("recon", "scanning", "exploitation")
     PHASE_BUCKET_MAP = {
@@ -302,6 +431,7 @@ class StateManager:
             "current_phase": state_obj.current_phase,
             "completed_commands": completed_commands,
             "findings": merged_findings,
+            "memory": _build_agent_memory(state_obj, local_state, merged_findings, list(completed_commands)),
             "phase_outputs": local_state.get("phase_outputs", {}),
             "local_state_file": str(self.json_store.path),
         }

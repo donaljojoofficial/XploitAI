@@ -56,3 +56,23 @@ class PromptActionFilteringTests(SimpleTestCase):
         self.assertIn('"stage_label"', prompt)
         self.assertIn('"execution_type"', prompt)
         self.assertIn('"script_content"', prompt)
+
+    def test_plan_prompt_includes_agent_memory(self):
+        decision_input = DecisionInput(
+            phase="discovery",
+            known_services=[],
+            past_actions=[],
+            available_commands=[
+                {"id": 11, "name": "EndpointDiscovery", "description": "discover endpoints"},
+            ],
+            memory={
+                "historical_reviews": [{"phase": "reconnaissance", "review": "Server: Apache"}],
+                "recent_results": [{"action": "HTTPHeaderFetch", "stdout": "Server: Apache"}],
+            },
+        )
+
+        prompt = build_plan_prompt(decision_input)
+
+        self.assertIn("Agent memory:", prompt)
+        self.assertIn("HTTPHeaderFetch", prompt)
+        self.assertIn("Server: Apache", prompt)

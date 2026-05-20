@@ -12,6 +12,7 @@
 
         <form action="{% url 'dashboard_start_attack' %}" method="POST" class="row g-3 align-items-end">
             {% csrf_token %}
+            <input type="hidden" name="idempotency_key" value="{{ start_idempotency_key }}">
             
             <div class="col-md-4">
                 <label for="executorSelect" class="form-label">Attacker Executor</label>

@@ -1,5 +1,7 @@
 import json
 import logging
+import queue
+import threading
 import time
 from copy import deepcopy
 from dataclasses import replace
@@ -35,8 +37,17 @@ from core.levels import (
     parse_positive_int,
 )
 from state.state_manager import StateManager
+from core.config import get_config
 
 logger = logging.getLogger(__name__)
+
+
+def _positive_int_config(key: str, default: int) -> int:
+    try:
+        value = int(str(get_config(key, str(default)) or default))
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
 
 
 class FallbackPlannerEngine:
@@ -298,6 +309,32 @@ class AIPlanner:
             return "plan.initial"
         return f"plan.{self._normalize_phase_key(phase)}"
 
+    def _get_plan_with_timeout(self, decision_input: DecisionInput, task_key: str) -> Optional[Plan]:
+        if not self.plan_adapter:
+            return None
+
+        timeout_seconds = _positive_int_config("AI_PLAN_TIMEOUT_SECONDS", 90)
+        result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+        def _worker() -> None:
+            try:
+                result_queue.put(("ok", self.plan_adapter.get_plan(decision_input, task_key=task_key)))
+            except Exception as exc:
+                result_queue.put(("error", exc))
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+        thread.join(timeout_seconds)
+        if thread.is_alive():
+            self.last_plan_error = f"AI plan generation timed out after {timeout_seconds}s."
+            logger.warning(self.last_plan_error)
+            return None
+
+        status, payload = result_queue.get() if not result_queue.empty() else ("ok", None)
+        if status == "error":
+            raise payload  # handled by caller
+        return payload if isinstance(payload, Plan) or payload is None else None
+
     def _resolve_proposed_command_name(
         self,
         proposed_name: Optional[str],
@@ -488,6 +525,7 @@ class AIPlanner:
             available_commands=available_command_metadata,
             last_result=last_result,
             findings=current_state.get("findings"),
+            memory=current_state.get("memory"),
         )
         recommendation_task_key = self._recommendation_task_key(decision_input)
 
@@ -962,6 +1000,7 @@ class AIPlanner:
             "completed_actions": completed_actions,
             "next_step_hint": next_step_hint or {},
             "findings": decision_input.findings or {},
+            "memory": decision_input.memory or {},
             "last_result": {
                 "success": getattr(decision_input.last_result, "success", None),
                 "output_summary": getattr(decision_input.last_result, "output_summary", None),
@@ -1216,6 +1255,13 @@ class AIPlanner:
             return False
 
         current_state = StateManager(attack_state.id).get_current_state_for_planner()
+        current_findings = current_state.get("findings", {})
+        if not isinstance(current_findings, dict):
+            current_findings = {}
+        planner_rejections = (attack_state.state_data or {}).get("planner_rejections")
+        if isinstance(planner_rejections, list) and planner_rejections:
+            current_findings = dict(current_findings)
+            current_findings["operator_rejected_plans"] = planner_rejections[-3:]
         known_services: List[KnownService] = []
         target = current_state.get("target") or (attack_state.state_data or {}).get("target")
         if target:
@@ -1232,7 +1278,8 @@ class AIPlanner:
             known_services=known_services,
             past_actions=[],
             available_commands=available_command_metadata,
-            findings=current_state.get("findings", {}),
+            findings=current_findings,
+            memory=current_state.get("memory"),
         )
         plan_task_key = self._plan_task_key(
             phase=phase or attack_state.current_phase,
@@ -1241,10 +1288,12 @@ class AIPlanner:
 
         plan = None
         try:
-            plan = self.plan_adapter.get_plan(decision_input, task_key=plan_task_key)
+            plan = self._get_plan_with_timeout(decision_input, plan_task_key)
         except Exception as e:
             self.last_plan_error = f"AI plan generation raised an exception: {e}"
             logger.warning(f"Plan generation failed in AIPlanner: {e}")
+            return False
+        if self.last_plan_error and not plan:
             return False
 
         minimum_steps = self._minimum_plan_steps(available_command_metadata)
@@ -1387,6 +1436,7 @@ class AIPlanner:
             known_services=known_services,
             past_actions=[],
             findings=current_state.get("findings", {}),
+            memory=current_state.get("memory"),
             last_result=ActionResultSummary(
                 success=success,
                 output_summary=(stdout or stderr or "")[:300] or "No output.",

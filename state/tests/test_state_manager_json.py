@@ -4,7 +4,7 @@ from pathlib import Path
 
 from django.test import TestCase, override_settings
 
-from core.models import AttackState
+from core.models import AttackState, Command, ExecutionResult, Phase
 from state.state_manager import StateManager
 
 
@@ -100,3 +100,57 @@ class JsonStateManagerTests(TestCase):
         self.assertEqual(planner_state["findings"]["server_banner"], "Apache")
         self.assertEqual(planner_state["findings"]["discovered_endpoints"], ["/login"])
         self.assertEqual(planner_state["findings"]["exposed_paths"][0]["path"], "/phpinfo.php")
+
+    def test_planner_state_includes_compact_agent_memory(self):
+        phase = Phase.objects.create(name="reconnaissance", description="Recon")
+        command = Command.objects.create(
+            phase=phase,
+            name="HTTPHeaderFetch",
+            description="Fetch headers",
+            command_template="curl -I {target}",
+        )
+        state = AttackState.objects.create(
+            name="Planner Memory",
+            current_phase="discovery",
+            state_data={
+                "target": "http://dvwa.local",
+                "findings": {"server_banner": "Apache"},
+                "level_history": [
+                    {
+                        "phase": "reconnaissance",
+                        "review": "Header fetch identified Apache.",
+                        "details": {
+                            "results_snapshot": [
+                                {"command": "HTTPHeaderFetch", "status": "SUCCESS", "stdout_excerpt": "Server: Apache"},
+                            ],
+                        },
+                    },
+                ],
+            },
+        )
+        ExecutionResult.objects.create(
+            command=command,
+            attack_state=state,
+            target="http://dvwa.local",
+            status="SUCCESS",
+            stdout="Server: Apache\nX-Powered-By: PHP",
+            findings={"identified_technologies": ["PHP"]},
+        )
+
+        with override_settings(XPLOITAI_STATE_DIR=self.tmpdir.name):
+            manager = StateManager(state.id)
+            manager.record_phase_output(
+                "reconnaissance",
+                action_name="HTTPHeaderFetch",
+                status="SUCCESS",
+                stdout="Server: Apache",
+                findings={"server_banner": "Apache"},
+            )
+            planner_state = manager.get_current_state_for_planner()
+
+        memory = planner_state["memory"]
+        self.assertEqual(memory["target"], "http://dvwa.local")
+        self.assertEqual(memory["findings"]["server_banner"], "Apache")
+        self.assertEqual(memory["phase_summaries"][0]["last_action"], "HTTPHeaderFetch")
+        self.assertEqual(memory["historical_reviews"][0]["phase"], "reconnaissance")
+        self.assertEqual(memory["recent_results"][0]["action"], "HTTPHeaderFetch")

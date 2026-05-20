@@ -109,6 +109,13 @@ def _findings_block(decision_input: DecisionInput) -> str:
     return "Findings: " + json.dumps(findings, separators=(",", ":"))
 
 
+def _memory_block(decision_input: DecisionInput) -> str:
+    memory = decision_input.memory or {}
+    if not memory:
+        return "Agent memory: none yet."
+    return "Agent memory: " + json.dumps(memory, separators=(",", ":"), default=str)
+
+
 def _history_block(decision_input: DecisionInput) -> str:
     past = decision_input.past_actions or []
     if not past:
@@ -176,6 +183,7 @@ def build_recommendation_prompt(
         f"{_target_block(decision_input)}\n\n"
         f"{_result_block(decision_input)}\n\n"
         f"{_findings_block(decision_input)}\n\n"
+        f"{_memory_block(decision_input)}\n\n"
         f"{_history_block(decision_input)}\n\n"
         f"Task: {task_line}\n\n"
         f"{_target_lock_rules(decision_input)}\n"
@@ -211,6 +219,7 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
         f"{_target_block(decision_input)}\n\n"
         f"{_result_block(decision_input)}\n\n"
         f"{_findings_block(decision_input)}\n\n"
+        f"{_memory_block(decision_input)}\n\n"
         f"Task: Generate an ordered plan for the CURRENT PHASE ONLY: {phase}.\n"
         f"- Do not plan later phases yet.\n"
         f"- Include multiple concrete commands for this phase when they are relevant.\n"
@@ -220,6 +229,7 @@ def build_plan_prompt(decision_input: DecisionInput) -> str:
         f"- Use real values from findings/output for parameters (IPs, URLs, ports, paths).\n"
         f"- Keep parameters compact and reuse the exact target reference above.\n"
         f"- Skip already done in this attack: {done}\n"
+        f"- If Findings include operator_rejected_plans, avoid repeating the rejected step sequence unless no safe alternative exists.\n"
         f"- Each step rationale must reference actual output or findings.\n"
         f"- Keep rationale fields short (<= 14 words each).\n"
         f"- If only one action is available, return one step.\n"
@@ -299,6 +309,7 @@ def build_narrative_prompt(decision_input: DecisionInput) -> str:
         f"{_target_block(decision_input)}\n\n"
         f"{_result_block(decision_input)}\n\n"
         f"{_findings_block(decision_input)}\n\n"
+        f"{_memory_block(decision_input)}\n\n"
         f"Task: Write a 3-5 bullet Markdown status update for the security dashboard.\n"
         f"Cover: what just ran, what was found, next step, whether to advance to {next_p}.\n"
         f"Reference actual output above. No filler."

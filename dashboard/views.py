@@ -27,6 +27,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from . import auth
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
+from django.views.decorators.cache import never_cache
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
@@ -34,7 +35,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.urls import reverse
 from django.db.models import Q
 
-from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext, Command
+from core.models import AttackState, Action, AttackTimelineEvent, ExecutionTask, DefenderAlert, AttackerExecutor, AttackTarget, AttackContext, Command, ExecutionResult
 from ai.command_generator import CommandGenerator
 from ai.agentic_architecture import (
     AGENTIC_ARCHITECTURE_VERSION,
@@ -106,10 +107,43 @@ def _delete_attack_states(states) -> int:
     return deleted_count
 
 
+def _clean_idempotency_key(value: str | None) -> str:
+    key = str(value or "").strip()
+    if not key:
+        return ""
+    return key[:120]
+
+
+def _idempotent_attack_for_request(request: HttpRequest, scope: str) -> AttackState | None:
+    key = _clean_idempotency_key(request.POST.get("idempotency_key"))
+    if not key:
+        return None
+    return (
+        AttackState.objects.filter(
+            owner=request.user,
+            state_data__idempotency_key=key,
+            state_data__idempotency_scope=scope,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _store_idempotency(state: AttackState, key: str, scope: str) -> None:
+    if not key:
+        return
+    state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    state_data["idempotency_key"] = key
+    state_data["idempotency_scope"] = scope
+    state.state_data = state_data
+
+
 def _is_waiting_for_plan_approval(state: AttackState | None) -> bool:
     if not state:
         return False
     state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    if state_data.get("plan_rejected"):
+        return False
     if state_data.get("run_type") == "quick_test":
         return False
     plan = state.current_plan if isinstance(state.current_plan, dict) else {}
@@ -1085,6 +1119,8 @@ def index(request: HttpRequest) -> HttpResponse:
         'latest_report': (plan_view or {}).get('last_report'),
         'auto_refresh_seconds': 30,
         'quick_actions': quick_actions,
+        'start_idempotency_key': f"start-{uuid.uuid4().hex}",
+        'quick_idempotency_key': f"quick-{uuid.uuid4().hex}",
         'show_vulnerability_analysis_fallback': 'vulnerability_analysis' not in quick_action_keys,
         **_get_global_context(request),
         'default_llm_provider': get_config('DEFAULT_LLM_PROVIDER', 'auto'),
@@ -1119,6 +1155,7 @@ def planner_map(request: HttpRequest) -> HttpResponse:
 
 
 @login_required(login_url='login')
+@never_cache
 def agent_run_live(request: HttpRequest) -> HttpResponse:
     """Dedicated Claude Code-style live run page with a scrollable terminal."""
     selected_attack_id = request.GET.get("attack_id")
@@ -1131,13 +1168,37 @@ def agent_run_live(request: HttpRequest) -> HttpResponse:
     actions = []
     tasks = []
     alerts = []
+    terminal_events = []
     plan_view = None
     waiting_for_approval = False
     phase_dashboard = _build_phase_cards(attack_state)
     if attack_state:
-        actions = Action.objects.filter(attack_state=attack_state).order_by("-created_at")[:50]
-        tasks = ExecutionTask.objects.filter(action__attack_state=attack_state).order_by("-created_at")[:50]
-        alerts = DefenderAlert.objects.filter(attack_state=attack_state).order_by("-created_at")[:20]
+        actions = list(reversed(list(Action.objects.filter(attack_state=attack_state).order_by("-created_at")[:50])))
+        tasks = list(reversed(list(ExecutionTask.objects.filter(action__attack_state=attack_state).order_by("-created_at")[:50])))
+        alerts = list(reversed(list(DefenderAlert.objects.filter(attack_state=attack_state).order_by("-created_at")[:20])))
+        results = list(reversed(list(ExecutionResult.objects.filter(attack_state=attack_state).select_related("command").order_by("-created_at")[:80])))
+        reviews = (attack_state.state_data or {}).get("level_history") or (attack_state.state_data or {}).get("phase_reviews") or []
+        review_events = []
+        if isinstance(reviews, list):
+            for index, review in enumerate(reviews[-20:], start=1):
+                if not isinstance(review, dict):
+                    continue
+                review_events.append(
+                    {
+                        "kind": "review",
+                        "dt": attack_state.created_at,
+                        "sequence": index,
+                        "item": review,
+                    }
+                )
+        terminal_events = (
+            review_events
+            +
+            [{"kind": "task", "dt": task.created_at, "item": task} for task in tasks]
+            + [{"kind": "action", "dt": action.created_at, "item": action} for action in actions]
+            + [{"kind": "result", "dt": result.created_at, "item": result} for result in results]
+        )
+        terminal_events.sort(key=lambda event: (event["dt"], event.get("sequence", 9999)))
         plan_view = _build_plan_view_state(attack_state)
         waiting_for_approval = _is_waiting_for_plan_approval(attack_state)
 
@@ -1148,11 +1209,12 @@ def agent_run_live(request: HttpRequest) -> HttpResponse:
         "actions": actions,
         "tasks": tasks,
         "alerts": alerts,
+        "terminal_events": terminal_events,
         "plan_view": plan_view,
         "waiting_for_approval": waiting_for_approval,
         "phase_dashboard": phase_dashboard,
         "current_phase_card": next((card for card in phase_dashboard["cards"] if card.get("is_current")), None),
-        "auto_refresh_seconds": 30,
+        "auto_refresh_seconds": 2,
         **_get_global_context(request),
         "agentic_architecture": build_agentic_architecture_snapshot(attack_state),
     }
@@ -1399,6 +1461,11 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     executor_id = request.POST.get('executor_id')
     target_id = request.POST.get('target_id')
     continue_attack_id = request.POST.get('continue_attack_id')
+    idempotency_key = _clean_idempotency_key(request.POST.get("idempotency_key"))
+    idempotent_state = _idempotent_attack_for_request(request, "start_attack")
+    if idempotent_state:
+        messages.info(request, "This test start request was already processed; opening the existing run.")
+        return redirect(f"{reverse('dashboard_agent_run')}?attack_id={idempotent_state.id}")
     llm_provider = request.POST.get('llm_provider', 'auto')
     requested_start_phase = normalize_phase_name(request.POST.get("start_phase") or "reconnaissance")
     start_phase = requested_start_phase if is_valid_dashboard_phase(requested_start_phase, executable_only=True) else "reconnaissance"
@@ -1472,11 +1539,15 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         else:
             state_data.pop(TOOL_PREFLIGHT_STATE_KEY, None)
         state_data["test_uid"] = state_data.get("test_uid") or f"test-{state.id}"
+        if idempotency_key:
+            state_data["idempotency_key"] = idempotency_key
+            state_data["idempotency_scope"] = "start_attack"
         state_data["completed_commands"] = _prune_completed_commands_for_restart(
             list(state_data.get("completed_commands") or []),
             restart_phase,
         )
         state_data["plan_approved"] = False
+        state_data.pop("plan_rejected", None)
         state_data["architecture_version"] = AGENTIC_ARCHITECTURE_VERSION
         state.current_phase = restart_phase
         state.autonomy_status = "IDLE"
@@ -1549,6 +1620,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
         if not isinstance(state.state_data, dict):
             state.state_data = {}
         state.state_data["test_uid"] = state.state_data.get("test_uid") or f"test-{uuid.uuid4().hex[:12]}"
+        _store_idempotency(state, idempotency_key, "start_attack")
 
     # Persist provider preference
     if not state.state_data:
@@ -1582,7 +1654,7 @@ def start_attack(request: HttpRequest) -> HttpResponse:
     else:
         _launch_assessment(state)
 
-    return redirect('dashboard_index')
+    return redirect(f"{reverse('dashboard_agent_run')}?attack_id={state.id}")
 
 
 @login_required(login_url='login')
@@ -1591,6 +1663,11 @@ def start_quick_test(request: HttpRequest) -> HttpResponse:
     """Start standalone quick actions outside the phased pentest planner."""
     executor_id = request.POST.get("executor_id")
     target_id = request.POST.get("target_id")
+    idempotency_key = _clean_idempotency_key(request.POST.get("idempotency_key"))
+    idempotent_state = _idempotent_attack_for_request(request, "quick_test")
+    if idempotent_state:
+        messages.info(request, "This quick test request was already processed; opening the existing run.")
+        return redirect(f"{reverse('dashboard_agent_run')}?attack_id={idempotent_state.id}")
     quick_actions = selected_quick_actions(request.POST.getlist("quick_actions"))
 
     if not target_id:
@@ -1632,6 +1709,9 @@ def start_quick_test(request: HttpRequest) -> HttpResponse:
         "last_report_status": "idle",
         "test_uid": f"quick-{uuid.uuid4().hex[:12]}",
     }
+    if idempotency_key:
+        state_data["idempotency_key"] = idempotency_key
+        state_data["idempotency_scope"] = "quick_test"
     if selected_executor and use_remote_executor:
         state_data["executor_id"] = selected_executor.id
 
@@ -1674,7 +1754,7 @@ def start_quick_test(request: HttpRequest) -> HttpResponse:
 
     QuickTestService(state.id).start()
     messages.success(request, "Quick test started.")
-    return redirect("dashboard_attack_detail", pk=state.id)
+    return redirect(f"{reverse('dashboard_agent_run')}?attack_id={state.id}")
 
 @login_required(login_url='login')
 @require_POST
@@ -1685,6 +1765,7 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     if not state.state_data:
         state.state_data = {}
     state.state_data['plan_approved'] = True
+    state.state_data.pop('plan_rejected', None)
     state.state_data.pop('auto_approve_generated_plan', None)
     state.state_data.pop('phase_transition_pending', None)
     state.state_data.pop('level_transition_pending', None)
@@ -1700,7 +1781,7 @@ def approve_plan(request: HttpRequest, pk: int) -> HttpResponse:
     state.save(update_fields=['stop_reason'])
     _launch_assessment(state)
 
-    return redirect('dashboard_attack_detail', pk=pk)
+    return redirect(f"{reverse('dashboard_agent_run')}?attack_id={pk}")
 
 @login_required(login_url='login')
 @require_POST
@@ -1718,7 +1799,7 @@ def resume_attack(request: HttpRequest, pk: int) -> HttpResponse:
     state.save(update_fields=['stop_reason'])
     _launch_assessment(state)
     
-    return redirect('dashboard_attack_detail', pk=pk)
+    return redirect(f"{reverse('dashboard_agent_run')}?attack_id={pk}")
 
 @login_required(login_url='login')
 @require_POST
@@ -1763,7 +1844,7 @@ def retry_failed_phase(request: HttpRequest, pk: int) -> HttpResponse:
     state.save(update_fields=["current_plan", "state_data", "autonomy_status", "stop_reason"])
     _launch_assessment(state)
     messages.success(request, f"Retry started for phase '{state.current_phase}'.")
-    return redirect('dashboard_attack_detail', pk=pk)
+    return redirect(f"{reverse('dashboard_agent_run')}?attack_id={pk}")
 
 
 @login_required(login_url='login')
@@ -1787,6 +1868,7 @@ def regenerate_phase_plan(request: HttpRequest, pk: int, phase_key: str) -> Http
     state_data["start_phase"] = normalized_phase
     state_data["requested_start_phase"] = normalized_phase
     state_data["plan_approved"] = False
+    state_data.pop("plan_rejected", None)
     state_data["progression_mode"] = state_data.get("progression_mode") or "manual"
     state_data["plan_command_lock"] = True
     state_data.pop("phase_transition_pending", None)
@@ -1809,10 +1891,44 @@ def regenerate_phase_plan(request: HttpRequest, pk: int, phase_key: str) -> Http
 def stop_attack(request: HttpRequest, pk: int) -> HttpResponse:
     """Manually stops the autonomous attack."""
     state = get_object_or_404(AttackState, pk=pk, owner=request.user)
-    
+    state_data = state.state_data if isinstance(state.state_data, dict) else {}
+    plan_rejected = str(request.POST.get("reject_plan") or "").lower() in {"1", "true", "on", "yes"}
+    if plan_rejected:
+        rejected_plan = deepcopy(state.current_plan if isinstance(state.current_plan, dict) else {})
+        rejected_steps = [
+            step.get("action_type") or step.get("action") or step.get("name")
+            for step in rejected_plan.get("steps", [])
+            if isinstance(step, dict)
+        ]
+        rejection_history = state_data.get("planner_rejections")
+        rejection_history = list(rejection_history) if isinstance(rejection_history, list) else []
+        rejection_history.append(
+            {
+                "rejected_at": timezone.now().isoformat(),
+                "phase": rejected_plan.get("phase") or state.current_phase,
+                "rationale": rejected_plan.get("rationale") or "",
+                "steps": [step for step in rejected_steps if step],
+            }
+        )
+        state_data["planner_rejections"] = rejection_history[-5:]
+        state_data["plan_approved"] = False
+        state_data.pop("plan_rejected", None)
+        state.current_plan = {}
+        state.state_data = state_data
+        state.autonomy_status = "IDLE"
+        state.stop_reason = (
+            "Plan rejected by operator; generating a revised plan."
+            if rejected_steps
+            else "Restarting plan generation."
+        )
+        state.save(update_fields=["current_plan", "state_data", "autonomy_status", "stop_reason"])
+        _launch_assessment(state)
+        return redirect(f"{reverse('dashboard_agent_run')}?attack_id={pk}")
+
     state.autonomy_status = "STOPPED"
     state.stop_reason = "Manual Stop via Dashboard"
-    state.save(update_fields=['autonomy_status', 'stop_reason'])
+    state.state_data = state_data
+    state.save(update_fields=['autonomy_status', 'stop_reason', 'state_data'])
 
     # Close active context
     context = AttackContext.objects.filter(owner=request.user, status__in=['READY', 'RUNNING']).first()
@@ -1822,7 +1938,7 @@ def stop_attack(request: HttpRequest, pk: int) -> HttpResponse:
         context.stopped_at = timezone.now()
         context.save(update_fields=['status', 'stop_reason', 'stopped_at'])
 
-    return redirect('dashboard_attack_detail', pk=pk)
+    return redirect(f"{reverse('dashboard_agent_run')}?attack_id={pk}")
 
 @login_required(login_url='login')
 @auth.admin_required

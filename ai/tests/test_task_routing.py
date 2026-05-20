@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, TestCase
 
 from ai.llm.base import BaseLLMAdapter
@@ -69,6 +71,17 @@ class EmptyPlanAdapter(RecordingAdapter):
     def get_plan(self, decision_input, task_key=None):
         self.last_task_key = task_key
         self.last_plan_input = decision_input
+        return None
+
+
+class HangingPlanAdapter(RecordingAdapter):
+    def __init__(self):
+        super().__init__("hanging-plan")
+
+    def get_plan(self, decision_input, task_key=None):
+        import time
+
+        time.sleep(2)
         return None
 
 
@@ -418,6 +431,30 @@ class AIPlannerPlanProgressionTests(TestCase):
         self.assertEqual(state.current_plan["phase"], "reconnaissance")
         self.assertEqual(len(planner.plan_adapter.last_plan_input.available_commands), 1)
         self.assertEqual(planner.plan_adapter.last_plan_input.available_commands[0]["name"], header.name)
+
+    @patch("ai.planner.get_config", return_value="1")
+    def test_ensure_initial_plan_times_out_hung_adapter(self, _get_config):
+        reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")
+        Command.objects.create(
+            phase=reconnaissance,
+            name="HTTPHeaderFetch",
+            description="Headers",
+            command_template="curl -I {target}",
+        )
+        state = AttackState.objects.create(
+            name="Hung Plan",
+            current_phase="reconnaissance",
+            state_data={"target": "http://127.0.0.1:4280/"},
+        )
+        planner = AIPlanner.__new__(AIPlanner)
+        self._bind_plan_generation_helpers(planner)
+        planner.plan_adapter = HangingPlanAdapter()
+        planner.last_plan_error = None
+
+        ready = planner.ensure_initial_plan(StateManager(state.id))
+
+        self.assertFalse(ready)
+        self.assertIn("timed out", planner.last_plan_error)
 
     def test_ensure_initial_plan_resets_plan_approval_for_new_phase_plan(self):
         reconnaissance = Phase.objects.create(name="reconnaissance", description="Recon")

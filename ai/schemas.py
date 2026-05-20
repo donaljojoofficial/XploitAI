@@ -103,6 +103,7 @@ class DecisionInput:
     available_commands: Optional[List[Dict[str, Any]]] = None
     last_result: Optional[ActionResultSummary] = None
     findings: Optional[Mapping[str, Any]] = None
+    memory: Optional[Mapping[str, Any]] = None
 
 
 @dataclass(frozen=True)

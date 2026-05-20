@@ -276,13 +276,21 @@ class DecisionEngine:
                 )
 
         findings = state.state_data.get('findings', {}) if state.state_data else {}
+        memory = None
+        try:
+            from state.state_manager import StateManager
+
+            memory = StateManager(state.id).get_current_state_for_planner().get("memory")
+        except Exception:
+            memory = None
 
         return DecisionInput(
             phase=state.current_phase,
             known_services=known_services,
             past_actions=past_actions,
             last_result=last_result_summary,
-            findings=findings
+            findings=findings,
+            memory=memory,
         )
 
     def generate_actions(self, attack_state: AttackState) -> list[Action]:

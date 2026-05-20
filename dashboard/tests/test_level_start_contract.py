@@ -55,6 +55,47 @@ class LevelStartContractTests(TestCase):
         launch_assessment.assert_called_once()
 
     @patch("dashboard.views._launch_assessment")
+    def test_start_attack_is_idempotent_for_duplicate_key(self, launch_assessment):
+        payload = {
+            "target_id": str(self.target.id),
+            "llm_provider": "auto",
+            "progression_mode": "manual",
+            "idempotency_key": "start-test-key-1",
+        }
+
+        first = self.client.post(reverse("dashboard_start_attack"), data=payload)
+        state = AttackState.objects.get()
+        second = self.client.post(reverse("dashboard_start_attack"), data=payload)
+
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(AttackState.objects.count(), 1)
+        self.assertIn(f"attack_id={state.id}", second["Location"])
+        self.assertEqual(state.state_data.get("idempotency_key"), "start-test-key-1")
+        self.assertEqual(state.state_data.get("idempotency_scope"), "start_attack")
+        launch_assessment.assert_called_once()
+
+    @patch("dashboard.views.QuickTestService")
+    def test_quick_test_is_idempotent_for_duplicate_key(self, quick_service):
+        payload = {
+            "target_id": str(self.target.id),
+            "quick_actions": ["headers", "paths"],
+            "idempotency_key": "quick-test-key-1",
+        }
+
+        first = self.client.post(reverse("dashboard_start_quick_test"), data=payload)
+        state = AttackState.objects.get()
+        second = self.client.post(reverse("dashboard_start_quick_test"), data=payload)
+
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(AttackState.objects.count(), 1)
+        self.assertIn(f"attack_id={state.id}", second["Location"])
+        self.assertEqual(state.state_data.get("idempotency_key"), "quick-test-key-1")
+        self.assertEqual(state.state_data.get("idempotency_scope"), "quick_test")
+        quick_service.return_value.start.assert_called_once()
+
+    @patch("dashboard.views._launch_assessment")
     def test_start_attack_accepts_selected_start_phase(self, launch_assessment):
         response = self.client.post(
             reverse("dashboard_start_attack"),
