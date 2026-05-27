@@ -1,4 +1,4 @@
-{% load group_tags %}
+{% load group_tags static %}
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
@@ -52,6 +52,7 @@
     </script>
 
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="{% static 'dashboard/css/skeletons.css' %}">
 
     <style>
         :root {
@@ -530,5 +531,6 @@
     </div>
 
     {% block extra_js %}{% endblock %}
+    <script src="{% static 'dashboard/js/page_skeletons.js' %}"></script>
 </body>
 </html>

@@ -32,6 +32,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
+from django.core.cache import cache
 from django.urls import reverse
 from django.db.models import Q
 
@@ -83,6 +84,8 @@ def _enabled_llm_provider(provider: str | None) -> str:
     provider_name = (provider or "auto").strip().lower()
     return provider_name if provider_name in ENABLED_LLM_PROVIDERS else "auto"
 EXECUTOR_HEARTBEAT_THRESHOLD_SECONDS = 30
+LIVE_CACHE_TTL_SECONDS = 5
+HISTORY_CACHE_TTL_SECONDS = 30
 
 
 def _delete_attack_runtime_state_file(state_id: int) -> None:
@@ -617,7 +620,7 @@ def _build_phase_cards(state: AttackState | None) -> dict[str, Any]:
             "aggregate": {"completed": 0, "running": 0, "failed": 0, "pending": len(catalog), "selected_run": None},
         }
 
-    history = _build_attack_run_history(state)
+    history = _cached_attack_run_history(state)
     start_phase = _normalize_phase_key((state.state_data or {}).get("start_phase") or state.current_phase)
     start_phase_idx = dashboard_phase_index(start_phase)
     current_phase_key = _normalize_phase_key((state.current_plan or {}).get("phase") or state.current_phase)
@@ -676,12 +679,12 @@ def _build_phase_detail_payload(state: AttackState, phase_key: str) -> dict[str,
     if not is_valid_dashboard_phase(normalized_phase):
         raise Http404("Unknown phase")
 
-    history = _build_attack_run_history(state)
+    history = _cached_attack_run_history(state)
     selected = next(
         (item for item in history.get("phases", []) if _normalize_phase_key(item.get("phase")) == normalized_phase),
         None,
     )
-    plan_view = _build_plan_view_state(state)
+    plan_view = _cached_plan_view_state(state)
     start_phase = _normalize_phase_key((state.state_data or {}).get("start_phase") or state.current_phase)
     start_phase_idx = dashboard_phase_index(start_phase)
     phase_idx = dashboard_phase_index(normalized_phase)
@@ -1061,6 +1064,43 @@ def _get_global_context(request: HttpRequest) -> dict[str, Any]:
     }
 
 
+def _state_cache_version(state: AttackState | None) -> str:
+    if not state:
+        return "none"
+    updated_at = state.updated_at.isoformat() if state.updated_at else "unknown"
+    return f"{state.pk}:{updated_at}"
+
+
+def _cached_plan_view_state(state: AttackState) -> dict[str, Any]:
+    key = f"dashboard:plan-view:{_state_cache_version(state)}"
+    cached = cache.get(key)
+    if cached is not None:
+        return deepcopy(cached)
+    value = _build_plan_view_state(state)
+    cache.set(key, deepcopy(value), LIVE_CACHE_TTL_SECONDS)
+    return value
+
+
+def _cached_phase_cards(state: AttackState | None) -> dict[str, Any]:
+    key = f"dashboard:phase-cards:{_state_cache_version(state)}"
+    cached = cache.get(key)
+    if cached is not None:
+        return deepcopy(cached)
+    value = _build_phase_cards(state)
+    cache.set(key, deepcopy(value), LIVE_CACHE_TTL_SECONDS)
+    return value
+
+
+def _cached_attack_run_history(state: AttackState) -> dict[str, Any]:
+    key = f"dashboard:run-history:{_state_cache_version(state)}"
+    cached = cache.get(key)
+    if cached is not None:
+        return deepcopy(cached)
+    value = _build_attack_run_history(state)
+    cache.set(key, deepcopy(value), HISTORY_CACHE_TTL_SECONDS)
+    return value
+
+
 def index(request: HttpRequest) -> HttpResponse:
     """
     Displays a public landing page for signed-out visitors and the
@@ -1089,7 +1129,7 @@ def index(request: HttpRequest) -> HttpResponse:
         actions = Action.objects.filter(attack_state=attack_state).order_by('-created_at')[:10]
         tasks = ExecutionTask.objects.filter(action__attack_state=attack_state).order_by('-created_at')[:10]
         alerts = DefenderAlert.objects.filter(attack_state=attack_state).order_by('-created_at')[:5]
-        plan_view = _build_plan_view_state(attack_state)
+        plan_view = _cached_plan_view_state(attack_state)
     else:
         actions = []
         tasks = []
@@ -1101,7 +1141,7 @@ def index(request: HttpRequest) -> HttpResponse:
 
     waiting_for_approval = _is_waiting_for_plan_approval(attack_state)
 
-    phase_dashboard = _build_phase_cards(attack_state)
+    phase_dashboard = _cached_phase_cards(attack_state)
     current_phase_card = next((card for card in phase_dashboard["cards"] if card.get("is_current")), None)
     quick_actions = quick_action_catalog()
     quick_action_keys = {item.get("key") for item in quick_actions if isinstance(item, dict)}
@@ -1144,7 +1184,7 @@ def planner_map(request: HttpRequest) -> HttpResponse:
     else:
         attack_state = attacks_queryset.first()
 
-    phase_dashboard = _build_phase_cards(attack_state)
+    phase_dashboard = _cached_phase_cards(attack_state)
     context = {
         "attack_state": attack_state,
         "selected_attack_id": attack_state.pk if attack_state else None,
@@ -1176,7 +1216,7 @@ def agent_run_live(request: HttpRequest) -> HttpResponse:
     terminal_events = []
     plan_view = None
     waiting_for_approval = False
-    phase_dashboard = _build_phase_cards(attack_state)
+    phase_dashboard = _cached_phase_cards(attack_state)
     if attack_state:
         actions = list(reversed(list(Action.objects.filter(attack_state=attack_state).order_by("-created_at")[:50])))
         tasks = list(reversed(list(ExecutionTask.objects.filter(action__attack_state=attack_state).order_by("-created_at")[:50])))
@@ -1204,7 +1244,7 @@ def agent_run_live(request: HttpRequest) -> HttpResponse:
             + [{"kind": "result", "dt": result.created_at, "item": result} for result in results]
         )
         terminal_events.sort(key=lambda event: (event["dt"], event.get("sequence", 9999)))
-        plan_view = _build_plan_view_state(attack_state)
+        plan_view = _cached_plan_view_state(attack_state)
         waiting_for_approval = _is_waiting_for_plan_approval(attack_state)
 
     context = {
@@ -1250,7 +1290,7 @@ def attack_detail(request: HttpRequest, pk: int) -> HttpResponse:
     interaction_events.sort(key=lambda x: x['ts'])
 
     unified_events = _get_unified_events(state)
-    plan_view = _build_plan_view_state(state)
+    plan_view = _cached_plan_view_state(state)
 
     plan_completed = False
     if state.autonomy_status == "STOPPED" and "plan completed" in state.stop_reason.lower():
@@ -1287,9 +1327,9 @@ def attack_phase_detail(request: HttpRequest, pk: int, phase_key: str) -> HttpRe
         "attack_state": state,
         "phase_detail": phase_detail,
         "selected_tab": selected_tab,
-        "phase_dashboard": _build_phase_cards(state),
+        "phase_dashboard": _cached_phase_cards(state),
         "waiting_for_approval": _is_waiting_for_plan_approval(state),
-        "plan_view": _build_plan_view_state(state),
+        "plan_view": _cached_plan_view_state(state),
         "auto_refresh_seconds": 30,
         **_get_global_context(request),
     }
@@ -1306,14 +1346,14 @@ def assistant_page(request: HttpRequest) -> HttpResponse:
     else:
         attack_state = attacks_queryset.first()
 
-    plan_view = _build_plan_view_state(attack_state) if attack_state else None
+    plan_view = _cached_plan_view_state(attack_state) if attack_state else None
     context = {
         "attack_state": attack_state,
         "all_attacks": list(attacks_queryset[:20]),
         "selected_attack_id": attack_state.pk if attack_state else None,
         "chat_phase_key": chat_phase_key,
         "phase_map": dashboard_phase_catalog(),
-        "phase_dashboard": _build_phase_cards(attack_state),
+        "phase_dashboard": _cached_phase_cards(attack_state),
         "latest_report": (plan_view or {}).get("last_report"),
         **_get_global_context(request),
         "agentic_architecture": build_agentic_architecture_snapshot(attack_state),
@@ -1337,7 +1377,7 @@ def attack_command_logs(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         'attack_state': state,
         'execution_results': execution_results,
-        'plan_view': _build_plan_view_state(state),
+        'plan_view': _cached_plan_view_state(state),
         'quick_review': quick_review,
         'auto_refresh_seconds': 30,
         **_get_global_context(request),
@@ -1367,13 +1407,13 @@ def attack_plan(request: HttpRequest, pk: int) -> HttpResponse:
     """
     state = get_object_or_404(AttackState, pk=pk, owner=request.user)
     actions = Action.objects.filter(attack_state=state).order_by("created_at")
-    plan_view = _build_plan_view_state(state)
+    plan_view = _cached_plan_view_state(state)
 
     context = {
         'attack_state': state,
         'actions': actions,
         'plan_view': plan_view,
-        'operation_history': _build_attack_run_history(state),
+        'operation_history': _cached_attack_run_history(state),
         'latest_report': plan_view.get('last_report'),
         'waiting_for_approval': _is_waiting_for_plan_approval(state),
         'auto_refresh_seconds': 30,
@@ -1405,7 +1445,7 @@ def latest_attack_report(request: HttpRequest, pk: int) -> HttpResponse:
 def attack_phase_reviews(request: HttpRequest, pk: int) -> HttpResponse:
     """Show detailed stored phase reviews for an attack."""
     state = get_object_or_404(AttackState, pk=pk, owner=request.user)
-    plan_view = _build_plan_view_state(state)
+    plan_view = _cached_plan_view_state(state)
     context = {
         'attack_state': state,
         'plan_view': plan_view,
@@ -1423,8 +1463,8 @@ def test_history(request: HttpRequest) -> HttpResponse:
     attack_histories = [
         {
             "attack_state": attack,
-            "history": _build_attack_run_history(attack),
-            "plan_view": _build_plan_view_state(attack),
+            "history": _cached_attack_run_history(attack),
+            "plan_view": _cached_plan_view_state(attack),
         }
         for attack in attacks
     ]

@@ -101,6 +101,14 @@
                             </div>
                         </template>
                     </div>
+                    <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4" x-show="loading" x-cloak>
+                        <div class="section-title">Copilot Agent</div>
+                        <div class="mt-4 space-y-3">
+                            <div class="inline-skeleton h-4 w-3/4 rounded"></div>
+                            <div class="inline-skeleton h-4 w-full rounded"></div>
+                            <div class="inline-skeleton h-4 w-2/3 rounded"></div>
+                        </div>
+                    </div>
                     <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4" x-show="answer">
                         <div class="section-title">Latest Answer</div>
                         <div class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200" x-text="answer"></div>

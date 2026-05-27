@@ -2,7 +2,8 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
-from core.models import AttackerExecutor
+from django.db.models.deletion import ProtectedError
+from core.models import AttackContext, AttackerExecutor
 from .forms import AttackerExecutorForm
 
 @login_required(login_url='login')
@@ -33,8 +34,36 @@ def executor_management(request):
         elif 'delete_executor' in request.POST:
             executor_id = request.POST.get('executor_id')
             executor = get_object_or_404(AttackerExecutor, pk=executor_id, owner=request.user)
-            executor.delete()
-            messages.success(request, f"Executor '{executor.name}' removed.")
+            contexts = AttackContext.objects.filter(owner=request.user, attacker_executor=executor)
+            active_context_count = contexts.filter(status__in=[
+                AttackContext.Status.READY,
+                AttackContext.Status.RUNNING,
+            ]).count()
+
+            if active_context_count:
+                messages.error(
+                    request,
+                    f"Executor '{executor.name}' is still attached to {active_context_count} active context(s). Stop the active session before removing it.",
+                )
+                return redirect('executor_management')
+
+            stopped_context_count = contexts.count()
+            if stopped_context_count:
+                contexts.delete()
+
+            try:
+                executor.delete()
+            except ProtectedError:
+                messages.error(
+                    request,
+                    f"Executor '{executor.name}' is still referenced by protected context history and was not removed.",
+                )
+                return redirect('executor_management')
+
+            if stopped_context_count:
+                messages.success(request, f"Executor '{executor.name}' removed along with {stopped_context_count} stopped context record(s).")
+            else:
+                messages.success(request, f"Executor '{executor.name}' removed.")
             return redirect('executor_management')
 
     # Fetch private executors plus shared built-in executors available to every user.

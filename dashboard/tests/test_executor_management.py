@@ -61,6 +61,74 @@ class ExecutorManagementTests(TestCase):
         self.assertContains(response, "Private key path is required")
         self.assertFalse(AttackerExecutor.objects.filter(name="Broken SSH").exists())
 
+    def test_delete_executor_blocks_active_contexts(self):
+        target = AttackTarget.objects.create(
+            owner=self.user,
+            name="DVWA",
+            base_url="http://127.0.0.1:4280/",
+            operating_system="Linux",
+            is_active=True,
+        )
+        executor = AttackerExecutor.objects.create(
+            owner=self.user,
+            name="Active SSH",
+            executor_type=AttackerExecutor.ExecutorType.SSH,
+            ip_address="192.168.56.40",
+            ssh_username="kali",
+            ssh_password="secret",
+        )
+        AttackContext.objects.create(
+            owner=self.user,
+            attacker_executor=executor,
+            target=target,
+            status=AttackContext.Status.READY,
+        )
+
+        response = self.client.post(
+            reverse("executor_management"),
+            data={"delete_executor": "1", "executor_id": str(executor.id)},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Stop the active session before removing it.")
+        self.assertTrue(AttackerExecutor.objects.filter(pk=executor.pk).exists())
+        self.assertTrue(AttackContext.objects.filter(attacker_executor=executor).exists())
+
+    def test_delete_executor_removes_stopped_contexts_first(self):
+        target = AttackTarget.objects.create(
+            owner=self.user,
+            name="DVWA",
+            base_url="http://127.0.0.1:4280/",
+            operating_system="Linux",
+            is_active=True,
+        )
+        executor = AttackerExecutor.objects.create(
+            owner=self.user,
+            name="Stopped SSH",
+            executor_type=AttackerExecutor.ExecutorType.SSH,
+            ip_address="192.168.56.41",
+            ssh_username="kali",
+            ssh_password="secret",
+        )
+        AttackContext.objects.create(
+            owner=self.user,
+            attacker_executor=executor,
+            target=target,
+            status=AttackContext.Status.STOPPED,
+        )
+
+        response = self.client.post(
+            reverse("executor_management"),
+            data={"delete_executor": "1", "executor_id": str(executor.id)},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "removed along with 1 stopped context record")
+        self.assertFalse(AttackerExecutor.objects.filter(pk=executor.pk).exists())
+        self.assertFalse(AttackContext.objects.filter(attacker_executor_id=executor.pk).exists())
+
 
 class SSHStartAttackTests(TestCase):
     def setUp(self):

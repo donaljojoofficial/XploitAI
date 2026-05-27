@@ -1,0 +1,218 @@
+.page-skeleton-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: none;
+    overflow-y: auto;
+    background:
+        linear-gradient(180deg, rgba(68, 240, 181, 0.08), transparent 34%),
+        linear-gradient(90deg, rgba(101, 183, 255, 0.07), transparent 42%),
+        #05070a;
+}
+
+.page-skeleton-overlay.is-active {
+    display: block;
+}
+
+.page-skeleton-shell {
+    width: min(100%, 80rem);
+    margin: 0 auto;
+    padding: 1.5rem 1rem 2.5rem;
+}
+
+.page-skeleton-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid rgba(68, 240, 181, 0.15);
+    background: rgba(0, 0, 0, 0.72);
+    padding: 1rem;
+}
+
+.page-skeleton-logo,
+.page-skeleton-pill,
+.page-skeleton-line,
+.page-skeleton-block,
+.page-skeleton-card,
+.page-skeleton-dot {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(107, 132, 157, 0.26);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.page-skeleton-logo::after,
+.page-skeleton-pill::after,
+.page-skeleton-line::after,
+.page-skeleton-block::after,
+.page-skeleton-card::after,
+.page-skeleton-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(237, 247, 244, 0.16), transparent);
+    animation: skeleton-shimmer 1.35s infinite;
+}
+
+.page-skeleton-logo {
+    width: 11rem;
+    height: 2.8rem;
+    border-radius: 4px;
+}
+
+.page-skeleton-nav-items {
+    display: none;
+    gap: 0.5rem;
+}
+
+.page-skeleton-pill {
+    width: 5.8rem;
+    height: 2.35rem;
+    border-radius: 3px;
+}
+
+.page-skeleton-panel {
+    border: 1px solid rgba(107, 132, 157, 0.28);
+    border-radius: 4px;
+    background: rgba(8, 12, 17, 0.94);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
+}
+
+.page-skeleton-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(107, 132, 157, 0.24);
+    background: rgba(3, 6, 10, 0.78);
+    padding: 0.75rem 1rem;
+}
+
+.page-skeleton-dots {
+    display: inline-flex;
+    gap: 0.38rem;
+}
+
+.page-skeleton-dot {
+    width: 0.62rem;
+    height: 0.62rem;
+    border-radius: 999px;
+}
+
+.page-skeleton-body {
+    padding: 1.5rem;
+}
+
+.page-skeleton-line {
+    height: 0.9rem;
+    border-radius: 3px;
+}
+
+.page-skeleton-line.short {
+    width: 34%;
+}
+
+.page-skeleton-line.medium {
+    width: 58%;
+}
+
+.page-skeleton-line.long {
+    width: 82%;
+}
+
+.page-skeleton-heading {
+    width: min(100%, 42rem);
+    height: 3.2rem;
+    margin-top: 1rem;
+}
+
+.page-skeleton-block {
+    min-height: 7rem;
+    border-radius: 4px;
+}
+
+.page-skeleton-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.page-skeleton-grid.cols-2,
+.page-skeleton-grid.cols-3,
+.page-skeleton-grid.cols-4 {
+    grid-template-columns: 1fr;
+}
+
+.page-skeleton-card {
+    min-height: 8.5rem;
+    border-radius: 4px;
+}
+
+.page-skeleton-terminal {
+    min-height: 70vh;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 1.25rem;
+}
+
+.page-skeleton-terminal .page-skeleton-line {
+    margin-bottom: 1rem;
+}
+
+.page-skeleton-list {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.inline-skeleton {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(107, 132, 157, 0.24);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.inline-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(237, 247, 244, 0.14), transparent);
+    animation: skeleton-shimmer 1.35s infinite;
+}
+
+@keyframes skeleton-shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+@media (min-width: 768px) {
+    .page-skeleton-shell {
+        padding-inline: 1.5rem;
+    }
+
+    .page-skeleton-nav-items {
+        display: flex;
+    }
+
+    .page-skeleton-grid.cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .page-skeleton-grid.cols-3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .page-skeleton-grid.cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1180px) {
+    .page-skeleton-grid.cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .page-skeleton-grid.cols-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}

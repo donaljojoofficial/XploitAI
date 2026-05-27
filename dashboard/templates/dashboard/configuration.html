@@ -123,6 +123,8 @@ function checkStatus(provider) {
         host = document.getElementById('nvidiaHost').value;
     }
 
+    statusSpan.innerHTML = '<div class="mt-2 space-y-2"><div class="inline-skeleton h-4 w-2/3 rounded"></div><div class="inline-skeleton h-4 w-1/2 rounded"></div></div>';
+
     fetch("{% url 'check_llm_status' %}", {
         method: 'POST',
         headers: {
