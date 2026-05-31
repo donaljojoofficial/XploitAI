@@ -1107,13 +1107,7 @@ def index(request: HttpRequest) -> HttpResponse:
     authenticated dashboard for signed-in users.
     """
     if not request.user.is_authenticated:
-        default_provider = _enabled_llm_provider(get_config('DEFAULT_LLM_PROVIDER', 'auto'))
-        landing_context = {
-            'latest_attack': None,
-            'default_llm_provider': default_provider,
-            **_get_global_context(request),
-        }
-        return render(request, 'dashboard/landing.html', landing_context)
+        return render(request, 'dashboard/landing.html')
 
     selected_attack_id = request.GET.get("attack_id")
     start_modal_open = selected_attack_id == "__new__" or request.GET.get("create_new_test") == "1"
